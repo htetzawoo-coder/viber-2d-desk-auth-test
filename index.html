@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Viber 2D Desk - Stage 4.0.0 Auth Foundation</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.0.0">
+</head>
+<body>
+
+<div id="authGate" class="authGate">
+  <div class="authCard">
+    <div class="authBrand">
+      <div class="authLogo">V2D</div>
+      <div>
+        <h1>Viber 2D Desk</h1>
+        <div class="muted">Stage 4.0.0 · Secure Account Foundation</div>
+      </div>
+    </div>
+
+    <div class="authTabs">
+      <button id="authTabLogin" class="authTab active" type="button" onclick="showAuthPanel('login')">Login</button>
+      <button id="authTabRegister" class="authTab" type="button" onclick="showAuthPanel('register')">Register</button>
+      <button id="authTabForgot" class="authTab" type="button" onclick="showAuthPanel('forgot')">Forgot Password</button>
+    </div>
+
+    <form id="authLoginPanel" class="authPanel" onsubmit="loginWithEmail(event)">
+      <label>Email</label>
+      <input id="loginEmail" type="email" autocomplete="email" required placeholder="name@example.com">
+      <label>Password</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="အနည်းဆုံး ၆ လုံး">
+      <button id="loginSubmitBtn" class="btn authPrimary" type="submit">Login / ဝင်မယ်</button>
+    </form>
+
+    <form id="authRegisterPanel" class="authPanel" style="display:none" onsubmit="registerWithEmail(event)">
+      <label>Your Name / အမည်</label>
+      <input id="registerName" required maxlength="80" placeholder="Htet Zaw Oo">
+      <label>Shop / Workspace Name</label>
+      <input id="registerShopName" required maxlength="100" placeholder="My 2D Desk">
+      <label>Email</label>
+      <input id="registerEmail" type="email" autocomplete="email" required placeholder="name@example.com">
+      <label>Password</label>
+      <input id="registerPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="အနည်းဆုံး ၆ လုံး">
+      <label>Confirm Password</label>
+      <input id="registerConfirmPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="Password ပြန်ရိုက်ပါ">
+      <button id="registerSubmitBtn" class="btn authPrimary" type="submit">Create Account / အကောင့်ဖွင့်မယ်</button>
+    </form>
+
+    <form id="authForgotPanel" class="authPanel" style="display:none" onsubmit="sendPasswordReset(event)">
+      <div class="muted" style="margin-bottom:10px">Password reset link ကို Firebase မှ Email သို့ပို့ပေးမယ်။</div>
+      <label>Email</label>
+      <input id="forgotEmail" type="email" autocomplete="email" required placeholder="name@example.com">
+      <button id="forgotSubmitBtn" class="btn authPrimary" type="submit">Send Reset Email</button>
+    </form>
+
+    <div id="authMessage" class="authMessage">Firebase session စစ်နေပါသည်…</div>
+    <div class="authSafetyNote">
+      Account တစ်ခုချင်းစီမှာ Local records နဲ့ Cloud snapshots ကို User ID အလိုက် သီးခြားခွဲထားပါတယ်။
+    </div>
+  </div>
+</div>
+
+<div class="app" id="mainApp" hidden>
+  <div class="topbar" id="topbar">
+    <div class="title">
+      <div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.0.0 Auth Foundation + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.0.0: Email Login/Register/Reset + User-specific Local Data + User Cloud Path foundation</div></div>
+      </div>
+      <div class="topToggleWrap">
+        <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
+        <div class="btnrow" style="margin-top:0;align-items:center">
+          <div class="langbox"><span data-i18n="langLabel">Language</span><select id="langSelect" onchange="setLang(this.value)"><option value="my">မြန်မာ</option><option value="en">English</option></select></div>
+          <button class="btn gray small" onclick="exportJSON()" data-i18n="backup">Backup JSON</button>
+          <button class="btn gray small" onclick="document.getElementById('restoreJsonFile').click()">Restore JSON</button>
+          <input id="restoreJsonFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreJSONBackup(event)">
+          <button class="btn secondary small" onclick="saveCloudSnapshot(false)">Cloud Save</button>
+          <button class="btn warn small" onclick="loadLatestCloudSnapshot()">Load Cloud</button>
+          <button class="btn danger small" onclick="clearAllData()" data-i18n="clearAll">Clear All</button>
+
+          <div class="userSessionBox">
+            <span class="userOnlineDot"></span>
+            <div class="userSessionText">
+              <b id="authUserName">User</b>
+              <small id="authUserEmail">-</small>
+            </div>
+            <button class="btn danger small" type="button" onclick="logoutUser()">Logout</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="topCollapseArea"></div>
+
+    <div class="topMiniInfo" id="topMiniInfo"></div>
+
+    <div class="collapsedOpenBar" id="collapsedOpenBar">
+      <button class="collapsedOpenBtn" type="button" onclick="toggleTopbar()">Open ▼</button>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-id="dashboard" onclick="go('dashboard')">Dashboard<small>ပင်မ</small></button>
+      <button class="tab" data-id="entry" onclick="go('entry')">Entry<small>စာရင်းသွင်း</small></button>
+      <button class="tab" data-id="records" onclick="go('records')">Entry Records<small>စာရင်းမှတ်တမ်း</small></button>
+      <button class="tab" data-id="limit" onclick="go('limit')">Limit Board<small>ကန့်သတ်ဘုတ်</small></button>
+      <button class="tab" data-id="over" onclick="go('over')">Over<small>ကျော်နေသောစာရင်း</small></button>
+      <button class="tab" data-id="reports" onclick="go('reports')">Reports<small>အစီရင်ခံစာ</small></button>
+      <button class="tab" data-id="image" onclick="go('image')">Image<small>ပုံ / မျှဝေ</small></button>
+      <button class="tab" data-id="settings" onclick="go('settings')">Settings<small>ဆက်တင်</small></button>
+      <button class="tab" data-id="audit" onclick="go('audit')">History<small>မှတ်တမ်း / Undo</small></button>
+      <button class="tab" data-id="tests" onclick="go('tests')">Tests<small>Parser စမ်းသပ်မှု</small></button>
+      <button class="tab" data-id="diagnostics" onclick="go('diagnostics')">Diagnostics<small>Error / Version</small></button>
+      <div class="tabsControls">
+        <div class="tabsControlBox">
+          <div class="glabel">Global Date</div>
+          <input id="globalDate" type="date" onchange="onGlobalDateChange(this.value)">
+        </div>
+        <div class="tabsControlBox session">
+          <div class="glabel">Global Session</div>
+          <select id="globalSession" onchange="onGlobalSessionChange(this.value)">
+            <option>AM</option>
+            <option>PM</option>
+            <option>DAILY</option>
+          </select>
+        </div>
+        <button class="tab tabsToggleBtn" id="tabsToggleBtn" onclick="toggleTopbar()">Open<small>ထိပ်ပိုင်းဖွင့်</small></button>
+      </div>
+    </div>
+  </div>
+
+  <section id="dashboard" class="page active">
+    <div class="grid3">
+      <div class="stat"><div class="k">Today Total</div><div class="v" id="dashToday">0</div></div>
+      <div class="stat"><div class="k">AM Total</div><div class="v blue" id="dashAM">0</div></div>
+      <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
+    </div>
+    <div class="grid2" style="margin-top:12px">
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.0.0 file က အရင် stable UI/Parser/Reports မပျက်ဘဲ Firebase Authentication နဲ့ User ID အလိုက် Local/Cloud data ခွဲထားပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
+    </div>
+    <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
+  </section>
+
+  <section id="entry" class="page">
+    <div class="desk-layout">
+      <div class="card board-card">
+        <div class="title">
+          <div>
+            <div class="wide-board-title"><h2 data-i18n="liveBoard">Limit Table Board / Live Desk</h2><span class="unit-badge">Unit = 100</span></div>
+            <div class="muted" data-i18n="boardNote">Top board is shown first for laptop screen. Amounts display in Unit format.</div>
+          </div>
+          <div class="btnrow" style="margin-top:0"><button class="btn secondary small" onclick="renderMainBoard()" data-i18n="refresh">Refresh</button></div>
+        </div>
+        <div class="board-toolbar">
+          <div><label data-i18n="date">Date</label><input id="entryDate" type="date" onchange="renderEntryLive()"></div>
+          <div><label data-i18n="session">Session</label><select id="entrySession" onchange="renderEntryLive()"><option>AM</option><option>PM</option><option>DAILY</option></select></div>
+          <div><label>Board View / ကြည့်ပုံ</label><select id="entryBoardMode" class="miniSelect" onchange="renderEntryLive()"><option value="ALL">Total / အားလုံး</option><option value="NAME">By Name / နာမည်အလိုက်</option></select></div>
+          <div><label>Board Name / ကြည့်မယ့်နာမည်</label><select id="entryBoardName" onchange="renderEntryLive()"></select></div>
+          <div class="boardLimitCombo">
+            <div>
+              <label data-i18n="limitAmount">Limit Amount</label>
+              <input id="entryLimitAmount" type="number" oninput="syncLimitFrom(this.value)" placeholder="10000">
+            </div>
+            <div class="board-mini"><div class="k" data-i18n="total">Total</div><div class="v" id="mainBoardTotal">0</div></div>
+            <div class="board-mini"><div class="k" data-i18n="overTotal">Over Total</div><div class="v bad" id="mainBoardOverTotal">0</div></div>
+            <div class="board-mini"><div class="k" data-i18n="overCount">Over Count</div><div class="v warnText" id="mainBoardOverCount">0</div></div>
+            <div class="board-mini"><div class="k" data-i18n="recordRows">Rows</div><div class="v blue" id="mainBoardRows">0</div></div>
+          </div>
+        </div>
+        <div class="board-wrap"><div class="board-table" id="mainLimitBoard"></div></div>
+      </div>
+
+      <div class="desk-columns">
+        <div class="card entry-card">
+          <div class="inline-title">
+            <h2 data-i18n="entryTitle">စာရင်းထည့်ရန် / Entry</h2>
+            <div class="namepick"><label data-i18n="name">Name / ကော်မရှင်</label><select id="entryName" onchange="renderEntryLive()"></select></div>
+            <div class="writerPick"><label>Writer / လက်ရေးပိုင်ရှင်</label><select id="entryWriter" onchange="saveSettings(); renderWriterHint();"><option value="AUTO">Auto</option><option value="A">A Writer</option><option value="B">B Writer</option><option value="C">C Writer</option><option value="OTHER">Other Writer</option></select></div>
+          </div>
+          <div id="writerHint" class="writerHint"></div>
+          <textarea id="entryText" placeholder="စာရင်းထည့်ရန် / Entry
+
+//-7733=500
+42.32,65.21.700r300
+45.65R500,23,53.86.300r200.77,22,00.1000,
+52R500
+34 r 300
+96
+41
+77=500
+22"></textarea>
+          <div class="imgToolBox" id="imgToolBox">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.0.0</span></h3>
+              <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
+            </div>
+            <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
+            <input id="entryImageUpload" type="file" accept="image/*" style="display:none" onchange="handleEntryImage(event,'upload')">
+            <input id="entryImageCamera" type="file" accept="image/*" capture="environment" style="display:none" onchange="handleEntryImage(event,'camera')">
+            <div class="btnrow">
+              <button class="btn small" onclick="parseInput()" data-i18n="parsePreview">Parse Preview</button>
+              <button class="btn secondary small" onclick="confirmSaveAction()" data-i18n="confirmSave">Confirm Save</button>
+              <button class="btn gray small" onclick="document.getElementById('entryText').value=''; clearIssueEditor()" data-i18n="clearText">Clear Text</button>
+            </div>
+            <div class="imgToolGrid" style="margin-top:10px">
+              <div>
+                <div class="imgPreviewPane" id="entryImgPane">
+                  <div class="imgPreviewEmpty" id="entryImgEmpty">No image selected yet.<br>ပုံရွေးပြီး preview ကြည့်ပါ။</div>
+                  <img id="entryImgPreview" alt="Entry Preview" style="display:none">
+                </div>
+                <div class="imgMeta" id="entryImgMeta">No file</div>
+              </div>
+              <div>
+                <label>OCR Text Preview / Manual Fix / စာပြင်ရန်</label>
+                <textarea id="ocrPreviewText" class="ocrBox" placeholder="Stage 3.8.0 မှာ auto OCR မပါသေးပါ။
+ပုံကြည့်ပြီး ဒီ box ထဲ OCR text ကို paste / edit လုပ်ပါ။
+ပြီးရင် အောက်က Use OCR Text → Entry ကိုနှိပ်ပါ။"></textarea>
+                <div class="btnrow">
+                  <button class="btn secondary small" onclick="useOcrTextToEntry('replace')">Use OCR Text → Replace Entry</button>
+                  <button class="btn small" onclick="useOcrTextToEntry('append')">Use OCR Text → Append Entry</button>
+                  <button class="btn gray small" onclick="document.getElementById('ocrPreviewText').value=''">Clear OCR Box</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="btnrow imgActionRowSwap">
+            <button class="btn secondary" onclick="document.getElementById('entryImageUpload').click()" data-i18n="uploadImage">Upload Image</button>
+            <button class="btn warn" onclick="document.getElementById('entryImageCamera').click()" data-i18n="cameraBtn">Camera</button>
+            <button class="btn gray" onclick="clearEntryImage()" data-i18n="clearImage">Clear Image</button>
+          </div>
+          <div id="issueEditorWrap" class="issueBox" style="display:none">
+            <h3>အနီစာ ပြင်ရန် / Fix Lines</h3>
+            <div class="issueHint">မဖတ်နိုင်တဲ့စာတွေကို တစ်စုတည်းဒီနေရာမှာပဲ ပြင်နိုင်မယ်။ ဘယ် line ကိုပြင်မလဲရွေးပြီး <b>Find / Replace / Append / Apply & Reparse</b> ကို တစ်နေရာတည်းက လုပ်နိုင်မယ်။</div>
+            <div class="btnrow" style="margin-top:0">
+              <button class="btn warn small" onclick="loadIssueLinesToEditor()">Load Red Lines Only</button>
+              <button class="btn gray small" onclick="clearIssueEditor()">Hide</button>
+            </div>
+            <div class="issueOneBox" style="margin-top:8px">
+              <div class="issueLeft">
+                <div class="compactHelp">Issue line ရွေးပါ</div>
+                <div id="issueEditorList" class="issueSelectList"></div>
+              </div>
+              <div class="issueRight issueCompact">
+                <div id="issueEditorDetail" class="issueDetailBox"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="saveFlowWrap" class="saveFlowBox">
+            <h3>Save Preview / သိမ်းမည့်နေရာ စစ်ကြည့်</h3>
+            <div class="saveFlowGrid">
+              <div class="saveFlowPane">
+                <div class="saveTiny">Detected save targets</div>
+                <div id="saveTargetSummary"></div>
+              </div>
+              <div class="saveFlowPane">
+                <div class="saveTiny">Duplicate action flow</div>
+                <div id="duplicateSummary"></div>
+                <div id="duplicateActionBox"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid3" style="margin-top:12px">
+            <div class="stat"><div class="k" data-i18n="previewRows">Preview Rows</div><div class="v" id="pvRows">0</div></div>
+            <div class="stat"><div class="k" data-i18n="previewTotal">Preview Total</div><div class="v good" id="pvTotal">0</div></div>
+            <div class="stat"><div class="k" data-i18n="warnings">Warnings</div><div class="v bad" id="pvWarnings">0</div></div>
+          </div>
+          <h3 style="margin-top:12px" data-i18n="aggByNumber">Aggregated by Number</h3>
+          <div class="scroll"><table><thead><tr><th>Number</th><th class="right">Amount</th></tr></thead><tbody id="previewAgg"></tbody></table></div>
+        </div>
+
+        <div class="card preview-card">
+          <h2 data-i18n="previewDetail">Preview Detail</h2>
+          <div id="warnBox" class="muted"></div>
+          <div class="scroll"><table><thead><tr><th>No</th><th>Name</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th></tr></thead><tbody id="previewRows"></tbody></table></div>
+        </div>
+
+        <div class="card over-card">
+          <h2 data-i18n="overLive">Over</h2>
+          <div class="muted" data-i18n="overNote">Over is calculated from the selected date/session/name above.</div>
+          <div class="scroll" style="margin-top:10px"><table><thead><tr><th>No</th><th>Number</th><th class="right">Over</th></tr></thead><tbody id="entryOverRows"></tbody><tfoot><tr><th colspan="2">Total</th><th class="right" id="entryOverSumOver">0</th></tr></tfoot></table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <section id="records" class="page">
+    <div class="card">
+      <h2>Entry Records / သွင်းပြီးစာရင်းမှတ်တမ်း</h2>
+      <div class="muted">Entry Page ကိုမပြောင်းဘဲ သီးသန့် Record page အဖြစ် ထည့်ထားပါတယ်။ Time order / Name group / Edit / Group Edit / Delete / Del Batch ပါပါတယ်။</div>
+      <div class="recordFilters" style="margin-top:10px">
+        <div><label>Date</label><input id="recordDate" type="date" onchange="renderEntryRecords()"></div>
+        <div><label>Session</label><select id="recordSession" onchange="renderEntryRecords()"><option>AM</option><option>PM</option><option>DAILY</option></select></div>
+        <div><label>Name</label><select id="recordName" onchange="renderEntryRecords()"></select></div>
+        <div><label>View / ကြည့်ပုံ</label><select id="recordViewMode" onchange="renderEntryRecords()"><option value="TIME">Time Order / အချိန်လိုက်</option><option value="NAME">Name Group / နာမည်လိုက်</option></select></div>
+        <div class="wide"><label>Search</label><input id="recordSearch" placeholder="Name / Number / Source" oninput="renderEntryRecords()"></div>
+      </div>
+      <div class="compactStats" style="margin-top:12px">
+        <div class="stat"><div class="k">Rows</div><div class="v" id="recordRowsCount">0</div></div>
+        <div class="stat"><div class="k">Total Amount</div><div class="v good" id="recordRowsTotal">0</div></div>
+        <div class="stat"><div class="k">Names</div><div class="v blue" id="recordNamesCount">0</div></div>
+      </div>
+      <div class="recordTools">
+        <button class="btn warn" onclick="undoLastAction()">Undo Last Action</button>
+        <button class="btn secondary" onclick="renderEntryRecords()">Refresh / ပြန်ဖော်ပြ</button>
+        <button class="btn gray" onclick="copyEntryRecordsText()">Copy Record Text / စာကူး</button>
+        <button class="btn danger" onclick="deleteFilteredNameRows()">ရွေးထားသော Name ကိုဖျက်မယ်</button>
+        <button class="btn warn" onclick="saveCloudSnapshot(false)">Cloud Save / Cloud သိမ်း</button>
+      </div>
+      <div class="cloudNote">မှတ်ချက်: Same Name + Same Number + Same Amount ထပ်ထိုးတာကို မတားပါ။ Row တစ်ကြောင်းချင်း သီးသန့်သိမ်းပါတယ်။</div>
+      <div class="scroll" style="margin-top:12px;max-height:620px">
+        <table>
+          <thead><tr><th>No</th><th>Time</th><th>Date</th><th>Session</th><th>Name</th><th>Writer</th><th>Batch</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th><th>Action</th></tr></thead>
+          <tbody id="entryRecordRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="limit" class="page">
+    <div class="card">
+      <h2>Limit Table Board / ကန့်သတ်ဘုတ်</h2>
+      <div class="recordFilters">
+        <div><label>ရက်စွဲ</label><input id="limitDate" type="date" onchange="renderLimit()"></div>
+        <div><label>Session</label><select id="limitSession" onchange="renderLimit()"><option>AM</option><option>PM</option><option>DAILY</option></select></div>
+        <div><label>All Names / အားလုံး</label><select id="limitName" onchange="renderLimit()"></select></div>
+        <div><label>Limit Amount</label><input id="limitAmount" type="number" oninput="syncLimitFrom(this.value)" placeholder="10000"></div>
+      </div>
+      <div class="compactStats" style="margin-top:12px">
+        <div class="stat"><div class="k">Total</div><div class="v" id="limitTotal">0</div></div>
+        <div class="stat"><div class="k">Over Total</div><div class="v bad" id="limitOverTotal">0</div></div>
+        <div class="stat"><div class="k">Over Count</div><div class="v warnText" id="limitOverCount">0</div></div>
+      </div>
+      <div class="board-wrap" style="margin-top:12px"><div class="board-table" id="limitBoard"></div></div>
+    </div>
+  </section>
+
+  <section id="over" class="page">
+    <div class="card">
+      <h2>Over Page / ကျော်စာရင်း</h2>
+      <div class="grid3">
+        <div><label>Date</label><input id="overDate" type="date" onchange="renderOver()"></div>
+        <div><label>Session</label><select id="overSession" onchange="renderOver()"><option>AM</option><option>PM</option><option>DAILY</option></select></div>
+        <div><label>Name</label><select id="overName" onchange="renderOver()"></select></div>
+        <div><label>Limit Amount</label><input id="overLimit" type="number" oninput="syncLimitFrom(this.value)"></div>
+      </div>
+      <div class="btnrow"><button class="btn secondary" onclick="copyOverText()">Copy Over Text / စာကူး</button><button class="btn warn" onclick="saveOverImage()">Save Image / ပုံသိမ်း</button></div>
+      <div class="scroll" style="margin-top:10px"><table><thead><tr><th>No</th><th>Number</th><th class="right">Over</th></tr></thead><tbody id="overRows"></tbody><tfoot><tr><th colspan="2">Total</th><th class="right" id="overSumOver">0</th></tr></tfoot></table></div>
+    </div>
+  </section>
+
+  <section id="reports" class="page">
+    <div class="card">
+      <h2>AM / PM / Daily Report / အစီရင်ခံစာ</h2>
+      <div class="recordFilters">
+        <div><label>ရက်စွဲ</label><input id="reportDate" type="date" onchange="onReportViewChange()"></div>
+        <div><label>Session</label><select id="reportSession" onchange="onReportViewChange()"><option>AM</option><option>PM</option><option>DAILY</option></select></div>
+        <div><label>All Names / အားလုံး</label><select id="reportName" onchange="renderReports()"></select></div>
+        <div><label>P Number (Settings မှ)</label><input id="pNumber" readonly placeholder="Settings မှ သတ်မှတ်ပါ"></div>
+      </div>
+      <div class="compactStats" style="margin-top:12px">
+        <div class="stat"><div class="k">Total Amount</div><div class="v" id="rTotal">0</div></div>
+        <div class="stat"><div class="k">Commission</div><div class="v blue" id="rCom">0</div></div>
+        <div class="stat"><div class="k">Net</div><div class="v good" id="rNet">0</div></div>
+        <div class="stat"><div class="k">P Amount</div><div class="v warnText" id="rPamt">0</div></div>
+        <div class="stat"><div class="k">Payout</div><div class="v bad" id="rPayout">0</div></div>
+        <div class="stat"><div class="k">Final</div><div class="v" id="rFinal">0</div></div>
+      </div>
+      <h3 style="margin-top:14px">Name Summary / နာမည်အလိုက်</h3>
+      <div class="scroll"><table id="reportNameRowsTable"><thead><tr><th>Name</th><th class="right">Total</th><th class="right">P Amount</th><th class="right">Payout</th><th class="right">Cor %</th><th class="right">Cor</th><th class="right">Final</th></tr></thead><tbody id="reportNameRows"></tbody></table></div>
+      <h3 style="margin-top:14px">Number Summary / နံပါတ်အလိုက်</h3>
+      <div class="scroll"><table><thead><tr><th>Number</th><th class="right">Amount</th></tr></thead><tbody id="reportRows"></tbody></table></div>
+      <div class="reportActions">
+        <button class="btn secondary" onclick="saveCommissionReportImage()">Save Commission Image / ပုံသိမ်း</button>
+        <button class="btn warn" onclick="saveDealerReportImage()">Save Dealer Image / ပုံသိမ်း</button>
+      </div>
+      <div class="card" style="background:#020617;margin-top:12px">
+        <h3>ဒိုင်စာရင်း / Dealer Summary</h3>
+        <div class="muted">Manual Dealer Split — Total Amount, P Amount နှင့် Cor % ကိုသာရိုက်ပါ။ Cor, Payout နှင့် Final Results ကို အော်တိုတွက်မယ်။ Payout Rate ကို Settings မှယူမယ်။</div>
+        <div class="dealerGrid">
+          <div class="dealerHead">Dealer Name</div><div class="dealerHead">Total Amount</div><div class="dealerHead">P Amount</div><div class="dealerHead">Cor %</div><div class="dealerHead">Cor</div><div class="dealerHead">Payout</div><div class="dealerHead">Final Results</div>
+          <input id="odName1" placeholder="Over ဒိုင် 1" oninput="saveManualDealerInputs();renderReports()"><input id="odAmt1" type="number" placeholder="Total" oninput="saveManualDealerInputs();renderReports()"><input id="odPamt1" type="number" placeholder="P Amount" oninput="saveManualDealerInputs();renderReports()"><input id="odCor1" type="number" placeholder="Cor %" oninput="saveManualDealerInputs();renderReports()"><div class="dealerAuto" id="odCorAmt1">0</div><div class="dealerAuto" id="odPayout1">0</div><div class="dealerAuto" id="odFinal1">0</div>
+          <input id="odName2" placeholder="Over ဒိုင် 2" oninput="saveManualDealerInputs();renderReports()"><input id="odAmt2" type="number" placeholder="Total" oninput="saveManualDealerInputs();renderReports()"><input id="odPamt2" type="number" placeholder="P Amount" oninput="saveManualDealerInputs();renderReports()"><input id="odCor2" type="number" placeholder="Cor %" oninput="saveManualDealerInputs();renderReports()"><div class="dealerAuto" id="odCorAmt2">0</div><div class="dealerAuto" id="odPayout2">0</div><div class="dealerAuto" id="odFinal2">0</div>
+          <input id="odName3" placeholder="Over ဒိုင် 3" oninput="saveManualDealerInputs();renderReports()"><input id="odAmt3" type="number" placeholder="Total" oninput="saveManualDealerInputs();renderReports()"><input id="odPamt3" type="number" placeholder="P Amount" oninput="saveManualDealerInputs();renderReports()"><input id="odCor3" type="number" placeholder="Cor %" oninput="saveManualDealerInputs();renderReports()"><div class="dealerAuto" id="odCorAmt3">0</div><div class="dealerAuto" id="odPayout3">0</div><div class="dealerAuto" id="odFinal3">0</div>
+        </div>
+        <div class="grid3" style="margin-top:12px">
+          <div class="miniCard"><div class="k">All Total</div><div class="v" id="dealerTotal">0</div></div>
+          <div class="miniCard"><div class="k">All P Amount</div><div class="v warnText" id="dealerPAmount">0</div></div>
+          <div class="miniCard"><div class="k">All Payout</div><div class="v bad" id="dealerPayout">0</div></div>
+          <div class="miniCard"><div class="k">All Cor</div><div class="v blue" id="dealerCor">0</div></div>
+          <div class="miniCard"><div class="k">Manual Dealer Total</div><div class="v warnText" id="dealerOverAmt">0</div></div>
+          <div class="miniCard"><div class="k">Manual P Amount</div><div class="v warnText" id="dealerOverPAmount">0</div></div>
+          <div class="miniCard"><div class="k">Manual Payout</div><div class="v good" id="dealerOverPayout">0</div></div>
+          <div class="miniCard"><div class="k">Manual Cor</div><div class="v blue" id="dealerOverCor">0</div></div>
+          <div class="miniCard"><div class="k">Final Results</div><div class="v" id="dealerFinal">0</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="image" class="page">
+    <div class="card">
+      <h2>Image / Share Text Page / ပုံနှင့်မျှဝေစာ</h2>
+      <div class="grid3">
+        <div><label>Date</label><input id="imageDate" type="date" onchange="renderImageText()"></div>
+        <div><label>Session</label><select id="imageSession" onchange="renderImageText()"><option>AM</option><option>PM</option><option>DAILY</option></select></div>
+        <div><label>Name</label><select id="imageName" onchange="renderImageText()"></select></div>
+        <div><label>Title</label><input id="imageTitle" value="2D Report" oninput="renderImageText()"></div>
+      </div>
+      <div class="btnrow"><button class="btn secondary" onclick="copyShareText()">Copy Share Text</button><button class="btn gray" onclick="renderImageText()">Refresh</button></div>
+      <div class="sharebox" id="shareText" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <section id="settings" class="page">
+    <div class="card">
+      <h2>Settings</h2>
+      <div class="grid3">
+        <div><label>Shop Name</label><input id="shopName" oninput="saveSettings()"></div>
+        <div><label>Commission %</label><input id="commissionRate" type="number" oninput="saveSettings();renderReports();"></div>
+        <div><label>Payout Rate</label><input id="payoutRate" type="number" oninput="saveSettings();renderReports();"></div>
+        <div><label>Default Limit Amount</label><input id="defaultLimit" type="number" oninput="syncLimitFrom(this.value)"></div>
+        <div><label>AM Close</label><input id="amClose" type="time" oninput="saveSettings()"></div>
+        <div><label>PM Close</label><input id="pmClose" type="time" oninput="saveSettings()"></div>
+      </div>
+      <div class="card" style="margin-top:12px;background:#020617">
+        <h3>P Number Settings / Date နှင့် Session အလိုက်</h3>
+        <div class="muted">AM နှင့် PM အတွက် P Number ကို ဒီနေရာမှာ တစ်ကြိမ်သတ်မှတ်ပါ။ Report က Date/Session အလိုက် အော်တိုယူတွက်မယ်။ Daily report မှာ AM P နှင့် PM P နှစ်ခုလုံးကို သီးခြားတွက်ပြီး စုပေါင်းမယ်။</div>
+        <div class="pSettingsGrid" style="margin-top:10px">
+          <div><label>Date</label><input id="settingsPDate" type="date" onchange="loadSettingsPNumber()"></div>
+          <div><label>Session</label><select id="settingsPSession" onchange="loadSettingsPNumber()"><option>AM</option><option>PM</option></select></div>
+          <div><label>P Number</label><input id="settingsPNumber" maxlength="2" inputmode="numeric" placeholder="ဥပမာ 59" oninput="sanitizeSettingsPNumber()"></div>
+          <button class="btn" onclick="saveSettingsPNumber()">Save P Number</button>
+          <button class="btn danger" onclick="clearSettingsPNumber()">Clear</button>
+        </div>
+        <div class="pSavedBadge" id="settingsPStatus" style="margin-top:10px">Not saved</div>
+      </div>
+
+      <div class="card" style="margin-top:12px;background:#020617">
+        <h3>Commission Names / နာမည်စာရင်း</h3>
+        <div class="grid2">
+          <div><label>New Name</label><input id="newName" placeholder="ဥပမာ ကိုအောင် / Shop A"></div>
+          <div style="display:flex;align-items:end"><button class="btn" onclick="addName()" style="width:100%">Add Name</button></div>
+        </div>
+        <div class="nameRateGrid" id="nameList"></div>
+      </div>
+      <div class="muted" style="margin-top:12px">Stage 3.8.0: localStorage + Firestore Cloud Snapshot Sync ပါပြီး။ နောက်အဆင့်မှာ Firebase Auth + Owner/Admin role rules ထည့်ပါမယ်။</div>
+    </div>
+  </section>
+
+  <section id="audit" class="page">
+    <div class="card">
+      <h2>History / Audit Trail / Undo</h2>
+      <div class="muted">Save, edit, delete, batch delete, duplicate delete, clear all လုပ်ဆောင်ချက်တွေကို history အဖြစ်မှတ်ထားမယ်။ Raw pasted text ကိုလည်း ပြန်ကြည့်နိုင်မယ်။</div>
+      <div class="btnrow" style="margin-top:10px">
+        <button class="btn warn" onclick="undoLastAction()">Undo Last Action</button>
+        <button class="btn secondary" onclick="renderAuditTrail()">Refresh / ပြန်ဖော်ပြ</button>
+        <button class="btn gray" onclick="copyLatestRawHistory()">Copy Latest Raw</button>
+        <button class="btn danger" onclick="clearAuditTrail()">Clear Audit</button>
+      </div>
+      <div class="compactStats" style="margin-top:12px">
+        <div class="stat"><div class="k">Audit Rows</div><div class="v" id="auditRowsCount">0</div></div>
+        <div class="stat"><div class="k">Raw Messages</div><div class="v blue" id="auditRawCount">0</div></div>
+        <div class="stat"><div class="k">Undo Ready</div><div class="v warnText" id="undoReadyCount">0</div></div>
+      </div>
+      <div id="auditTrailList" style="margin-top:12px"></div>
+    </div>
+  </section>
+  <section id="tests" class="page">
+    <div class="card">
+      <h2>Parser Regression Tests / အဟောင်းမှန်နေသော Logic စမ်းသပ်မှု</h2>
+      <div class="muted">ဒီ Test Pack က records, settings, cloud data တွေကို မပြောင်းပါ။ Parser function ကို memory ထဲမှာသာ စမ်းသပ်ပြီး Version အသစ်ကြောင့် အဟောင်းမှန်နေတဲ့ rules မပျက်ကြောင်းစစ်မယ်။</div>
+      <div class="btnrow" style="margin-top:10px">
+        <button class="btn" onclick="runParserRegressionTests()">Run All Parser Tests</button>
+        <button class="btn secondary" onclick="copyParserTestResults()">Copy Test Results</button>
+        <button class="btn gray" onclick="clearParserTestResults()">Clear Results</button>
+      </div>
+      <div class="testSummaryGrid">
+        <div class="stat"><div class="k">Total Tests</div><div class="v" id="parserTestTotal">0</div></div>
+        <div class="stat"><div class="k">Passed</div><div class="v good" id="parserTestPassed">0</div></div>
+        <div class="stat"><div class="k">Failed</div><div class="v bad" id="parserTestFailed">0</div></div>
+      </div>
+      <div id="parserTestStatus" class="muted" style="margin-top:12px">Run All Parser Tests ကိုနှိပ်ပါ။</div>
+      <div id="parserTestResults" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <section id="diagnostics" class="page">
+    <div class="card">
+      <h2>Developer Diagnostics / Error Checker / Version Control</h2>
+      <div class="muted">App button error, JavaScript runtime error, storage usage နဲ့ browser cache/version အခြေအနေကို ဒီနေရာမှာစစ်နိုင်ပါတယ်။</div>
+      <div class="btnrow" style="margin-top:10px">
+        <button class="btn" onclick="runAppSelfCheck()">Run App Self Check</button>
+        <button class="btn secondary" onclick="copyDiagnosticsReport()">Copy Diagnostics</button>
+        <button class="btn warn" onclick="hardReloadApp()">Hard Reload / Clear Cache</button>
+        <button class="btn danger" onclick="clearRuntimeErrors()">Clear Error Log</button>
+      </div>
+      <div class="diagGrid">
+        <div class="stat"><div class="k">App Version</div><div class="v blue" id="diagVersion">-</div></div>
+        <div class="stat"><div class="k">Runtime Errors</div><div class="v bad" id="diagErrorCount">0</div></div>
+        <div class="stat"><div class="k">Storage Used</div><div class="v warnText" id="diagStorage">0 KB</div></div>
+        <div class="stat"><div class="k">Loaded At</div><div class="v" id="diagLoadedAt" style="font-size:14px">-</div></div>
+      </div>
+      <div id="diagVersionNotice" class="diagOk">Version check မလုပ်ရသေးပါ</div>
+      <div id="diagSelfCheck" class="muted" style="margin-top:10px">Run App Self Check ကိုနှိပ်ပါ။</div>
+      <div id="diagErrorList" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+</div>
+
+<div class="modalBack" id="groupEditModal">
+  <div class="modalCard">
+    <h2 style="margin:0 0 8px">Group Edit / Batch Edit</h2>
+    <div class="muted">ဒီ box ထဲမှာ batch/group source text ကို ပြင်လိုက်တာနဲ့ သက်ဆိုင်ရာ row တွေအကုန်တခါတည်းချိန်းပေးမယ်။ line အသစ်ထပ်ဖြည့်လို့လည်းရတယ်။</div>
+    <div class="modalGrid" style="margin-top:10px;grid-template-columns:1fr 140px 120px 160px">
+      <div><label>Name</label><input id="groupEditName"></div>
+      <div><label>Date</label><input id="groupEditDate" type="date"></div>
+      <div><label>Session</label><select id="groupEditSession"><option>AM</option><option>PM</option></select></div>
+      <div><label>Writer</label><select id="groupEditWriter"><option value="AUTO">Auto</option><option value="A">A Writer</option><option value="B">B Writer</option><option value="C">C Writer</option><option value="OTHER">Other Writer</option></select></div>
+    </div>
+    <label style="margin-top:10px">Group Source Text</label>
+    <textarea id="groupEditText"></textarea>
+    <div class="btnrow">
+      <button class="btn" onclick="applyGroupEdit()">Apply Group Edit</button>
+      <button class="btn gray" onclick="closeGroupEditModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+
+<script src="js/firebase-config.js?v=4.0.0"></script>
+<script src="js/auth.js?v=4.0.0"></script>
+</body>
+</html>

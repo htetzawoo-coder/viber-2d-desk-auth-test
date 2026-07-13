@@ -1,0 +1,2600 @@
+let db=window.v2dDb||null;
+let auth=window.v2dAuth||null;
+const CURRENT_USER=auth?.currentUser||window.V2D_CURRENT_USER||null;
+const CURRENT_UID=CURRENT_USER?.uid||"guest";
+const USER_STORAGE_PREFIX=`v2d_user_${CURRENT_UID}__`;
+
+function userStorageKey(base){ return USER_STORAGE_PREFIX+base; }
+function userGetItem(base){ return localStorage.getItem(userStorageKey(base)); }
+function userSetItem(base,value){ localStorage.setItem(userStorageKey(base),value); }
+function userRemoveItem(base){ localStorage.removeItem(userStorageKey(base)); }
+
+const LEGACY_USER_STORAGE_KEYS=[
+  "v2d_records","v2d_over_deductions","v2d_audit_trail","v2d_undo_stack",
+  "v2d_settings","v2d_global_view","v2d_p_memory","v2d_dealer_manual_memory",
+  "v2d_session_manual_lock","v2d_topbar_state","v2d_runtime_errors","v2d_last_version"
+];
+
+function migrateLegacyLocalDataOnce(){
+  if(!CURRENT_USER) return;
+  const doneKey=userStorageKey("legacy_migration_done");
+  if(localStorage.getItem(doneKey)==="1") return;
+
+  const claimedUid=localStorage.getItem("v2d_legacy_claimed_uid");
+  if(!claimedUid || claimedUid===CURRENT_UID){
+    const targetExists=userGetItem("v2d_records")!==null || userGetItem("v2d_settings")!==null;
+    if(!targetExists){
+      LEGACY_USER_STORAGE_KEYS.forEach(key=>{
+        const value=localStorage.getItem(key);
+        if(value!==null) userSetItem(key,value);
+      });
+    }
+    localStorage.setItem("v2d_legacy_claimed_uid",CURRENT_UID);
+  }
+  localStorage.setItem(doneKey,"1");
+}
+migrateLegacyLocalDataOnce();
+
+const pages = [
+  ['dashboard',{en:'Dashboard',my:'ပင်မ'}],
+  ['entry',{en:'Entry',my:'စာရင်းသွင်း'}],
+  ['records',{en:'Entry Records',my:'စာရင်းမှတ်တမ်း'}],
+  ['limit',{en:'Limit Board',my:'ကန့်သတ်ဘုတ်'}],
+  ['over',{en:'Over',my:'ကျော်နေသောစာရင်း'}],
+  ['reports',{en:'Reports',my:'အစီရင်ခံစာ'}],
+  ['image',{en:'Image',my:'ပုံ / မျှဝေ'}],
+  ['settings',{en:'Settings',my:'ဆက်တင်'}],
+  ['audit',{en:'History',my:'မှတ်တမ်း / Undo'}]
+];
+const N2 = Array.from({length:100},(_,i)=>String(i).padStart(2,'0'));
+const FIXED = {
+  A:['05','16','27','38','49','50','61','72','83','94'],
+  POWER:['05','16','27','38','49','50','61','72','83','94'],
+  Z:['07','18','24','35','42','53','69','70','81','96'],
+  B:['01','10','12','21','23','32','34','43','45','54','56','65','67','76','78','87','89','98','90','09']
+};
+let records = JSON.parse(userGetItem('v2d_records')||'[]');
+let overDeductions = JSON.parse(userGetItem('v2d_over_deductions')||'[]');
+let auditTrail = JSON.parse(userGetItem('v2d_audit_trail')||'[]');
+let undoStack = JSON.parse(userGetItem('v2d_undo_stack')||'[]');
+let settings = JSON.parse(userGetItem('v2d_settings')||'{}');
+let preview = {detailRows:[], totals:[], warnings:[], issues:[]};
+let globalView = JSON.parse(userGetItem('v2d_global_view')||'{}');
+let pMemory = JSON.parse(userGetItem('v2d_p_memory')||'{}');
+let dealerManualMemory = JSON.parse(userGetItem('v2d_dealer_manual_memory')||'{}');
+let sessionManualLock = userGetItem('v2d_session_manual_lock') === '1';
+let pendingDuplicateBlockKeys = [];
+let pendingDuplicateBlockLabels = [];
+let currentGroupEdit = null;
+let currentIssueIndex = 0;
+const initialRegisteredShopName=localStorage.getItem(`v2d_user_${CURRENT_UID}__initial_shop_name`)||"";
+let topbarState = userGetItem('v2d_topbar_state') || 'open';
+
+function selectedWriterProfile(){ return (val('entryWriter') || settings.lastWriter || 'AUTO').toUpperCase(); }
+function normalizeWriterProfile(w){ return String(w||'AUTO').toUpperCase(); }
+function writerHintText(w){
+  const x = normalizeWriterProfile(w);
+  if(x==='A') return 'A Writer: carry lines, split R style, အပူး, subtotal/total notes ကိုပိုနားလည်အောင်ဖတ်မယ်။';
+  if(x==='B') return 'B Writer: nထိပ်=n/, nပိတ်=/n, grouped amount share, structured amount R amount style ကိုဦးစားပေးမယ်။';
+  if(x==='C') return 'C Writer: dot-separated 2-digit groups + shared R amount style ကိုဦးစားပေးမယ်။';
+  if(x==='OTHER') return 'Other Writer: generic parser rule နဲ့ဖတ်မယ်။ writer-specific shortcut တွေကို conservative mode နဲ့ကိုင်မယ်။';
+  return 'Auto: generic parser နဲ့စပြီး A / B / C pattern နီးစပ်တာကို line-by-line soft detect လုပ်မယ်။';
+}
+function renderWriterHint(){
+  const el=document.getElementById('writerHint');
+  if(el) el.textContent = writerHintText(selectedWriterProfile());
+}
+function detectAutoWriter(line){
+  const s = normalize(line);
+  if(/(?:ထိပ်|ပိတ်)/.test(s)) return 'B';
+  if(/\d{2}(?:\.\d{2}){2,}\s*[Rr]\s*\d+/.test(s)) return 'C';
+  if(/[|]/.test(s) || /အပူး|ပါတ်|ပတ်|အခွေ|ခွေ/.test(s)) return 'A';
+  return 'OTHER';
+}
+function preprocessWriterLine(line, writer){
+  let s = String(line||'');
+  const w = normalizeWriterProfile(writer);
+  if(w==='A'){
+    s = s.replace(/(\d{2})\s*[|lI]\s*(\d+)/g, '$1 R $2');
+    s = s.replace(/(\d{2})\s+(\d+)\s*[|lI]\s*(\d+)/g, '$1 $2 R $3');
+  }else if(w==='B'){
+    s = s.replace(/([0-9])\s*ပိတ/g,'$1 ပိတ်');
+    s = s.replace(/([0-9])\s*ထိပ္/g,'$1 ထိပ်');
+  }else if(w==='C'){
+    s = s.replace(/[၊,]/g,'.');
+  }
+  return s;
+}
+
+function today(){return new Date().toISOString().slice(0,10)}
+function autoSessionForDate(date){
+  const d = date || today();
+  if(d !== today()) return 'AM';
+  const now = new Date();
+  return now.getHours() >= 14 ? 'PM' : 'AM';
+}
+function saveGlobalView(){ userSetItem('v2d_global_view', JSON.stringify(globalView)); }
+function savePMemory(){ userSetItem('v2d_p_memory', JSON.stringify(pMemory)); }
+function saveSessionLock(){ userSetItem('v2d_session_manual_lock', sessionManualLock ? '1' : '0'); }
+function saveAuditTrail(){
+  try{
+    userSetItem('v2d_audit_trail', JSON.stringify((auditTrail||[]).slice(0,120)));
+  }catch(e){
+    auditTrail = (auditTrail||[]).slice(0,40).map(x=>({...x, rawText:''}));
+    try{ userSetItem('v2d_audit_trail', JSON.stringify(auditTrail)); }catch(_e){}
+  }
+}
+function saveUndoStack(){
+  try{
+    userSetItem('v2d_undo_stack', JSON.stringify((undoStack||[]).slice(0,8)));
+  }catch(e){
+    undoStack = (undoStack||[]).slice(0,3);
+    try{ userSetItem('v2d_undo_stack', JSON.stringify(undoStack)); }catch(_e){}
+  }
+}
+function deepCopy(obj){ return JSON.parse(JSON.stringify(obj)); }
+function snapshotBeforeChange(label, meta={}){
+  undoStack.unshift({
+    ts: Date.now(),
+    label,
+    meta,
+    records: deepCopy(records||[]),
+    overDeductions: deepCopy(overDeductions||[])
+  });
+  undoStack = undoStack.slice(0,8);
+  saveUndoStack();
+}
+function pushAudit(action, meta={}){
+  const safeMeta = {...meta};
+  if(safeMeta.rawText && String(safeMeta.rawText).length > 4000) safeMeta.rawText = String(safeMeta.rawText).slice(0,4000);
+  auditTrail.unshift({ts:Date.now(), action, ...safeMeta});
+  auditTrail = auditTrail.slice(0,120);
+  saveAuditTrail();
+}
+function collectNamesFromRows(rows){
+  return [...new Set((rows||[]).map(r=>r.name||'Default').filter(Boolean))].join(', ');
+}
+function copyLatestRawHistory(){
+  const item=(auditTrail||[]).find(x=>x.rawText);
+  if(!item){ showToast('Copy လုပ်ရန် raw history မရှိသေးပါ'); return; }
+  navigator.clipboard.writeText(item.rawText||'').then(()=>showToast('Latest raw history ကို copy လုပ်ပြီးပါပြီ'));
+}
+function clearAuditTrail(){
+  if(!confirm('Audit history ကိုပဲ ဖျက်မလား? Data records မဖျက်ပါ။')) return;
+  auditTrail=[]; undoStack=[]; saveAuditTrail(); saveUndoStack(); renderAuditTrail(); showToast('Audit history cleared');
+}
+function undoLastAction(){
+  if(!undoStack.length){ showToast('Undo ပြန်သွားရန် action မရှိသေးပါ'); return; }
+  const last = undoStack.shift();
+  records = deepCopy(last.records||[]);
+  overDeductions = deepCopy(last.overDeductions||[]);
+  saveUndoStack();
+  saveRecords();
+  saveOverDeductions();
+  pushAudit('UNDO', {label:last.label||'Undo', summary:'Undo ပြန်သွားပါပြီ'});
+  renderAll();
+  showToast('Undo ပြန်သွားပါပြီ');
+}
+function auditCardHtml(a, idx){
+  const time = a.ts ? new Date(a.ts).toLocaleString() : '-';
+  const raw = a.rawText ? `
+    <div class="saveTiny" style="margin-top:8px">Raw Message</div>
+    <textarea readonly style="width:100%;min-height:100px;background:#020617;color:#e5e7eb;border:1px solid #334155;border-radius:10px;padding:8px">${String(a.rawText||'')}</textarea>
+    <div class="btnrow" style="margin-top:6px"><button class="btn gray small" onclick="navigator.clipboard.writeText(auditTrail[${idx}].rawText||'').then(()=>showToast('Raw text copied'))">Copy Raw</button></div>
+  ` : '';
+  return `
+    <div class="card" style="margin-top:10px;background:#020617">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div><b>${escapeHtml(a.action||'ACTION')}</b> <span class="miniBadge">${escapeHtml(a.label||'')}</span></div>
+        <div class="muted">${escapeHtml(time)}</div>
+      </div>
+      <div class="muted" style="margin-top:6px">${escapeHtml(a.summary||'')}</div>
+      ${(a.name||a.names||a.date||a.session) ? `<div class="saveTiny" style="margin-top:6px">Name: ${escapeHtml(a.name||a.names||'-')} | Date: ${escapeHtml(a.date||'-')} | Session: ${escapeHtml(a.session||'-')}</div>` : ''}
+      ${raw}
+    </div>
+  `;
+}
+function renderAuditTrail(){
+  const box = document.getElementById('auditTrailList');
+  if(!box) return;
+  setText('auditRowsCount', (auditTrail||[]).length);
+  setText('auditRawCount', (auditTrail||[]).filter(x=>x.rawText).length);
+  setText('undoReadyCount', (undoStack||[]).length);
+  box.innerHTML = (auditTrail||[]).length ? auditTrail.slice(0,60).map((a,i)=>auditCardHtml(a,i)).join('') : '<div class="muted">History မရှိသေးပါ</div>';
+}
+function pKey(date, session){ return `${date||today()}__${session||'AM'}`; }
+function allowedSessionValue(el, value){
+  if(!el) return false;
+  return Array.from(el.options || []).some(opt => opt.value === value);
+}
+function setValueIfExists(id, value){
+  const el = document.getElementById(id);
+  if(!el) return;
+  if(el.tagName === 'SELECT' && !allowedSessionValue(el, value)) return;
+  el.value = value;
+}
+function currentPageLabel(){
+  const active = document.querySelector('.tab.active');
+  if(active) return active.textContent.split('\n')[0].trim();
+  return 'Dashboard';
+}
+function renderMiniTopInfo(){
+  return;
+}
+function applyTopbarState(){
+  const topbar = document.getElementById('topbar');
+  const btn = document.getElementById('topToggleBtn');
+  const tabsBtn = document.getElementById('tabsToggleBtn');
+  const collapsedBtn = document.querySelector('.collapsedOpenBtn');
+  if(!topbar || !btn) return;
+  const collapsed = topbarState === 'collapsed';
+  topbar.classList.toggle('collapsed', collapsed);
+  document.body.classList.toggle('topbar-collapsed', collapsed);
+  btn.textContent = collapsed ? 'Open ▼' : 'Minimize ▲';
+  if(tabsBtn){
+    tabsBtn.innerHTML = collapsed ? 'Open<small>ထိပ်ပိုင်းဖွင့်</small>' : 'Minimize<small>ထိပ်ပိုင်းဖျောက်</small>';
+  }
+  if(collapsedBtn){
+    collapsedBtn.textContent = collapsed ? 'Open ▼' : 'Open ▼';
+  }
+  renderMiniTopInfo();
+}
+function toggleTopbar(){
+  topbarState = topbarState === 'collapsed' ? 'open' : 'collapsed';
+  userSetItem('v2d_topbar_state', topbarState);
+  applyTopbarState();
+}
+function getStoredPNumber(date, session){
+  const raw = String(pMemory[pKey(date, session)] || '').trim();
+  return /^\d{1,2}$/.test(raw) ? raw.padStart(2,'0') : '';
+}
+function restorePNumber(){
+  const date = val('reportDate') || (globalView.date || today());
+  const session = val('reportSession') || (globalView.session || 'AM');
+  if(session === 'AM' || session === 'PM'){
+    setVal('pNumber', getStoredPNumber(date, session));
+  }else{
+    const am=getStoredPNumber(date,'AM')||'-';
+    const pm=getStoredPNumber(date,'PM')||'-';
+    setVal('pNumber', `AM ${am} | PM ${pm}`);
+  }
+}
+function rememberPNumber(){
+  // Report input is read-only. P Number is saved from Settings.
+  restorePNumber();
+}
+function sanitizeSettingsPNumber(){
+  const el=document.getElementById('settingsPNumber');
+  if(!el) return;
+  el.value=String(el.value||'').replace(/\D/g,'').slice(0,2);
+}
+function loadSettingsPNumber(){
+  const date=val('settingsPDate')||today();
+  const session=val('settingsPSession')||'AM';
+  const p=getStoredPNumber(date,session);
+  setVal('settingsPNumber',p);
+  setText('settingsPStatus', p ? `${date} / ${session} / P = ${p}` : `${date} / ${session} / P Number မသတ်မှတ်ရသေးပါ`);
+}
+function saveSettingsPNumber(){
+  const date=val('settingsPDate')||today();
+  const session=val('settingsPSession')||'AM';
+  const raw=String(val('settingsPNumber')||'').replace(/\D/g,'');
+  if(!/^\d{1,2}$/.test(raw)){showToast('P Number ကို 00 မှ 99 အတွင်း ရိုက်ပါ'); return;}
+  const p=raw.padStart(2,'0');
+  pMemory[pKey(date,session)]=p;
+  savePMemory();
+  setVal('settingsPNumber',p);
+  loadSettingsPNumber();
+  restorePNumber();
+  renderReports();
+  showToast(`${date} ${session} P Number ${p} သိမ်းပြီးပါပြီ`);
+}
+function clearSettingsPNumber(){
+  const date=val('settingsPDate')||today();
+  const session=val('settingsPSession')||'AM';
+  delete pMemory[pKey(date,session)];
+  savePMemory();
+  setVal('settingsPNumber','');
+  loadSettingsPNumber();
+  restorePNumber();
+  renderReports();
+  showToast(`${date} ${session} P Number ဖျက်ပြီးပါပြီ`);
+}
+function applyGlobalDateSession(date, session, rerender=true){
+  const d = date || today();
+  const s = session || 'AM';
+  globalView = {date:d, session:s};
+  saveGlobalView();
+
+  setValueIfExists('globalDate', d);
+  setValueIfExists('globalSession', s);
+
+  ['entryDate','recordDate','limitDate','overDate','reportDate','imageDate'].forEach(id => setValueIfExists(id, d));
+  ['entrySession','recordSession','limitSession','overSession','reportSession','imageSession'].forEach(id => setValueIfExists(id, s));
+
+  restorePNumber();
+  if(document.getElementById('settingsPDate')){
+    setVal('settingsPDate', d);
+    if(s==='AM' || s==='PM') setVal('settingsPSession', s);
+    loadSettingsPNumber();
+  }
+  loadManualDealerInputs();
+  renderMiniTopInfo();
+  if(rerender) renderAll();
+}
+function onGlobalDateChange(v){
+  sessionManualLock = false;
+  saveSessionLock();
+  applyGlobalDateSession(v, autoSessionForDate(v), true);
+}
+function onGlobalSessionChange(v){
+  sessionManualLock = true;
+  saveSessionLock();
+  applyGlobalDateSession(val('globalDate') || globalView.date || today(), v, true);
+}
+function setupGlobalSyncListeners(){
+  ['entryDate','recordDate','limitDate','overDate','reportDate','imageDate'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('change', ()=>{
+      sessionManualLock = false;
+      saveSessionLock();
+      applyGlobalDateSession(el.value, autoSessionForDate(el.value), true);
+    });
+  });
+  ['entrySession','recordSession','limitSession','overSession','reportSession','imageSession'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('change', ()=>{
+      const newSession = el.value || 'AM';
+      const date = val('globalDate') || globalView.date || today();
+      sessionManualLock = true;
+      saveSessionLock();
+      applyGlobalDateSession(date, newSession, true);
+    });
+  });
+  const pEl = document.getElementById('pNumber');
+  if(pEl) pEl.readOnly = true;
+}
+function startAutoPMSync(){
+  setInterval(()=>{
+    const currentDate = val('globalDate') || globalView.date || today();
+    if(currentDate !== today()) return;
+    if(sessionManualLock) return;
+    const autoSession = autoSessionForDate(currentDate);
+    const currentSession = val('globalSession') || globalView.session || 'AM';
+    if(currentSession !== 'DAILY' && currentSession !== autoSession){
+      applyGlobalDateSession(currentDate, autoSession, true);
+      showToast('Auto session → ' + autoSession);
+    }
+  }, 60000);
+}
+function money(n){return Number(n||0).toLocaleString('en-US')}
+function unit(n){let v=Number(n||0)/100; return Number.isInteger(v)? String(v): String(parseFloat(v.toFixed(2)))}
+function inferToastType(message){
+  const s=String(message||'').toLowerCase();
+  if(/မအောင်မြင်|error|failed|permission|မရှိ|မရွေး|မရပါ/.test(s)) return 'error';
+  if(/duplicate|သတိ|စစ်|ရွေးပါ|ပြည့်/.test(s)) return 'warn';
+  if(/အောင်မြင်|ပြီးပါပြီ|saved|save ပြီး|login အောင်မြင်/.test(s)) return 'success';
+  return 'info';
+}
+function showToast(msg,type='',duration=4200){
+  let t=document.getElementById('toast');
+  if(!t){
+    t=document.createElement('div');
+    t.id='toast';
+    t.className='toast';
+    t.setAttribute('role','status');
+    t.setAttribute('aria-live','polite');
+    t.setAttribute('aria-atomic','true');
+    document.body.appendChild(t);
+  }
+  const finalType=type||inferToastType(msg);
+  t.textContent=String(msg||'');
+  t.className=`toast ${finalType}`;
+  // Restart the entrance animation even for back-to-back notices.
+  void t.offsetWidth;
+  t.classList.add('show');
+  clearTimeout(window.__v2dToastTimer);
+  window.__v2dToastTimer=setTimeout(()=>{
+    t.classList.remove('show');
+  },Math.max(2500,Number(duration)||4200));
+}
+function saveRecords(){
+  try{
+    userSetItem('v2d_records',JSON.stringify(records));
+  }catch(e){
+    showToast('Save storage ပြည့်နေပါတယ်။ Audit history ကို လျှော့ပြီး ထပ်သိမ်းပါ');
+    throw e;
+  }
+}
+
+function currentUserSnapshotsRef(){
+  if(!db || !CURRENT_USER) return null;
+  return db.collection('users').doc(CURRENT_UID).collection('snapshots');
+}
+async function saveCloudSnapshot(showMsg=true){
+  if(!db || !CURRENT_USER){ if(showMsg) showToast('Login/Firebase မချိတ်မိသေးပါ'); return; }
+  try{
+    const totalAmount = records.reduce((sum,r)=>sum+Number(r.amount||0),0);
+    await currentUserSnapshotsRef().add({
+      type:'stage2_full_snapshot',
+      app:'Viber 2D Desk',
+      version:'Stage 4.0.1 Auth Foundation',
+      ownerUid:CURRENT_UID,
+      ownerEmail:CURRENT_USER?.email||'',
+      records,
+      overDeductions,
+      settings,
+      totalRecords:records.length,
+      totalAmount,
+      localCreatedAt:new Date().toISOString(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    if(showMsg) showToast('Cloud Save အောင်မြင်ပါပြီ','success',5000);
+  }catch(err){
+    console.error(err);
+    if(showMsg) showToast('Cloud Save မအောင်မြင်ပါ: '+err.message,'error',6500);
+  }
+}
+async function loadLatestCloudSnapshot(){
+  if(!db || !CURRENT_USER){ showToast('Login/Firebase မချိတ်မိသေးပါ'); return; }
+  try{
+    showToast('Cloud data ဖတ်နေပါသည်...');
+    const snap = await currentUserSnapshotsRef().orderBy('localCreatedAt','desc').limit(30).get();
+    let found=null;
+    snap.forEach(doc=>{ const d=doc.data(); if(!found && d.type==='stage2_full_snapshot') found=d; });
+    if(!found){ showToast('Cloud snapshot မတွေ့သေးပါ'); return; }
+    if(!confirm('ကိုယ်ပိုင် Account Cloud မှာရှိတဲ့နောက်ဆုံး data ကို ဖုန်းထဲပြန်တင်မလား? လက်ရှိ local data ကို အစားထိုးပါမယ်။')) return;
+    records = Array.isArray(found.records)? found.records : [];
+    overDeductions = Array.isArray(found.overDeductions)? found.overDeductions : [];
+    settings = found.settings || settings || {};
+    saveRecords(); saveOverDeductions(); userSetItem('v2d_settings',JSON.stringify(settings));
+    init(); renderAll(); showToast('Cloud Load အောင်မြင်ပါပြီ');
+  }catch(err){
+    console.error(err);
+    showToast('Cloud Load မအောင်မြင်ပါ: '+err.message);
+  }
+}
+function saveOverDeductions(){userSetItem('v2d_over_deductions',JSON.stringify(overDeductions));}
+function saveSettings(){
+  settings.shopName = val('shopName') || 'Viber 2D Desk';
+  settings.commissionRate = Number(val('commissionRate')||0);
+  settings.payoutRate = Number(val('payoutRate')||80);
+  settings.defaultLimit = Number(val('defaultLimit')||10000);
+  settings.amClose = val('amClose') || '12:00';
+  settings.pmClose = val('pmClose') || '16:30';
+  if(!Array.isArray(settings.names)||!settings.names.length) settings.names=['Default'];
+  if(!settings.nameRates) settings.nameRates={}; settings.names.forEach(n=>{if(settings.nameRates[n]==null) settings.nameRates[n]=settings.commissionRate||20;});
+  settings.lang = val('langSelect') || settings.lang || 'my';
+  settings.lastWriter = val('entryWriter') || settings.lastWriter || 'AUTO';
+  userSetItem('v2d_settings',JSON.stringify(settings));
+}
+function val(id){const el=document.getElementById(id); return el?el.value:''}
+function setVal(id,v){const el=document.getElementById(id); if(el) el.value=v}
+function uniq(a){return [...new Set(a)]}
+function rev(n){n=String(n).padStart(2,'0'); return n[1]+n[0]}
+function even(d){return Number(d)%2===0}
+function odd(d){return !even(d)}
+function splitPairs(s){const c=String(s).replace(/\D/g,''); const out=[]; for(let i=0;i+1<c.length;i+=2) out.push(c.slice(i,i+2)); return out.filter(x=>/^\d{2}$/.test(x));}
+function normalize(s){
+  return String(s||'')
+    .normalize('NFKC')
+    .replace(/[@&]/g,'R')
+    .replace(/[Ｒｒ]/g,'R')
+    .replace(/([0-9]{2}(?:[\s,./-]+[0-9]{2})*)\s*[|¦]+\s*(\d+)/g,'$1R$2')
+    .replace(/([0-9]{2})[)\]}>]+(?=\s*\d)/g,'$1=')
+    .replace(/([0-9]{2})\s*[:;"'`]+(?=\s*[0-9]{2}\b)/g,'$1.')
+    .replace(/([0-9])\s*[-=:."']+\s*(ထိပ်|ထိပ်စီး|ရှေ့|အရှေ့|နောက်|အနောက်|အပိတ်|ပိတ်)/g,'$1 $2 ')
+    .replace(/(ထိပ်|ထိပ်စီး|ရှေ့|အရှေ့|နောက်|အနောက်|အပိတ်|ပိတ်)\s*[-=:."']+\s*(\d+)/g,'$1 $2')
+    .replace(/([0-9]{2})\s*[-=:."']+\s*(?=[0-9]{2}\b)/g,'$1.')
+    .replace(/([0-9]{2})\s*[({\[]+\s*(?=[0-9]{2}\b)/g,'$1.')
+    .replace(/([0-9]{2})\s*[)}\]>]+\s*(?=[0-9]{2}\b)/g,'$1.')
+    .replace(/အပါ/g,'ပါ')
+    .replace(/အပူ/g,'အပူး')
+    .replace(/အခေွ|အခွဲ/g,'အခွေ')
+    .replace(/ပါဝါ/g,' A ')
+    .replace(/နက်ခက်|နက္ခ|နက်ခ/g,' Z ')
+    .replace(/ညီအကို|ညီကို/g,' B ')
+    .replace(/[＝]/g,'=')
+    .replace(/[–—−]/g,'-')
+    .replace(/\r/g,'\n')
+    .trim();
+}
+function numberGroups(s){return [...String(s).matchAll(/\d+/g)].map(m=>m[0]);}
+function breakNums(code){
+  const n=Number(code); if(!Number.isFinite(n)) return [];
+  let sums=[]; if(n>=10 && n<=18) sums=[n-10,n]; else sums=[n];
+  return N2.filter(x=>sums.includes(Number(x[0])+Number(x[1])));
+}
+function containsDigit(d){return N2.filter(x=>x.includes(d));}
+function comboDigits(ds){ds=uniq(ds.filter(x=>/\d/.test(x))); const out=[]; ds.forEach(a=>ds.forEach(b=>out.push(a+b))); return out;}
+function parityNums(a,b){
+  return N2.filter(n=>{
+    const okA = a==='+'?even(n[0]):a==='-'?odd(n[0]):a==='/'?true:n[0]===a;
+    const okB = b==='+'?even(n[1]):b==='-'?odd(n[1]):b==='/'?true:n[1]===b;
+    return okA && okB;
+  });
+}
+function expandToken(token){
+  let t=normalize(token).toUpperCase().replace(/\s+/g,'');
+  if(!t) return [];
+  if(FIXED[t]) return FIXED[t].slice();
+  if(t.includes('-') && !['--','-+','-/'].includes(t) && !/^\d-$/.test(t) && !/^\/-$/.test(t)){
+    const idx=t.indexOf('-'); const base=t.slice(0,idx); const rem=t.slice(idx+1);
+    const baseNums=expandToken(base); const remNums=splitPairs(rem);
+    if(baseNums.length && remNums.length) return baseNums.filter(n=>!remNums.includes(n));
+  }
+  if(t==='//') return N2.filter(n=>n[0]===n[1]);
+  if(t==='++') return parityNums('+','+');
+  if(t==='--') return parityNums('-','-');
+  if(t==='+-') return parityNums('+','-');
+  if(t==='-+') return parityNums('-','+');
+  if(t==='+/') return parityNums('+','/');
+  if(t==='-/') return parityNums('-','/');
+  if(t==='/+') return parityNums('/','+');
+  if(t==='/-') return parityNums('/','-');
+  if(/^\+\d$/.test(t)) return parityNums('+',t[1]);
+  if(/^-\d$/.test(t)) return parityNums('-',t[1]);
+  if(/^\d\+$/.test(t)) return parityNums(t[0],'+');
+  if(/^\d-$/.test(t)) return parityNums(t[0],'-');
+  if(/^\d\/$/.test(t)) return parityNums(t[0],'/');
+  if(/^\/\d$/.test(t)) return parityNums('/',t[1]);
+  if(/^\/\d{2}$/.test(t)) return [t.slice(1)];
+  if(/^\*\d{1,2}$/.test(t)) return breakNums(t.slice(1));
+  if(/^\d\*$/.test(t)) return containsDigit(t[0]);
+  if(/^\d{2}\*$/.test(t)) return uniq([t.slice(0,2),rev(t.slice(0,2))]);
+  if(/^\d{2,}\*\*$/.test(t)) return comboDigits(t.replace(/\*\*/g,'').split(''));
+  if(/^\d{2}$/.test(t)) return [t];
+  if(/^\d{4,}$/.test(t) && t.length%2===0) return splitPairs(t);
+  return [];
+}
+function expandExpression(expr){
+  expr=normalize(expr);
+  const rawTokens=expr.split(/[\s,.]+/).filter(Boolean);
+  const out=[];
+  rawTokens.forEach(tok=>{
+    if(/^\d{2}\/\d{2}(\/\d{2})*$/.test(tok)) tok.split('/').forEach(x=>out.push(x));
+    else expandToken(tok).forEach(x=>out.push(x));
+  });
+  return uniq(out.filter(x=>/^\d{2}$/.test(x)));
+}
+function addRow(rows,warnings,num,amount,source,type){
+  num=String(num).padStart(2,'0'); const amt=Number(String(amount).replace(/[^\d]/g,''));
+  if(!/^\d{2}$/.test(num)){warnings.push('Number မမှန်: '+num+' | '+source);return;}
+  if(!Number.isFinite(amt)||amt<=0){warnings.push('Amount မမှန်: '+amount+' | '+source);return;}
+  rows.push({number:num,amount:amt,type,source});
+}
+function parseReverseLine(line){
+  const source=line; const rows=[]; const warnings=[]; const s=normalize(line); const up=s.toUpperCase(); const rIndex=up.indexOf('R');
+  const before=s.slice(0,rIndex).trim(); const after=s.slice(rIndex+1).trim(); const afterNums=numberGroups(after); const beforeGroups=numberGroups(before);
+  if(!afterNums.length){warnings.push('R နောက် amount မတွေ့: '+source); return {rows,warnings, meta:null};}
+  let nums=[], normalAmount=afterNums[0], reverseAmount=afterNums[0], carryable=true;
+  const lastBefore=beforeGroups[beforeGroups.length-1];
+  if(beforeGroups.length>=2 && lastBefore && lastBefore.length>2){
+    // Example: 86.87.1000R250 => normal amount 1000, reverse amount 250.
+    // This mixed-amount style is not used as carry mode for following bare lines.
+    normalAmount=lastBefore; reverseAmount=afterNums[0]; carryable=false;
+    nums=beforeGroups.slice(0,-1).flatMap(g=>g.length===2?[g]:splitPairs(g));
+  }else{
+    // Example: 52R500 or 34 r 300 => both original and reverse use 500/300.
+    nums=expandExpression(before);
+  }
+  if(!nums.length){warnings.push('R ရှေ့ number မတွေ့: '+source); return {rows,warnings, meta:null};}
+  nums.forEach(n=>{
+    addRow(rows,warnings,n,normalAmount,source,'normal');
+    // In Viber R mode, doubles are intentionally entered twice, e.g. 00=300 and 00=300.
+    addRow(rows,warnings,rev(n),reverseAmount,source,'reverse');
+  });
+  return {rows,warnings, meta: carryable ? {mode:'reverse', amount:Number(reverseAmount)} : null};
+}
+
+function tokenList(s){
+  return [...normalize(s).matchAll(/[Rr]|\d+|[^\dRr]+/g)].map(m=>m[0]).filter(Boolean);
+}
+function isNumTok(t){return /^\d+$/.test(t);}
+function isRTok(t){return /^[Rr]$/.test(t);}
+function nextNumber(tokens, start){
+  for(let j=start;j<tokens.length;j++) if(isNumTok(tokens[j])) return {value:tokens[j], index:j};
+  return null;
+}
+function nextR(tokens, start){
+  for(let j=start;j<tokens.length;j++){
+    if(isRTok(tokens[j])) return j;
+    if(isNumTok(tokens[j])) return -1;
+  }
+  return -1;
+}
+function emitNormal(nums, amount, rows, warnings, source, type='normal'){
+  nums.forEach(n=>addRow(rows,warnings,n,amount,source,type));
+}
+function emitReverse(nums, normalAmount, reverseAmount, rows, warnings, source, mixed=false){
+  nums.forEach(n=>{
+    addRow(rows,warnings,n,normalAmount,source,mixed?'mixed-normal':'normal');
+    addRow(rows,warnings,rev(n),reverseAmount,source,mixed?'mixed-reverse':'reverse');
+  });
+}
+function parseComplexLine(line){
+  // Smart inline parser for styles like:
+  // 42.32,65.21.700r300
+  // 45.65R500,23,53.86.300r200.77,22,00.1000,
+  const source=line; const rows=[]; const warnings=[]; const tokens=tokenList(line);
+  let nums=[]; let meta=null;
+  for(let i=0;i<tokens.length;i++){
+    const t=tokens[i];
+    if(isNumTok(t)){
+      if(t.length===2){ nums.push(t); continue; }
+      // length >= 3 means amount in this number-only parser.
+      const rIdx=nextR(tokens,i+1);
+      if(rIdx>i){
+        const revObj=nextNumber(tokens,rIdx+1);
+        if(!revObj){ warnings.push('R နောက် amount မတွေ့: '+source); break; }
+        if(!nums.length){ warnings.push('Amount ရှေ့ number မတွေ့: '+source); }
+        emitReverse(nums,t,revObj.value,rows,warnings,source,true);
+        nums=[]; meta=null; i=revObj.index; continue;
+      }else{
+        if(!nums.length){ warnings.push('Amount ရှေ့ number မတွေ့: '+source); }
+        emitNormal(nums,t,rows,warnings,source,'normal');
+        nums=[]; meta={mode:'normal', amount:Number(t)}; continue;
+      }
+    }
+    if(isRTok(t)){
+      const amtObj=nextNumber(tokens,i+1);
+      if(!amtObj){ warnings.push('R နောက် amount မတွေ့: '+source); break; }
+      if(!nums.length){ warnings.push('R ရှေ့ number မတွေ့: '+source); }
+      emitReverse(nums,amtObj.value,amtObj.value,rows,warnings,source,false);
+      nums=[]; meta={mode:'reverse', amount:Number(amtObj.value)}; i=amtObj.index; continue;
+    }
+  }
+  if(nums.length){ warnings.push('Amount မပါသော number များ: '+nums.join(',')+' | '+source); }
+  return {rows,warnings,meta};
+}
+function addRowsForList(rows,warnings,nums,amount,source,type='normal'){
+  nums.forEach(n=>addRow(rows,warnings,n,amount,source,type));
+}
+function parsePastePairBranchLine(line){
+  const source=line; const rows=[]; const warnings=[];
+  const s=normalize(line).replace(/\s+/g,' ').trim();
+  let m;
+  const pairList = /^(?:\d{2}(?:\s*[\/.*\-=:;"'{}\[\]()<>]+\s*))+\d{2}$/;
+
+  // 4ထိပ်/1000 | 4နောက်/500
+  m=s.match(/^(\d)\s*(?:ထိပ်စီး|ထိပ်|ရှေ့|အရှေ့)\s*\/\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    addRowsForList(rows,warnings,parityNums(m[1],'/'),m[2],source,'paste-front-slash');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+  m=s.match(/^(\d)\s*(?:နောက်ပိတ်|နောက်|အနောက်|အပိတ်|ပိတ်)\s*\/\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    addRowsForList(rows,warnings,parityNums('/',m[1]),m[2],source,'paste-back-slash');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // helper: list followed by =normal R reverse
+  m=s.match(/^(.*)\s*=\s*(\d+)\s*[Rr@&]\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m && pairList.test(m[1].trim())){
+    const nums=(m[1].match(/\d{2}/g)||[]);
+    nums.forEach(n=>{
+      addRow(rows,warnings,n,m[2],source,'paste-mixed-normal');
+      addRow(rows,warnings,rev(n),m[3],source,'paste-mixed-reverse');
+    });
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // list + reverse shared amount
+  m=s.match(/^(.*)\s*[Rr@&]\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m && pairList.test(m[1].trim())){
+    const nums=(m[1].match(/\d{2}/g)||[]);
+    nums.forEach(n=>{
+      addRow(rows,warnings,n,m[2],source,'paste-reverse');
+      addRow(rows,warnings,rev(n),m[2],source,'paste-reverse');
+    });
+    return {handled:true, rows, warnings, meta:{mode:'reverse', amount:Number(m[2])}};
+  }
+
+  // plain pair list + trailing amount (no reverse)
+  m=s.match(/^(.*?)(\d{3,})(?:\s*[^\d].*)?$/);
+  if(m && pairList.test(m[1].trim())){
+    const nums=(m[1].match(/\d{2}/g)||[]);
+    addRowsForList(rows,warnings,nums,m[2],source,'paste-plain-list');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  return {handled:false, rows, warnings, meta:null};
+}
+function breakByDigit(d){
+  const x=Number(d); return N2.filter(n=>[x,x+10].includes(Number(n[0])+Number(n[1])));
+}
+function parseSpecialBurmeseLine(line){
+  const source=line; const rows=[]; const warnings=[]; let s=normalize(line).replace(/\s+/g,' ').trim();
+  // Total notes like T45000 / T 3000 are ignored.
+  if(/^T\s*\d+\s*$/i.test(s)) return {handled:true, rows, warnings, meta:null, ignored:true};
+
+  // Pure note/name lines with no digits are ignored.
+  if(!/\d/.test(s) && !/(ပါ|ပတ်|ပါတ်|ပူး|အပူး|ခွေ|အခွေ|ထိပ်|နောက်|ဘရိတ်|ပါဝါ|နက္ခ|နက်ခ|ညီကို|R|@|\*|\/)/i.test(s)){
+    return {handled:true, rows, warnings, meta:null, ignored:true};
+  }
+
+  let m;
+
+  // 57=82=32=R300 => each pair gets amount on original + reverse.
+  m=s.match(/^((?:\d{2}\s*=\s*){2,}\d{2})\s*=\s*[Rr]\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    const nums=(m[1].match(/\d{2}/g)||[]);
+    const amount=m[2];
+    nums.forEach(n=>{
+      addRow(rows,warnings,n,amount,source,'multi-eq-r');
+      addRow(rows,warnings,rev(n),amount,source,'multi-eq-r');
+    });
+    return {handled:true, rows, warnings, meta:{mode:'reverse', amount:Number(amount)}};
+  }
+
+  // 33*77*88*500 => 33,77,88 all at 500
+  m=s.match(/^((?:\d{2}\*\s*){2,})(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    const nums=[...m[1].matchAll(/(\d{2})\*/g)].map(x=>x[1]);
+    addRowsForList(rows,warnings,nums,m[2],source,'explicit-star-list-noeq');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 22*55*66*=500 => explicit listed doubles with one shared amount.
+  m=s.match(/^((?:\d{2}\*\s*)+)\s*=\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    const nums=[...m[1].matchAll(/(\d{2})\*/g)].map(x=>x[1]);
+    addRowsForList(rows,warnings,nums,m[2],source,'explicit-star-list');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 53/1000 => plain number 53 at amount 1000
+  m=s.match(/^(\d{2})\/\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    addRow(rows,warnings,m[1],m[2],source,'plain-slash-amount');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // အပူးးးးး500 / အပူး300 / အပူ300 => all doubles with one shared amount.
+  m=s.match(/^အ?ပူး[^\d=]*=?\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    addRowsForList(rows,warnings,N2.filter(n=>n[0]===n[1]),m[1],source,'double');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[1])}};
+  }
+
+  // 47*49*76R1000 => each 2-digit star pair gets same amount on original + reverse.
+  m=s.match(/^((?:\d{2}\*\s*)+)\s*[Rr]\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    const nums=[...m[1].matchAll(/(\d{2})\*/g)].map(x=>x[1]);
+    const amount=m[2];
+    nums.forEach(n=>{
+      addRow(rows,warnings,n,amount,source,'star-pair-r');
+      addRow(rows,warnings,rev(n),amount,source,'star-pair-r');
+    });
+    return {handled:true, rows, warnings, meta:{mode:'reverse', amount:Number(amount)}};
+  }
+
+  // 40=3000R1000 => original gets 3000, reverse gets 1000.
+  m=s.match(/^(\d{2})\s*=\s*(\d+)\s*[Rr@&]\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    addRow(rows,warnings,m[1],m[2],source,'mixed-normal');
+    addRow(rows,warnings,rev(m[1]),m[3],source,'mixed-reverse');
+    return {handled:true, rows, warnings, meta:{mode:'mixed', amount:Number(m[2]), reverseAmount:Number(m[3])}};
+  }
+
+  // 67R1500 => original and reverse both use same amount.
+  m=s.match(/^(\d{2})\s*[Rr]\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    addRow(rows,warnings,m[1],m[2],source,'reverse');
+    addRow(rows,warnings,rev(m[1]),m[2],source,'reverse');
+    return {handled:true, rows, warnings, meta:{mode:'reverse', amount:Number(m[2])}};
+  }
+
+  // nပါR100 / nပါတ်R100: digit-include with optional R marker from handwriting/OCR.
+  m=s.match(/^(\d)\s*=?\s*(?:ပါ|ပါတ်|ပတ်)\s*[Rr]\s*(\d+)$/);
+  if(m){
+    const d=m[1], amount=m[2];
+    addRowsForList(rows,warnings,containsDigit(d),amount,source,'digit-include-r');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(amount)}};
+  }
+
+  // 3/8ဘရိတ်500: multiple break digits, same amount for each break set.
+  m=s.match(/^(\d(?:\s*\/\s*\d)+)\s*ဘရိတ်\s*=?\s*(\d+)$/);
+  if(m){
+    const digits=m[1].split('/').map(x=>x.trim()).filter(Boolean), amount=m[2];
+    digits.forEach(d=>addRowsForList(rows,warnings,breakByDigit(d),amount,source,'multi-break'));
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(amount)}};
+  }
+
+  // 5/=400R100 or 5/400R100 => 5/ = 400 and /5 = 100
+  m=s.match(/^(\d)\/\s*=?\s*(\d+)\s*[Rr]\s*(\d+)$/);
+  if(m){
+    addRowsForList(rows,warnings,parityNums(m[1],'/'),m[2],source,'front-digit-short');
+    addRowsForList(rows,warnings,parityNums('/',m[1]),m[3],source,'back-digit-short-r');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // /5=100R400 or /5 100 R 400 => /5 = 100 and 5/ = 400
+  m=s.match(/^\/(\d)\s*=?\s*(\d+)\s*[Rr]\s*(\d+)$/);
+  if(m){
+    addRowsForList(rows,warnings,parityNums('/',m[1]),m[2],source,'back-digit-short');
+    addRowsForList(rows,warnings,parityNums(m[1],'/'),m[3],source,'front-digit-short-r');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 123ထိပ်500R300 / 123-ထိပ်-500 / 3/4 ထိပ် 500နောက်300
+  // Multiple digits before front/top word; each digit gets front amount and optional back/R amount.
+  m=s.match(/^([\d\s\/]{1,20})\s*=?\s*(?:ထိပ်စီး|ထိပ်|ရှေ့|အရှေ့)\s*=?\s*(\d+)\s*(?:[Rr]|(?:နောက်ပိတ်|နောက်|အနောက်|အပိတ်|ပိတ်))\s*=?\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    digitSeqList(m[1]).forEach(d=>{
+      addRowsForList(rows,warnings,parityNums(d,'/'),m[2],source,'multi-front');
+      addRowsForList(rows,warnings,parityNums('/',d),m[3],source,'multi-back-r');
+    });
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 123နောက်500R300 / 3/4 နောက် 500 ထိပ် 300
+  m=s.match(/^([\d\s\/]{1,20})\s*=?\s*(?:နောက်ပိတ်|နောက်|အနောက်|အပိတ်|ပိတ်)\s*=?\s*(\d+)\s*(?:[Rr]|(?:ထိပ်စီး|ထိပ်|ရှေ့|အရှေ့))\s*=?\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    digitSeqList(m[1]).forEach(d=>{
+      addRowsForList(rows,warnings,parityNums('/',d),m[2],source,'multi-back');
+      addRowsForList(rows,warnings,parityNums(d,'/'),m[3],source,'multi-front-r');
+    });
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 2ထိပ် 500 R 200 / 2=ထိပ်700R600: front/top digit at normal amount and reverse/back digit at R amount.
+  m=s.match(/^(\d)\s*=?\s*(?:ထိပ်စီး|ထိပ်|ရှေ့|အရှေ့)\s*(\d+)\s*[Rr]\s*(\d+)$/);
+  if(m){
+    addRowsForList(rows,warnings,parityNums(m[1],'/'),m[2],source,'front-digit');
+    addRowsForList(rows,warnings,parityNums('/',m[1]),m[3],source,'back-digit-r');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 2နောက် 500 R 200 / 2=နောက်700R600: back digit at normal amount and front digit at R amount.
+  m=s.match(/^(\d)\s*=?\s*(?:နောက်ပိတ်|နောက်|အနောက်|အပိတ်|ပိတ်)\s*(\d+)\s*[Rr]\s*(\d+)$/);
+  if(m){
+    addRowsForList(rows,warnings,parityNums('/',m[1]),m[2],source,'back-digit');
+    addRowsForList(rows,warnings,parityNums(m[1],'/'),m[3],source,'front-digit-r');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 123ထိပ်500 / 123=ထိပ်500 / 3/4 ထိပ် 500 / 123နောက်500: multiple front/back digits.
+  m=s.match(/^([\d\s\/]{1,20})\s*=?\s*(?:ထိပ်စီး|ထိပ်|ရှေ့|အရှေ့)\s*=?\s*(\d+)$/);
+  if(m){
+    digitSeqList(m[1]).forEach(d=>addRowsForList(rows,warnings,parityNums(d,'/'),m[2],source,'multi-front'));
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+  m=s.match(/^([\d\s\/]{1,20})\s*=?\s*(?:နောက်ပိတ်|နောက်|အနောက်|အပိတ်|ပိတ်)\s*=?\s*(\d+)$/);
+  if(m){
+    digitSeqList(m[1]).forEach(d=>addRowsForList(rows,warnings,parityNums('/',d),m[2],source,'multi-back'));
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 11.88.55.33=1000 [optional note]  or 22,77,88,99,44=1000
+  m=s.match(/^((?:\d{2}[\s,./\-=:\"'{}\[\]\(\)<>]*){2,})\s*=\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    const nums = (m[1].match(/\d{2}/g) || []);
+    addRowsForList(rows,warnings,nums,m[2],source,'explicit-multi');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 1=8ပါ500 / 1=8=9ပါ500 => each digit expands as d*
+  m=s.match(/^((?:\d\s*=\s*)+\d)\s*(?:ပါ|ပါတ်|ပတ်)\s*(အ?ပူးပါ)?\s*=?\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    const digits=uniq((m[1].match(/\d/g)||[]));
+    const extraDouble=!!m[2];
+    const amount=m[3];
+    digits.forEach(d=>{
+      addRowsForList(rows,warnings,containsDigit(d),amount,source,'digit-include');
+      if(extraDouble) addRow(rows,warnings,d+d,amount,source,'extra-double');
+    });
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(amount)}};
+  }
+
+  // n=ပါ1000 / nပါတ်ပူးပါ 5000 / nပတ် amount
+  m=s.match(/^(\d)\s*=?\s*(?:ပါ|ပါတ်|ပတ်)\s*(အ?ပူးပါ)?\s*=?\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    const d=m[1], extraDouble=!!m[2], amount=m[3];
+    addRowsForList(rows,warnings,containsDigit(d),amount,source,'digit-include');
+    if(extraDouble) addRow(rows,warnings,d+d,amount,source,'extra-double');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(amount)}};
+  }
+
+  // အပူး500 / အပူး=200
+  m=s.match(/^အ?ပူး\s*=?\s*(\d+)$/);
+  if(m){
+    addRowsForList(rows,warnings,N2.filter(n=>n[0]===n[1]),m[1],source,'double');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[1])}};
+  }
+
+  // (33)ပူး500 or 33ပူး500
+  m=s.match(/^\(?\s*(\d{2})\s*\)?\s*ပူး\s*=?\s*(\d+)$/);
+  if(m){
+    addRow(rows,warnings,m[1],m[2],source,'single-double');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 1790ခွေ500 / 1790-ခွေ-500 / 1790ခွေပူး500 / 1790အခွေ1000အပူးပါ
+  // ခွေ = permutations without doubles
+  // ခွေပူး / ခွေအပူး / ခွေအပူးပါ = permutations + doubles from the same digits
+  m=s.match(/^(\d{2,})\s*[-=.:]*\s*(?:အခွေ|ခွေ)\s*[-=.:]*\s*(?:(အ?ပူးပါ|ပူးပါ|အ?ပူး|ပူး)\s*)?[-=.:]*\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    const digits=uniq(m[1].split(''));
+    const includeDoubles=!!m[2];
+    const amount=m[3];
+    const nums=[];
+    digits.forEach(a=>digits.forEach(b=>{
+      if(includeDoubles || a!==b) nums.push(a+b);
+    }));
+    addRowsForList(rows,warnings,nums,amount,source,includeDoubles?'khwe-double':'khwe');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(amount)}};
+  }
+
+  // 3=ဘရိတ်1000 => break digit 3 and 13.
+  m=s.match(/^(\d)\s*=?\s*ဘရိတ်\s*=?\s*(\d+)$/);
+  if(m){
+    addRowsForList(rows,warnings,breakByDigit(m[1]),m[2],source,'break');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // နက္ခ / နက်ခက် amount
+  m=s.match(/^(?:Z|နက်ခက်|နက္ခ|နက်ခ)\s*=?\s*(\d+)$/i);
+  if(m){
+    addRowsForList(rows,warnings,FIXED.Z,m[1],source,'natkhat');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[1])}};
+  }
+
+  // ပါဝါ amount
+  m=s.match(/^(?:A|ပါဝါ)\s*=?\s*(\d+)$/i);
+  if(m){
+    addRowsForList(rows,warnings,FIXED.A,m[1],source,'power');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[1])}};
+  }
+
+  // ညီကို / ညီအကို amount
+  m=s.match(/^(?:B|ညီကို|ညီအကို)\s*=?\s*(\d+)$/i);
+  if(m){
+    addRowsForList(rows,warnings,FIXED.B,m[1],source,'brother');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[1])}};
+  }
+
+  // 3နောက် =1000, 3နောက်ပိတ်1000
+  m=s.match(/^(\d)\s*(?:နောက်ပိတ်|နောက်|အနောက်|အပိတ်|ပိတ်)\s*=?\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    addRowsForList(rows,warnings,parityNums('/',m[1]),m[2],source,'back-digit');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  // 3ထိပ် / 3ထိပ်စီး amount
+  m=s.match(/^(\d)\s*(?:ထိပ်စီး|ထိပ်|ရှေ့|အရှေ့)\s*=?\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    addRowsForList(rows,warnings,parityNums(m[1],'/'),m[2],source,'front-digit');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount:Number(m[2])}};
+  }
+
+  return {handled:false, rows, warnings, meta:null};
+}
+function parseSpecialCarryLine(line, ctx){
+  const source=line; const rows=[]; const warnings=[];
+  const amount = Number(ctx && ctx.amount ? ctx.amount : 0);
+  const reverseMode = !!(ctx && ctx.mode==='reverse');
+  if(!amount) return {handled:false, rows, warnings, meta:null};
+  let s=normalize(line).replace(/\s+/g,' ').trim();
+  let m;
+
+  function addCarryNums(nums, type='carry-normal'){
+    nums.forEach(n=>{
+      addRow(rows,warnings,n,amount,source,type);
+      if(reverseMode) addRow(rows,warnings,rev(n),amount,source,'carry-reverse');
+    });
+  }
+
+  // 123ထိပ် / 3/4 ထိပ် / 123=ထိပ်  => each digit uses carried amount
+  m=s.match(/^([\d\s\/]{1,20})\s*=?\s*(?:ထိပ်စီး|ထိပ်|ရှေ့|အရှေ့)$/);
+  if(m){
+    digitSeqList(m[1]).forEach(d=>addRowsForList(rows,warnings,parityNums(d,'/'),amount,source,'carry-front'));
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+
+  // 123နောက် / 3/4 နောက် / 123ပိတ်
+  m=s.match(/^([\d\s\/]{1,20})\s*=?\s*(?:နောက်ပိတ်|နောက်|အနောက်|အပိတ်|ပိတ်)$/);
+  if(m){
+    digitSeqList(m[1]).forEach(d=>addRowsForList(rows,warnings,parityNums('/',d),amount,source,'carry-back'));
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+
+  // 1=8ပါ / 1=8=9ပါ / 7ပါတ်ပူးပါ / 7အပူးပါ  => carried amount
+  m=s.match(/^((?:\d\s*=\s*)+\d)\s*(?:(?:ပါ|ပါတ်|ပတ်)\s*)?(အ?ပူးပါ|ပူးပါ|အ?ပူး|ပူး)?$/);
+  if(m){
+    const digits=uniq((m[1].match(/\d/g)||[]));
+    const includeFamily = /(?:ပါ|ပါတ်|ပတ်)/.test(s) || !!m[2];
+    const extraDouble=!!m[2];
+    digits.forEach(d=>{
+      if(includeFamily) addRowsForList(rows,warnings,containsDigit(d),amount,source,'carry-digit-include');
+      if(extraDouble) addRow(rows,warnings,d+d,amount,source,'carry-extra-double');
+    });
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+  m=s.match(/^(\d)\s*=?\s*(?:(?:ပါ|ပါတ်|ပတ်)\s*)?(အ?ပူးပါ|ပူးပါ|အ?ပူး|ပူး)?$/);
+  if(m && (/(?:ပါ|ပါတ်|ပတ်)/.test(s) || m[2])){
+    addRowsForList(rows,warnings,containsDigit(m[1]),amount,source,'carry-digit-include');
+    if(m[2]) addRow(rows,warnings,m[1]+m[1],amount,source,'carry-extra-double');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+
+  // bare အပူး / ပူး => all doubles with carried amount
+  m=s.match(/^အ?ပူး$/);
+  if(m){
+    addRowsForList(rows,warnings,N2.filter(n=>n[0]===n[1]),amount,source,'carry-double');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+
+  // 12345ခွေ / 12345အခွေ / 12345ခွေအပူးပါ / 12345-ခွေ-အပူးပါ
+  m=s.match(/^(\d{2,})\s*[-=.:]*\s*(?:အခွေ|ခွေ)\s*[-=.:]*\s*(?:(အ?ပူးပါ|ပူးပါ|အ?ပူး|ပူး))?$/);
+  if(m){
+    const digits=uniq(m[1].split(''));
+    const includeDoubles=!!m[2];
+    const nums=[];
+    digits.forEach(a=>digits.forEach(b=>{
+      if(includeDoubles || a!==b) nums.push(a+b);
+    }));
+    addRowsForList(rows,warnings,nums,amount,source,includeDoubles?'carry-khwe-double':'carry-khwe');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+
+  // 3ဘရိတ် / 3/8ဘရိတ် with carried amount
+  m=s.match(/^(\d(?:\s*\/\s*\d)+)\s*ဘရိတ်$/);
+  if(m){
+    m[1].split('/').map(x=>x.trim()).filter(Boolean).forEach(d=>addRowsForList(rows,warnings,breakByDigit(d),amount,source,'carry-break'));
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+  m=s.match(/^(\d)\s*=?\s*ဘရိတ်$/);
+  if(m){
+    addRowsForList(rows,warnings,breakByDigit(m[1]),amount,source,'carry-break');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+
+  // bare fixed families A / Z / B with carried amount
+  if(/^(?:Z|နက်ခက်|နက္ခ|နက်ခ)$/i.test(s)){
+    addRowsForList(rows,warnings,FIXED.Z,amount,source,'carry-natkhat');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+  if(/^(?:A|ပါဝါ)$/i.test(s)){
+    addRowsForList(rows,warnings,FIXED.A,amount,source,'carry-power');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+  if(/^(?:B|ညီကို|ညီအကို)$/i.test(s)){
+    addRowsForList(rows,warnings,FIXED.B,amount,source,'carry-brother');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+
+  // bare explicit star-list with shared carried amount: 22*55*66* or 33*77*88*
+  m=s.match(/^((?:\d{2}\*\s*){2,})=?$/);
+  if(m){
+    const nums=[...m[1].matchAll(/(\d{2})\*/g)].map(x=>x[1]);
+    addRowsForList(rows,warnings,nums,amount,source,'carry-explicit-star-list');
+    return {handled:true, rows, warnings, meta:{mode:'normal', amount}};
+  }
+
+  // plain pair-list with spaces/dots/quotes etc and no explicit amount; use nearest carry.
+  m=s.match(/^((?:\d{2}[\s,./\-=:"'{}\[\]\(\)<>]*){2,})$/);
+  if(m){
+    const nums=(m[1].match(/\d{2}/g)||[]);
+    addCarryNums(nums);
+    return {handled:true, rows, warnings, meta:{mode:reverseMode?'reverse':'normal', amount}};
+  }
+
+  return {handled:false, rows, warnings, meta:null};
+}
+function splitExprAmount(line){
+  let s=normalize(line).trim();
+
+  // Strong explicit form: expr = amount [optional trailing note]
+  let m = s.match(/^(.*?)\s*=\s*(\d+)(?:\s*[^\d].*)?$/);
+  if(m){
+    let expr = (m[1] || '').trim();
+    let amount = m[2];
+    expr = expr.replace(/[=,.\s]+$/g,'');
+    if(expr.endsWith('-') && !/^\d-$/.test(expr)) expr = expr.slice(0,-1).trim();
+    return expr ? {expr, amount} : null;
+  }
+
+  // Standard trailing amount form: expr amount
+  m = s.match(/(\d+)\s*$/);
+  if(!m) return null;
+  const amount = m[1];
+  let expr = s.slice(0,m.index).trim();
+  expr = expr.replace(/[=,.\s]+$/g,'');
+  if(expr.endsWith('-') && !/^\d-$/.test(expr)) expr = expr.slice(0,-1).trim();
+  return expr ? {expr, amount} : null;
+}
+function hasExplicitAmountOnLine(line){
+  const s = normalize(line).trim();
+  if(!s) return false;
+  const paste = parsePastePairBranchLine(s);
+  if(paste.handled && paste.meta && paste.meta.amount) return true;
+  const pair = splitExprAmount(s);
+  return !!(pair && pair.amount && expandExpression(pair.expr).length);
+}
+function parseLine(line){
+  line=normalize(line); const rows=[]; const warnings=[]; if(!line) return {rows,warnings};
+  if(/[Rr]/.test(line)) return parseReverseLine(line);
+  const pair=splitExprAmount(line); if(!pair){warnings.push('Amount မတွေ့: '+line); return {rows,warnings};}
+  const nums=expandExpression(pair.expr);
+  if(!nums.length){warnings.push('Formula/Number မဖတ်နိုင်: '+line); return {rows,warnings};}
+  nums.forEach(n=>addRow(rows,warnings,n,pair.amount,line,'normal'));
+  return {rows,warnings};
+}
+function applyCarryLine(line, ctx){
+  const rows=[]; const warnings=[]; const nums=expandExpression(line);
+  if(!nums.length) return null;
+  if(!ctx || !ctx.amount || !ctx.mode){warnings.push('Amount carry မရှိသေးသော bare line: '+line); return {rows,warnings};}
+  nums.forEach(n=>{
+    addRow(rows,warnings,n,ctx.amount,line,'carry-normal');
+    if(ctx.mode==='reverse') addRow(rows,warnings,rev(n),ctx.amount,line,'carry-reverse');
+    if(ctx.mode==='mixed') addRow(rows,warnings,rev(n),ctx.reverseAmount||ctx.amount,line,'carry-reverse-mixed');
+  });
+  return {rows,warnings};
+}
+function isBareCarryCandidate(line){
+  const s=normalize(line);
+  if(!s) return false;
+  // one compact formula/number without amount delimiter. Examples: 96, 00, A, *12, /9, 9/, //, //-3355
+  if(/\s/.test(s)) return false;
+  if(/[=]/.test(s)) return false;
+  return expandExpression(s).length>0;
+}
+function cleanNameText(x){
+  return String(x||'').replace(/[⁨⁩\u200e\u200f\u202a-\u202e]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+}
+function matchKnownName(raw){const n=cleanNameText(raw); return (settings.names||[]).find(x=>cleanNameText(x)===n) || null;}
+function digitSeqList(seq){
+  return uniq((String(seq||'').match(/\d/g)||[]).filter(Boolean));
+}
+function headerRecordSession(hour24, minute){
+  return (hour24 > 12 || (hour24 === 12 && Number(minute||0) >= 1)) ? 'PM' : 'AM';
+}
+function parseHeaderStampMeta(stamp){
+  const s=String(stamp||'').replace(/[\u200e\u200f]/g,'').trim();
+  let m=s.match(/^(?:[A-Za-z]+,\s*)?([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if(m){
+    const monthMap={january:1,february:2,march:3,april:4,may:5,june:6,july:7,august:8,september:9,october:10,november:11,december:12};
+    const mon=monthMap[String(m[1]).toLowerCase()]||0;
+    const day=Number(m[2]||0), year=Number(m[3]||0), h12=Number(m[4]||0), minute=Number(m[5]||0), ap=String(m[6]||'AM').toUpperCase();
+    let hour=h12 % 12;
+    if(ap==='PM') hour += 12;
+    const date=`${year}-${String(mon).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    return {date, session:headerRecordSession(hour, minute), hour, minute, stamp:s};
+  }
+  const d=new Date(s);
+  if(!Number.isNaN(d.getTime())){
+    const date=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const hour=d.getHours();
+    const minute=d.getMinutes();
+    return {date, session:headerRecordSession(hour, minute), hour, minute, stamp:s};
+  }
+  return null;
+}
+function parseHeaderLine(line){
+  const m=String(line).match(/^\s*\[\s*([^\]]+?)\s*\]\s*[⁨]?(.+?)[⁩]?\s*:\s*(.*)$/);
+  if(!m) return null;
+  const meta=parseHeaderStampMeta(m[1]);
+  return {rawName:m[2].trim(), content:m[3].trim(), headerStamp:String(m[1]||'').trim(), headerDate:meta?.date||'', headerSession:meta?.session||'', headerHour:meta?.hour, headerMinute:meta?.minute};
+}
+
+function explicitCarryMetaForLine(line){
+  const s = normalize(line);
+  if(!s) return null;
+
+  const paste = parsePastePairBranchLine(s);
+  if(paste.handled && paste.meta && paste.meta.amount) return {...paste.meta};
+
+  const sp = parseSpecialBurmeseLine(s);
+  if(sp.handled && sp.meta && sp.meta.amount) return {...sp.meta};
+
+  if(/[Rr@&]/.test(s)){
+    const rx = parseComplexLine(s);
+    if(rx.meta && rx.meta.amount) return {...rx.meta};
+  }
+
+  // Explicit plain amount on this same line must win over any nearby carry.
+  if(hasExplicitAmountOnLine(s) && !/[Rr@&]/.test(s)){
+    const pair = splitExprAmount(s);
+    return {mode:'normal', amount:Number(pair.amount)};
+  }
+
+  const pair = splitExprAmount(s);
+  if(pair && expandExpression(pair.expr).length) return {mode:'normal', amount:Number(pair.amount)};
+  return null;
+}
+function normalizeMessageLines(text){
+  return String(text||'').replace(/\r/g,'').split('\n').map((raw,i)=>({raw:String(raw||''),lineNo:i+1})).filter(x=>x.raw.trim());
+}
+function makeMessageBlockKey(headerStamp, headerName, lines){
+  const body = normalizeDuplicateText((lines||[]).map(x=>x.raw||'').join('\n'));
+  const stamp = normalizeDuplicateText(headerStamp||'');
+  const name = cleanNameText(headerName||'');
+  return `${stamp}__${name}__${body}`;
+}
+function buildMessageBlocks(text, defaultName){
+  const blocks=[]; let block=null; let activeName=defaultName||'Default';
+  normalizeMessageLines(text).forEach(item=>{
+    const rawTrim=item.raw.trim();
+    const header=parseHeaderLine(rawTrim);
+    if(header){
+      if(block && block.lines.length) blocks.push(block);
+      const matched=matchKnownName(header.rawName);
+      block={name:matched||activeName, headerName:header.rawName, headerMatched:!!matched, headerStamp:header.headerStamp||'', date:header.headerDate||'', session:header.headerSession||'', lines:[], startLine:item.lineNo};
+      if(matched) activeName=matched;
+      if(header.content && header.content.trim()) block.lines.push({raw:header.content.trim(), lineNo:item.lineNo, fromHeader:true, headerName:header.rawName, headerMatched:!!matched});
+      else block.lines.push({raw:'', lineNo:item.lineNo, fromHeader:true, headerName:header.rawName, headerMatched:!!matched, emptyHeader:true});
+    }else{
+      if(!block) block={name:activeName, headerName:'', headerMatched:false, lines:[], startLine:item.lineNo};
+      block.lines.push({raw:rawTrim, lineNo:item.lineNo, fromHeader:false, headerName:'', headerMatched:false});
+    }
+  });
+  if(block && block.lines.length) blocks.push(block);
+  blocks.forEach((b, idx)=>{
+    b.blockKey = makeMessageBlockKey(b.headerStamp||'', b.headerName||b.name||'', b.lines||[]);
+    b.blockLabel = b.headerStamp ? `[${b.headerStamp}] ${b.headerName||b.name||''}` : `Manual Block ${idx+1} / ${b.name||'Default'}`;
+  });
+  return blocks;
+}
+function parseMessageBlock(block, writerProfile){
+  const detailRows=[]; const warnings=[]; const issues=[];
+  const processed = block.lines.map(item=>{
+    const lineWriter = normalizeWriterProfile(writerProfile)==='AUTO' ? detectAutoWriter(item.raw) : normalizeWriterProfile(writerProfile);
+    const prepared = preprocessWriterLine(item.raw, lineWriter).trim();
+    return {...item, lineWriter, prepared, explicit: explicitCarryMetaForLine(prepared)};
+  });
+  function nearestUpperExplicit(idx){
+    for(let j=idx-1;j>=0;j--) if(processed[j].explicit && processed[j].explicit.amount) return processed[j].explicit;
+    return null;
+  }
+  function nearestLowerExplicit(idx){
+    for(let j=idx+1;j<processed.length;j++) if(processed[j].explicit && processed[j].explicit.amount) return processed[j].explicit;
+    return null;
+  }
+
+  processed.forEach((item, idx)=>{
+    let l = item.prepared;
+    if(!l) return;
+    let r = null;
+    const carryCtx = nearestUpperExplicit(idx) || nearestLowerExplicit(idx);
+    const upperCtx = nearestUpperExplicit(idx);
+
+
+    const eqCarry = /=$/.test(l.trim()) ? l.trim().replace(/=+$/,'').trim() : null;
+    if(eqCarry && carryCtx && expandExpression(eqCarry).length){
+      r = applyCarryLine(eqCarry, carryCtx);
+    }else{
+      const pasteBranch = parsePastePairBranchLine(l);
+      if(pasteBranch.handled){
+        r = pasteBranch;
+      }else{
+        const sp = parseSpecialBurmeseLine(l);
+        if(sp.handled){
+          r = sp;
+        }else{
+          const hasOwnExplicit = hasExplicitAmountOnLine(l) || (!!item.explicit && item.explicit.amount);
+          if(hasOwnExplicit){
+            r = /[Rr@]/.test(l) ? parseComplexLine(l) : parseLine(l);
+          }else{
+            const carrySpecial = carryCtx ? parseSpecialCarryLine(l, carryCtx) : {handled:false, rows:[], warnings:[]};
+            if(carrySpecial.handled){
+              r = carrySpecial;
+            }else if(isBareCarryCandidate(l) && carryCtx && !/[Rr@]/.test(l)){
+              r = applyCarryLine(l, carryCtx);
+            }else if(/[Rr@]/.test(l)){
+              r = parseComplexLine(l);
+            }else{
+              r = parseLine(l);
+            }
+          }
+        }
+      }
+    }
+
+    if((!r || !r.rows || !r.rows.length) && isBareCarryCandidate(l) && !carryCtx){
+      const msg='Same message block အတွင်း amount/formula မတွေ့: '+item.raw;
+      warnings.push(msg);
+      issues.push({lineNo:item.lineNo, line:item.raw, edited:item.raw, message:msg});
+      return;
+    }
+
+    (r?.rows||[]).forEach(row=>{
+      row.name=block.name||'Default';
+      if(block.date) row.date = block.date;
+      if(block.session) row.session = block.session;
+      if(block.headerStamp) row.headerStamp = block.headerStamp;
+      row.duplicateBlockKey = block.blockKey || '';
+      row.duplicateBlockLabel = block.blockLabel || '';
+    });
+    detailRows.push(...(r?.rows||[]));
+    (r?.warnings||[]).forEach(w=>warnings.push(w));
+    if(r?.warnings?.length){
+      issues.push({lineNo:item.lineNo, line:item.raw, edited:item.raw, message:r.warnings.join(' | ')});
+    }
+  });
+
+  return {detailRows, warnings, issues, matchedHeader:block.headerMatched?1:0};
+}
+function parseMessage(text, defaultName='Default', writerProfile='AUTO'){
+  const blocks = buildMessageBlocks(text, defaultName||'Default');
+  const detailRows=[]; const warnings=[]; const issues=[];
+  let matchedHeaderCount=0;
+  if(!blocks.length) return {detailRows, totals:[], warnings, issues, matchedHeaderCount, needsNameSelection:false};
+
+  blocks.forEach(block=>{
+    const res = parseMessageBlock(block, writerProfile);
+    detailRows.push(...res.detailRows);
+    warnings.push(...res.warnings);
+    issues.push(...res.issues);
+    matchedHeaderCount += res.matchedHeader || 0;
+  });
+
+  const map=new Map();
+  detailRows.forEach(r=>map.set(r.number,(map.get(r.number)||0)+r.amount));
+  const totals=[...map.entries()].map(([number,amount])=>({number,amount})).sort((a,b)=>Number(a.number)-Number(b.number));
+  const selectedName = String(defaultName||'').trim();
+  const needsNameSelection = matchedHeaderCount===0 && (!selectedName || selectedName==='Default');
+  const headerDates = [...new Set(blocks.map(b=>b.date).filter(Boolean))];
+  const headerSessions = [...new Set(blocks.map(b=>b.session).filter(Boolean))];
+  return {detailRows, totals, warnings, issues, matchedHeaderCount, needsNameSelection, headerDates, headerSessions};
+}
+
+let entryImageState={name:'',size:0,source:''};
+
+function handleEntryImage(evt, sourceType){
+  const file=evt && evt.target && evt.target.files && evt.target.files[0];
+  if(!file) return;
+  const img=document.getElementById('entryImgPreview');
+  const empty=document.getElementById('entryImgEmpty');
+  const meta=document.getElementById('entryImgMeta');
+  const reader=new FileReader();
+  entryImageState={name:file.name||'image',size:file.size||0,source:sourceType||'upload'};
+  reader.onload=function(e){
+    img.src=e.target.result;
+    img.style.display='block';
+    empty.style.display='none';
+    meta.textContent=`${entryImageState.name} • ${Math.round((entryImageState.size||0)/1024)} KB • ${entryImageState.source}`;
+    showToast('Image preview ready. OCR text ကို right box ထဲ paste/edit လုပ်ပါ။');
+  };
+  reader.readAsDataURL(file);
+  if(evt.target) evt.target.value='';
+}
+
+function clearEntryImage(){
+  const img=document.getElementById('entryImgPreview');
+  const empty=document.getElementById('entryImgEmpty');
+  const meta=document.getElementById('entryImgMeta');
+  if(img){img.src=''; img.style.display='none';}
+  if(empty) empty.style.display='block';
+  if(meta) meta.textContent='No file';
+  entryImageState={name:'',size:0,source:''};
+}
+
+function useOcrTextToEntry(mode){
+  const ocr=(document.getElementById('ocrPreviewText').value||'').trim();
+  if(!ocr){showToast('OCR box ထဲ text မရှိသေးပါ'); return;}
+  const ta=document.getElementById('entryText');
+  if(mode==='append' && (ta.value||'').trim()){
+    ta.value=(ta.value||'').replace(/\s+$/,'')+'\n'+ocr;
+  }else{
+    ta.value=ocr;
+  }
+  showToast('OCR text ကို Entry box ထဲ ထည့်ပြီးပါပြီ');
+}
+
+function toggleImageTools(){
+  const box=document.getElementById('imgToolBox');
+  if(!box) return;
+  box.classList.toggle('compact-open');
+}
+
+function confirmSaveAction(){
+  try{
+    savePreview();
+  }catch(err){
+    console.error(err);
+    showToast('Confirm Save error: ' + (err?.message || err));
+  }
+}
+function parseInput(){
+  const writer = selectedWriterProfile();
+  preview=parseMessage(val('entryText'), val('entryName')||'Default', writer);
+
+  const summary = computePreviewSaveSummary();
+  const uniquePreviewBlockKeys = [...new Set((preview.detailRows||[]).map(r=>r.duplicateBlockKey).filter(Boolean))];
+  const allDuplicate = uniquePreviewBlockKeys.length > 0 && summary.duplicateBlockKeys.length === uniquePreviewBlockKeys.length;
+
+  if(allDuplicate){
+    preview = {detailRows:[], totals:[], warnings:['All duplicate ဖြစ်နေပါတယ်။ Copy paste အသစ်ထည့်ပါ။'], issues:[]};
+    renderPreview();
+    showToast('All duplicate ဖြစ်နေပါတယ်။ Copy paste အသစ်ထည့်ပါ။');
+    return;
+  }
+
+  renderPreview();
+  if(preview.matchedHeaderCount && preview.headerDates?.length===1 && preview.headerSessions?.length===1){
+    showToast('Header time အတိုင်း ' + preview.headerDates[0] + ' / ' + preview.headerSessions[0] + ' ဖြင့် သိမ်းပါမယ်');
+  }else{
+    showToast('Preview ပြီးပါပြီ');
+  }
+}
+function computePreviewSaveSummary(){
+  const selectedDate=val('entryDate')||today();
+  const selectedSession=(val('entrySession')||'AM').toUpperCase().startsWith('P')?'PM':'AM';
+  const selectedName=(val('entryName')||'').trim()||'Default';
+  const rows = preview.detailRows || [];
+
+  const targetMap = new Map();
+  rows.forEach(r=>{
+    const rowDate = r.date || selectedDate;
+    const rowSession = (r.session || selectedSession || 'AM').toUpperCase().startsWith('P') ? 'PM' : 'AM';
+    const rowName = r.name || selectedName;
+    const key = `${rowName}__${rowDate}__${rowSession}`;
+    const prev = targetMap.get(key) || {name:rowName, date:rowDate, session:rowSession, rows:0, amount:0};
+    prev.rows += 1;
+    prev.amount += Number(r.amount||0);
+    targetMap.set(key, prev);
+  });
+
+  const targets = [...targetMap.values()].sort((a,b)=>`${a.date}${a.session}${a.name}`.localeCompare(`${b.date}${b.session}${b.name}`));
+
+  const previewBlocks = new Map();
+  rows.forEach(r=>{
+    const key = r.duplicateBlockKey || '';
+    if(!key) return;
+    const prev = previewBlocks.get(key) || {
+      blockKey:key,
+      label:r.duplicateBlockLabel || 'Message Block',
+      name:r.name || selectedName,
+      date:r.date || selectedDate,
+      session:(r.session || selectedSession || 'AM').toUpperCase().startsWith('P') ? 'PM' : 'AM',
+      rows:0,
+      amount:0
+    };
+    prev.rows += 1;
+    prev.amount += Number(r.amount||0);
+    previewBlocks.set(key, prev);
+  });
+
+  const duplicateBlocks = [];
+  previewBlocks.forEach(pb=>{
+    const exists = records.some(r=>
+      (r.duplicateBlockKey||'') === pb.blockKey &&
+      (r.date||'') === pb.date &&
+      (r.session||'') === pb.session
+    );
+    if(exists) duplicateBlocks.push(pb);
+  });
+
+  return {
+    targets,
+    duplicateBlocks,
+    duplicateBlockKeys: duplicateBlocks.map(x=>x.blockKey),
+    duplicateBlockLabels: duplicateBlocks.map(x=>x.label)
+  };
+}
+function renderSaveFlowBox(){
+  const left = document.getElementById('saveTargetSummary');
+  const right = document.getElementById('duplicateSummary');
+  const actions = document.getElementById('duplicateActionBox');
+  if(!left || !right || !actions) return;
+
+  const summary = computePreviewSaveSummary();
+  pendingDuplicateBlockKeys = summary.duplicateBlockKeys || [];
+  pendingDuplicateBlockLabels = summary.duplicateBlockLabels || [];
+
+  if(!preview.detailRows.length){
+    left.innerHTML = '<div class="muted">Parse Preview မလုပ်ရသေးပါ</div>';
+    right.innerHTML = '<div class="muted">Duplicate check မရှိသေးပါ</div>';
+    actions.innerHTML = '';
+    return;
+  }
+
+  left.innerHTML = summary.targets.length ? `
+    <table>
+      <thead><tr><th>Name</th><th>Date</th><th>Session</th><th class="right">Rows</th><th class="right">Amount</th></tr></thead>
+      <tbody>
+        ${summary.targets.map(t=>`<tr><td>${escapeHtml(t.name)}</td><td>${t.date}</td><td><b>${t.session}</b></td><td class="right">${t.rows}</td><td class="right">${money(t.amount)}</td></tr>`).join('')}
+      </tbody>
+    </table>
+  ` : '<div class="muted">Detected target မရှိသေးပါ</div>';
+
+  if(preview.needsNameSelection){
+    right.innerHTML = `<div class="dupNameWarn"><b>Name မရွေးရသေးပါ</b><br>Typing save လုပ်မယ်ဆို Name ကို အရင်ရွေးပြီးမှ Confirm Save လုပ်ပါ။</div>`;
+    actions.innerHTML = '';
+    return;
+  }
+
+  if(pendingDuplicateBlockKeys.length){
+    right.innerHTML = `
+      <div class="dupWarn"><b>Duplicate message block ${pendingDuplicateBlockKeys.length} ခုတွေ့ပါတယ်</b><br>Same Session ထဲမှာ ထပ်တူ message block ရှိနေပါတယ်။</div>
+      <table style="margin-top:8px">
+        <thead><tr><th>Header</th><th>Date</th><th>Session</th><th class="right">Rows</th></tr></thead>
+        <tbody>
+          ${summary.duplicateBlocks.map(d=>`<tr><td>${escapeHtml(d.label)}</td><td>${d.date}</td><td><b>${d.session}</b></td><td class="right">${d.rows}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+    actions.innerHTML = `
+      <div class="btnrow" style="margin-top:8px">
+        <button class="btn warn small" onclick="deleteDuplicatePreviewBlocks(true)">Delete Existing + Save</button>
+        <button class="btn secondary small" onclick="savePreview(true,'skip')">Skip Duplicate Only</button>
+        <button class="btn small" onclick="savePreview(true,'all')">Save All Anyway</button>
+        <button class="btn gray small" onclick="cancelDuplicateFlow()">Cancel</button>
+      </div>
+    `;
+  }else{
+    right.innerHTML = `<div class="dupOk"><b>No duplicate</b><br>ဒီ preview ကို current target ထဲ safe save လုပ်လို့ရပါတယ်။</div>`;
+    actions.innerHTML = '';
+  }
+}
+function cancelDuplicateFlow(){
+  showToast('Duplicate warning ကိုပြထားပါတယ်။ Header line ကို ပြန်စစ်နိုင်ပါတယ်');
+}
+function deleteDuplicatePreviewBlocks(saveAfter=false){
+  if(!pendingDuplicateBlockKeys.length){
+    showToast('ဖျက်ရန် duplicate message block မရှိပါ');
+    return;
+  }
+  snapshotBeforeChange('Delete Duplicate Blocks', {count:pendingDuplicateBlockKeys.length});
+  const deleted = records.filter(r=>pendingDuplicateBlockKeys.includes(r.duplicateBlockKey || ''));
+  records = records.filter(r=>!pendingDuplicateBlockKeys.includes(r.duplicateBlockKey || ''));
+  saveRecords();
+  saveCloudSnapshot(false);
+  pushAudit('DELETE_DUPLICATE_BLOCKS', {
+    label:`Deleted ${pendingDuplicateBlockKeys.length} duplicate blocks`,
+    summary:'Duplicate message block ကို ဖျက်ပြီးပါပြီ',
+    names: collectNamesFromRows(deleted),
+    date: deleted[0]?.date || '',
+    session: deleted[0]?.session || '',
+    rawText: deleted[0]?.batchRawText || ''
+  });
+  pendingDuplicateBlockKeys = [];
+  pendingDuplicateBlockLabels = [];
+  renderAll();
+  renderSaveFlowBox();
+  showToast('Existing duplicate message block ကို ဖျက်ပြီးပါပြီ');
+  if(saveAfter) savePreview(true,'all');
+}
+function renderPreview(){
+  setText('pvRows',preview.detailRows.length);
+  setText('pvTotal',money(preview.detailRows.reduce((a,b)=>a+b.amount,0)));
+  setText('pvWarnings',preview.warnings.length);
+  document.getElementById('previewRows').innerHTML=preview.detailRows.map((r,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(r.name||val('entryName')||'Default')}</td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${r.type}</td><td>${escapeHtml(r.source)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No preview</td></tr>';
+  document.getElementById('previewAgg').innerHTML=preview.totals.map(r=>`<tr><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">No data</td></tr>';
+  document.getElementById('warnBox').innerHTML=preview.warnings.length? `<div class="bad">${preview.warnings.map(escapeHtml).join('<br>')}</div>` : '<span class="good">Warnings မရှိပါ</span>';
+  renderIssueEditor();
+  renderSaveFlowBox();
+}
+function renderIssueEditor(){
+  const wrap=document.getElementById('issueEditorWrap');
+  const list=document.getElementById('issueEditorList');
+  const detail=document.getElementById('issueEditorDetail');
+  const editor=document.getElementById('entryText');
+  if(!wrap || !list || !detail || !editor) return;
+
+  if(preview.issues && preview.issues.length){
+    if(currentIssueIndex >= preview.issues.length) currentIssueIndex = 0;
+    wrap.style.display='block';
+    editor.classList.add('entryError');
+
+    list.innerHTML = preview.issues.map((it,i)=>`
+      <button class="issuePickBtn ${i===currentIssueIndex?'active':''}" onclick="selectIssue(${i})">
+        Line ${it.lineNo}: ${escapeHtml(String(it.edited||it.line||'').slice(0,40))}
+      </button>
+    `).join('');
+
+    const it = preview.issues[currentIssueIndex];
+    detail.innerHTML = `
+      <div class="issueMsg">Line ${it.lineNo}: ${escapeHtml(it.message)}</div>
+      <textarea class="issueInput" id="issueLine_single" oninput="updateCurrentIssueText(this.value)">${escapeHtml(it.edited||it.line||'')}</textarea>
+      <div class="issueQuickActions">
+        <button class="btn secondary small" onclick="findCurrentIssueInEditor()">Find in Paste</button>
+        <button class="btn secondary small" onclick="replaceCurrentIssueInEditor()">Replace in Paste Box</button>
+        <button class="btn warn small" onclick="appendCurrentIssueToEditor()">Append Bottom</button>
+        <button class="btn small" onclick="applyCurrentIssueAndReparse()">Apply & Reparse</button>
+      </div>
+    `;
+  }else{
+    wrap.style.display='none';
+    list.innerHTML='';
+    detail.innerHTML='';
+    editor.classList.remove('entryError');
+  }
+}
+
+function selectIssue(i){
+  currentIssueIndex = i;
+  renderIssueEditor();
+}
+
+function updateCurrentIssueText(value){
+  if(!preview.issues || !preview.issues[currentIssueIndex]) return;
+  preview.issues[currentIssueIndex].edited = value;
+}
+
+function findCurrentIssueInEditor(){
+  if(!preview.issues || !preview.issues[currentIssueIndex]) return;
+  const issue=preview.issues[currentIssueIndex];
+  const ta=document.getElementById('entryText');
+  const lines=ta.value.split('\n');
+  const idx = issue.lineNo ? issue.lineNo-1 : lines.findIndex(x=>x.trim()===String(issue.line).trim());
+  let start=0;
+  for(let n=0;n<Math.max(0,idx);n++) start += lines[n].length + 1;
+  const target = (idx>=0 ? lines[idx] : (issue.line||''));
+  ta.focus();
+  ta.setSelectionRange(start, start + String(target).length);
+  showToast('Paste Box ထဲ line ကို ရှာပေးပြီးပါပြီ');
+}
+
+function replaceCurrentIssueInEditor(){
+  if(!preview.issues || !preview.issues[currentIssueIndex]) return;
+  const issue=preview.issues[currentIssueIndex];
+  const ta=document.getElementById('entryText');
+  const lines=ta.value.split('\n');
+  const idx = issue.lineNo ? issue.lineNo-1 : lines.findIndex(x=>x.trim()===String(issue.line).trim());
+  if(idx>=0) lines[idx]=issue.edited||issue.line;
+  else lines.push(issue.edited||issue.line);
+  ta.value = lines.join('\n');
+  findCurrentIssueInEditor();
+  showToast('Paste Box ထဲ အစားထိုးပြီးပါပြီ');
+}
+
+function appendCurrentIssueToEditor(){
+  if(!preview.issues || !preview.issues[currentIssueIndex]) return;
+  const issue=preview.issues[currentIssueIndex];
+  const ta=document.getElementById('entryText');
+  ta.value = ta.value.replace(/\s+$/,'') + '\n' + (issue.edited||issue.line);
+  showToast('အောက်ဆုံးမှာ ထည့်ပြီးပါပြီ');
+}
+
+function applyCurrentIssueAndReparse(){
+  replaceCurrentIssueInEditor();
+  parseInput();
+}
+
+function clearIssueEditor(){
+  const wrap=document.getElementById('issueEditorWrap');
+  const list=document.getElementById('issueEditorList');
+  const detail=document.getElementById('issueEditorDetail');
+  const editor=document.getElementById('entryText');
+  currentIssueIndex = 0;
+  if(wrap) wrap.style.display='none';
+  if(list) list.innerHTML='';
+  if(detail) detail.innerHTML='';
+  if(editor) editor.classList.remove('entryError');
+  if(preview) preview.issues=[];
+}
+
+function normalizeDuplicateText(s){
+  return String(s||'').replace(/\s+/g,' ').trim();
+}
+function savePreview(skipDuplicateCheck=false, duplicateMode='warn'){
+  if(!preview.detailRows.length){showToast('Save လုပ်ရန် preview မရှိပါ'); return;}
+  const selectedDate=val('entryDate')||today(); const selectedSession=val('entrySession')||'AM';
+  if(selectedSession==='DAILY'){ showToast('Confirm Save လုပ်ရန် AM သို့မဟုတ် PM ကိုရွေးပါ'); return; }
+  const selectedName=(val('entryName')||'').trim()||'Default';
+  if(preview.needsNameSelection && selectedName==='Default'){
+    renderSaveFlowBox();
+    showToast('Name မရွေးရသေးပါ။ Name ရွေးပြီးမှ Confirm Save လုပ်ပါ','error',6000);
+    go('entry');
+    return;
+  }
+
+  const summary = computePreviewSaveSummary();
+  if(!skipDuplicateCheck && summary.duplicateBlockKeys.length){
+    pendingDuplicateBlockKeys = summary.duplicateBlockKeys;
+    pendingDuplicateBlockLabels = summary.duplicateBlockLabels;
+    renderSaveFlowBox();
+    showToast('Duplicate message block တွေ့ပါတယ်။ Action တစ်ခုရွေးပါ','warn',6000);
+    return;
+  }
+
+  const rawText = val('entryText') || '';
+  const normalizedText = normalizeDuplicateText(rawText);
+  const ts=Date.now(); const batchId='B'+ts; const writerProfile=selectedWriterProfile();
+
+  let rowsToSave = [...preview.detailRows];
+  if(duplicateMode==='skip' && pendingDuplicateBlockKeys.length){
+    rowsToSave = rowsToSave.filter(r=>!pendingDuplicateBlockKeys.includes(r.duplicateBlockKey || ''));
+  }
+
+  if(!rowsToSave.length){
+    showToast('အသစ်သိမ်းရန် row မရှိပါ');
+    return;
+  }
+
+  snapshotBeforeChange('Save Preview', {rows:rowsToSave.length, names:collectNamesFromRows(rowsToSave)});
+
+  rowsToSave.forEach(r=>{
+    const rowName = r.name || selectedName;
+    const rowDate = r.date || selectedDate;
+    const rowSession = (r.session || selectedSession || 'AM').toUpperCase().startsWith('P') ? 'PM' : 'AM';
+    const groupId = `${batchId}__${rowName}__${String(r.source||'').trim()}__${rowDate}__${rowSession}`;
+    records.push({...r,name:rowName,date:rowDate,session:rowSession,ts,batchId,groupId,writerProfile,batchTextHash:normalizedText,batchRawText:rawText,duplicateBlockKey:r.duplicateBlockKey||'',duplicateBlockLabel:r.duplicateBlockLabel||'',id:crypto.randomUUID?crypto.randomUUID():String(ts)+Math.random()});
+  });
+
+  try{
+    saveRecords();
+  }catch(err){
+    return;
+  }
+  saveCloudSnapshot(false);
+  pushAudit('SAVE', {
+    label: `Saved ${rowsToSave.length} rows`,
+    summary: `Batch ${batchId} | ${rowsToSave.length} rows သိမ်းပြီး`,
+    names: collectNamesFromRows(rowsToSave),
+    date: rowsToSave[0]?.date || selectedDate,
+    session: rowsToSave[0]?.session || selectedSession,
+    rawText
+  });
+  pendingDuplicateBlockKeys = [];
+  pendingDuplicateBlockLabels = [];
+  preview={detailRows:[],totals:[],warnings:[],issues:[]};
+  renderAll();
+  renderSaveFlowBox();
+  showToast('Confirm Save အောင်မြင်ပါပြီ — စာရင်းကို Entry Records ထဲ သိမ်းပြီးပါပြီ','success',5000);
+}
+function filterRecords(date,session,name='ALL'){
+  return records.filter(r=>r.date===date && (session==='DAILY' || r.session===session) && (name==='ALL' || (r.name||'Default')===name));
+}
+function totalsByNumber(date,session,name='ALL'){
+  const map=new Map(); filterRecords(date,session,name).forEach(r=>map.set(r.number,(map.get(r.number)||0)+Number(r.amount||0)));
+  return Object.fromEntries([...map.entries()].sort((a,b)=>Number(a[0])-Number(b[0])));
+}
+function totalsByName(date,session){
+  const map=new Map(); filterRecords(date,session,'ALL').forEach(r=>map.set(r.name||'Default',(map.get(r.name||'Default')||0)+Number(r.amount||0)));
+  return Object.fromEntries([...map.entries()].sort((a,b)=>a[0].localeCompare(b[0])));
+}
+function deductionsFor(date,session,name='ALL'){
+  return overDeductions.filter(d=>d.date===date && (session==='DAILY' || d.session===session) && (name==='ALL' ? true : (d.name===name || d.name==='ALL')));
+}
+function boardTotalsByNumber(date,session,name='ALL'){
+  const totals={...totalsByNumber(date,session,name)};
+  deductionsFor(date,session,name).forEach(d=>{totals[d.number]=(totals[d.number]||0)-Number(d.amount||0); if(totals[d.number]<0) totals[d.number]=0;});
+  return totals;
+}
+function boardTableHTML(totals, limit, cb){
+  let html='', total=0, overTotal=0, overCount=0;
+  for(let row=0; row<10; row++){
+    for(let ten=0; ten<10; ten++){
+      const n=String(ten)+String(row); const amt=Number(totals[n]||0); total+=amt; const over=amt>limit; const hot=amt>0 && !over;
+      if(over){overCount++; overTotal+=amt-limit;}
+      html += `<div class="numCell ${over?'over':hot?'hot':''}">${n}</div><div class="amtCell ${amt?'':'empty'} ${over?'over':hot?'hot':''}">${amt?unit(amt):''}</div>`;
+    }
+  }
+  cb?.({total,overTotal,overCount}); return html;
+}
+function renderLimit(){
+  const date=val('limitDate')||today(); const session=val('limitSession')||'AM'; const name=val('limitName')||'ALL'; const limit=Number(val('limitAmount')||settings.defaultLimit||10000); const totals=boardTotalsByNumber(date,session,name);
+  const board=document.getElementById('limitBoard'); let total=0, overTotal=0, overCount=0;
+  board.innerHTML=boardTableHTML(totals, limit, (calc)=>{total=calc.total; overTotal=calc.overTotal; overCount=calc.overCount;});
+  setText('limitTotal',money(total)); setText('limitOverTotal',money(overTotal)); setText('limitOverCount',overCount);
+}
+function renderOver(){
+  const date=val('overDate')||today(); const session=val('overSession')||'AM'; const name=val('overName')||'ALL'; const limit=Number(val('overLimit')||settings.defaultLimit||10000); const totals=boardTotalsByNumber(date,session,name);
+  const rows=Object.entries(totals).filter(([n,a])=>a>limit).map(([number,amount])=>({number,amount,over:amount-limit}));
+  document.getElementById('overRows').innerHTML=rows.map((r,i)=>`<tr><td>${i+1}</td><td><b>${r.number}</b></td><td class="right bad">${money(r.over)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">Over မရှိပါ</td></tr>';
+  setText('overSumOver',money(rows.reduce((a,b)=>a+b.over,0)));
+}
+function dealerManualKey(date,session){return `${date||today()}__${session||'AM'}`;}
+function saveDealerManualMemory(){userSetItem('v2d_dealer_manual_memory',JSON.stringify(dealerManualMemory||{}));}
+function saveManualDealerInputs(){
+  const date=val('reportDate')||today();
+  const session=val('reportSession')||'AM';
+  if(session==='DAILY') return;
+  dealerManualMemory[dealerManualKey(date,session)] = [1,2,3].map(i=>({
+    name:val('odName'+i)||'',
+    amount:Number(val('odAmt'+i)||0),
+    pAmount:Number(val('odPamt'+i)||0),
+    cor:Number(val('odCor'+i)||0)
+  }));
+  saveDealerManualMemory();
+}
+function loadManualDealerInputs(){
+  const date=val('reportDate')||today();
+  const session=val('reportSession')||'AM';
+  const rows = session==='DAILY' ? [] : (dealerManualMemory[dealerManualKey(date,session)]||[]);
+  [1,2,3].forEach((i,idx)=>{
+    const r=rows[idx]||{};
+    setVal('odName'+i,r.name||'');
+    setVal('odAmt'+i,r.amount||'');
+    setVal('odPamt'+i,r.pAmount||'');
+    setVal('odCor'+i,r.cor||'');
+  });
+}
+function onReportViewChange(){
+  restorePNumber();
+  loadManualDealerInputs();
+  renderReports();
+}
+function getRate(name){return Number((settings.nameRates&&settings.nameRates[name]!=null)?settings.nameRates[name]:(settings.commissionRate||0));}
+function sessionPData(date,session,name='ALL'){
+  const rate=Number(settings.payoutRate||80);
+  if(session==='DAILY'){
+    const pAM=getStoredPNumber(date,'AM');
+    const pPM=getStoredPNumber(date,'PM');
+    const amTotals=totalsByNumber(date,'AM',name);
+    const pmTotals=totalsByNumber(date,'PM',name);
+    const pamtAM=pAM?(amTotals[pAM]||0):0;
+    const pamtPM=pPM?(pmTotals[pPM]||0):0;
+    return {
+      p:`AM ${pAM||'-'} | PM ${pPM||'-'}`,
+      pAM,pPM,
+      pamtAM,pamtPM,
+      pamt:pamtAM+pamtPM,
+      payout:(pamtAM+pamtPM)*rate
+    };
+  }
+  const p=getStoredPNumber(date,session);
+  const totals=totalsByNumber(date,session,name);
+  const pamt=p?(totals[p]||0):0;
+  return {p,pamt,payout:pamt*rate};
+}
+function reportCalc(){
+  const date=val('reportDate')||today(); const session=val('reportSession')||'AM'; const name=val('reportName')||'ALL';
+  restorePNumber();
+  const totals=totalsByNumber(date,session,name); const nameTotals=totalsByName(date,session); const total=Object.values(totals).reduce((a,b)=>a+b,0);
+  const pData=sessionPData(date,session,name);
+  const com=total*(Number(settings.commissionRate||0)/100); const net=total-com; const pamt=pData.pamt; const payout=pData.payout; const final=net-payout;
+  return {date,session,name,totals,nameTotals,total,com,net,p:pData.p,pData,pamt,payout,final};
+}
+function commissionSummary(name,date,session){
+  const totals=totalsByNumber(date,session,name); const total=Object.values(totals).reduce((a,b)=>a+b,0);
+  const pData=sessionPData(date,session,name); const pamt=pData.pamt; const payout=pData.payout;
+  const rate=getRate(name); const cor=total*rate/100; const final=total-payout-cor;
+  return {name,date,session,p:pData.p,pData,total,pamt,payout,rate,cor,final,status: final<0?'ဒိုင်မှ ပေးရန်':'ဒိုင်မှ ရရန်'};
+}
+function signedMoney(v){return v<0?'('+money(Math.abs(Math.round(v)))+')':money(Math.round(v));}
+function manualOverDealerRows(){
+  const payoutRate=Number(settings.payoutRate||80);
+  return [1,2,3].map(i=>{
+    const name=val('odName'+i)||('Over '+i);
+    const amount=Number(val('odAmt'+i)||0);
+    const pAmount=Number(val('odPamt'+i)||0);
+    const cor=Number(val('odCor'+i)||0);
+    const corAmount=amount*cor/100;
+    const payout=pAmount*payoutRate;
+    const final=amount-corAmount-payout;
+    return {index:i,name,amount,pAmount,cor,corAmount,payout,final};
+  }).filter(x=>x.amount>0 || x.pAmount>0 || x.cor>0 || (x.name && !/^Over \d+$/.test(x.name)));
+}
+function dealerSummary(date,session){
+  const names=settings.names||[]; const sums=names.map(n=>commissionSummary(n,date,session));
+  const allTotal=sums.reduce((a,b)=>a+b.total,0);
+  const allPAmount=sums.reduce((a,b)=>a+b.pamt,0);
+  const allPayout=sums.reduce((a,b)=>a+b.payout,0);
+  const allCor=sums.reduce((a,b)=>a+b.cor,0);
+  const overRows=manualOverDealerRows();
+  const overAmount=overRows.reduce((a,b)=>a+b.amount,0);
+  const overPAmount=overRows.reduce((a,b)=>a+b.pAmount,0);
+  const overCor=overRows.reduce((a,b)=>a+b.corAmount,0);
+  const overPayout=overRows.reduce((a,b)=>a+b.payout,0);
+  const final=allTotal-allPayout-allCor-overAmount+overPayout+overCor;
+  return {allTotal,allPAmount,allPayout,allCor,overAmount,overPAmount,overCor,overPayout,final,overRows,sums};
+}
+function renderDealerSummary(r){
+  if(!document.getElementById('dealerTotal')) return;
+  const d=dealerSummary(r.date,r.session);
+  d.overRows.forEach(x=>{
+    setText('odCorAmt'+x.index,money(Math.round(x.corAmount)));
+    setText('odPayout'+x.index,money(Math.round(x.payout)));
+    setText('odFinal'+x.index,signedMoney(x.final));
+    const el=document.getElementById('odFinal'+x.index);
+    if(el) el.className='dealerAuto '+(x.final<0?'dealerFinalNegative':'dealerFinalPositive');
+  });
+  [1,2,3].forEach(i=>{
+    if(!d.overRows.some(x=>x.index===i)){
+      setText('odCorAmt'+i,'0'); setText('odPayout'+i,'0'); setText('odFinal'+i,'0');
+      const el=document.getElementById('odFinal'+i); if(el) el.className='dealerAuto';
+    }
+  });
+  setText('dealerTotal',money(d.allTotal));
+  setText('dealerPAmount',money(d.allPAmount));
+  setText('dealerPayout',money(d.allPayout));
+  setText('dealerCor',money(Math.round(d.allCor)));
+  setText('dealerOverAmt',money(d.overAmount));
+  setText('dealerOverPAmount',money(d.overPAmount));
+  setText('dealerOverPayout',money(d.overPayout));
+  setText('dealerOverCor',money(Math.round(d.overCor)));
+  setText('dealerFinal',signedMoney(d.final));
+  document.getElementById('dealerFinal').className='v '+(d.final<0?'dealerFinalNegative':'dealerFinalPositive');
+}
+function drawReportImage(title, lines, filename){
+  const canvas=document.createElement('canvas'); canvas.width=900; canvas.height=Math.max(500,120+lines.length*36); const c=canvas.getContext('2d');
+  c.fillStyle='#f8fafc'; c.fillRect(0,0,canvas.width,canvas.height); c.fillStyle='#0f172a'; c.font='bold 34px Arial'; c.fillText(title,32,54);
+  c.strokeStyle='#16a34a'; c.lineWidth=4; c.beginPath(); c.moveTo(32,76); c.lineTo(canvas.width-32,76); c.stroke();
+  c.font='22px Arial'; let y=120; lines.forEach(line=>{c.fillStyle=line.color||'#0f172a'; c.font=line.bold?'bold 23px Arial':'22px Arial'; c.fillText(line.text,40,y); y+=36;});
+  const a=document.createElement('a'); a.href=canvas.toDataURL('image/png'); a.download=filename; a.click();
+}
+function saveCommissionReportImage(){
+  const date=val('reportDate')||today(); const session=val('reportSession')||'AM'; const selected=val('reportName')||'ALL';
+  const names=selected==='ALL'?(settings.names||[]): [selected];
+  names.forEach(name=>{
+    const s=commissionSummary(name,date,session); const neg=s.final<0;
+    drawReportImage(`${name} ${session} စာရင်း`,[
+      {text:`Date: ${date}`,bold:true},{text:`P Number: ${s.p}`,bold:true},{text:`Total Amount: ${money(s.total)}`},{text:`P Amount: ${money(s.pamt)}`},{text:`Payout: ${money(s.payout)}`},{text:`Cor ${s.rate}%: ${money(Math.round(s.cor))}`},{text:`Final: ${signedMoney(s.final)}`,bold:true,color:neg?'#dc2626':'#16a34a'},{text:s.status,bold:true,color:neg?'#dc2626':'#16a34a'}
+    ],`commission-${name}-${date}-${session}.png`);
+  });
+}
+function saveDealerReportImage(){
+  const date=val('reportDate')||today(); const session=val('reportSession')||'AM'; const p=sessionPData(date,session,'ALL').p; const d=dealerSummary(date,session); const neg=d.final<0;
+  const lines=[{text:`Date: ${date} | Session: ${session} | P: ${p}`,bold:true},{text:`All Total: ${money(d.allTotal)}`},{text:`All P Amount: ${money(d.allPAmount)}`},{text:`All Payout: ${money(d.allPayout)}`},{text:`All Cor: ${money(Math.round(d.allCor))}`},{text:`Manual Dealer Total: ${money(d.overAmount)}`},{text:`Manual P Amount: ${money(d.overPAmount)}`},{text:`Manual Payout: ${money(d.overPayout)}`},{text:`Manual Cor: ${money(Math.round(d.overCor))}`},{text:`Final Results: ${signedMoney(d.final)}`,bold:true,color:neg?'#16a34a':'#dc2626'}];
+  d.overRows.forEach(x=>lines.push({text:`${x.name}: Total ${money(x.amount)} | P ${money(x.pAmount)} | Cor ${x.cor}%=${money(Math.round(x.corAmount))} | Payout ${money(x.payout)} | Final ${signedMoney(x.final)}`,color:x.final<0?'#16a34a':'#dc2626'}));
+  drawReportImage('ဒိုင်စာရင်း / Dealer Summary',lines,`dealer-${date}-${session}.png`);
+}
+function renderReports(){
+  const r=reportCalc(); setText('rTotal',money(r.total)); setText('rCom',money(Math.round(r.com))); setText('rNet',money(Math.round(r.net))); setText('rPamt',money(r.pamt)); setText('rPayout',money(r.payout)); setText('rFinal',money(Math.round(r.final)));
+  document.getElementById('rFinal').className='v '+(r.final>=0?'good':'bad');
+  document.getElementById('reportNameRows').innerHTML=(settings.names||[]).map(n=>{const s=commissionSummary(n,r.date,r.session); const cls=s.final<0?'resultNegative':'resultPositive'; const f=s.final<0?'('+money(Math.abs(Math.round(s.final)))+')':money(Math.round(s.final)); return `<tr><td><b>${escapeHtml(n)}</b></td><td class="right">${money(s.total)}</td><td class="right">${money(s.pamt)}</td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td></tr>`}).join('') || '<tr><td colspan="7" class="muted">No data</td></tr>';
+  document.getElementById('reportRows').innerHTML=Object.entries(r.totals).map(([n,a])=>`<tr><td><b>${n}</b></td><td class="right">${money(a)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">No data</td></tr>';
+  renderDealerSummary(r);
+}
+function renderImageText(){
+  const date=val('imageDate')||today(); const session=val('imageSession')||'AM'; const name=val('imageName')||'ALL'; const title=val('imageTitle')||'2D Report'; const totals=totalsByNumber(date,session,name); const total=Object.values(totals).reduce((a,b)=>a+b,0);
+  const lines=[]; lines.push(`${title}`); lines.push(`${settings.shopName||'Viber 2D Desk'} | ${date} | ${session} | ${name}`); lines.push('--------------------'); Object.entries(totals).forEach(([n,a])=>lines.push(`${n} = ${money(a)}`)); lines.push('--------------------'); lines.push(`Total = ${money(total)}`);
+  document.getElementById('shareText').textContent=lines.join('\n');
+}
+function renderMainBoard(){
+  const board=document.getElementById('mainLimitBoard'); if(!board) return;
+  const date=val('entryDate')||today(); const session=val('entrySession')||'AM'; const mode=val('entryBoardMode')||'ALL'; const name=mode==='NAME'?(val('entryBoardName')||'Default'):'ALL'; const limit=Number(val('entryLimitAmount')||settings.defaultLimit||10000);
+  const totals=boardTotalsByNumber(date,session,name); const rows=filterRecords(date,session,name).length;
+  let total=0, overTotal=0, overCount=0;
+  board.innerHTML=boardTableHTML(totals, limit, (calc)=>{total=calc.total; overTotal=calc.overTotal; overCount=calc.overCount;});
+  setText('mainBoardTotal',money(total)); setText('mainBoardOverTotal',money(overTotal)); setText('mainBoardOverCount',overCount); setText('mainBoardRows',rows);
+}
+function renderEntryOver(){
+  const tbody=document.getElementById('entryOverRows'); if(!tbody) return;
+  const date=val('entryDate')||today(); const session=val('entrySession')||'AM'; const mode=val('entryBoardMode')||'ALL'; const name=mode==='NAME'?(val('entryBoardName')||'Default'):'ALL'; const limit=Number(val('entryLimitAmount')||settings.defaultLimit||10000);
+  const totals=boardTotalsByNumber(date,session,name); const rows=Object.entries(totals).filter(([n,a])=>a>limit).map(([number,amount])=>({number,amount,over:amount-limit}));
+  tbody.innerHTML=rows.map((r,i)=>`<tr><td>${i+1}</td><td><b>${r.number}</b></td><td class="right bad">${money(r.over)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">Over မရှိပါ</td></tr>';
+  setText('entryOverSumOver',money(rows.reduce((a,b)=>a+b.over,0)));
+}
+function renderEntryLive(){renderMainBoard(); renderEntryOver();}
+const I18N={
+  my:{langLabel:'ဘာသာ',backup:'Backup JSON',clearAll:'အားလုံးဖျက်',liveBoard:'Limit Table Board / Live Desk',boardNote:'Laptop screen အတွက် Board ကို အပေါ်ဆုံးမှာ သေသပ်ကျယ်ပြန့်စွာထားထားသည်။ Amount ကို Unit ဖြင့်ပြသည်။',refresh:'Refresh / ပြန်ဖော်ပြ',date:'ရက်စွဲ',session:'Session',name:'Name / ကော်မရှင်',limitAmount:'Limit Amount',total:'စုစုပေါင်း',overTotal:'Over စုစုပေါင်း',overCount:'Over အရေအတွက်',recordRows:'Rows',entryTitle:'စာရင်းထည့်ရန် / Entry',parsePreview:'Parse Preview / စစ်ကြည့်',confirmSave:'Confirm Save / သိမ်းမယ်',clearText:'Clear Text / ဖျက်မယ်',previewRows:'Preview Rows',previewTotal:'Preview Total',warnings:'Warnings / သတိ',aggByNumber:'Number အလိုက်ပေါင်း',previewDetail:'Preview Detail / အသေးစိတ်',overLive:'Over / ကျော်စာရင်း',overNote:'အပေါ်က ရက်စွဲ / Session / Name အတိုင်း Over တွက်ထားသည်။',uploadImage:'Upload Image / ပုံတင်',cameraBtn:'Camera / ကင်မရာ',clearImage:'Clear Image / ပုံဖျက်'},
+  en:{langLabel:'Language',backup:'Backup JSON',clearAll:'Clear All',liveBoard:'Limit Table Board / Live Desk',boardNote:'A clean wide board is placed first for laptop screens. Amounts are displayed in unit format.',refresh:'Refresh',date:'Date',session:'Session',name:'Name / Commission',limitAmount:'Limit Amount',total:'Total',overTotal:'Over Total',overCount:'Over Count',recordRows:'Rows',entryTitle:'Entry',parsePreview:'Parse Preview',confirmSave:'Confirm Save',clearText:'Clear Text',previewRows:'Preview Rows',previewTotal:'Preview Total',warnings:'Warnings',aggByNumber:'Aggregated by Number',previewDetail:'Preview Detail',overLive:'Over',overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',cameraBtn:'Camera',clearImage:'Clear Image'}
+};
+function setLang(lang){settings.lang=lang; userSetItem('v2d_settings',JSON.stringify(settings)); const d=I18N[lang]||I18N.my; document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.dataset.i18n; if(d[k]) el.textContent=d[k];}); const sel=document.getElementById('langSelect'); if(sel) sel.value=lang;}
+function renderDashboard(){
+  const t=today(); const am=filterRecords(t,'AM').reduce((a,b)=>a+b.amount,0); const pm=filterRecords(t,'PM').reduce((a,b)=>a+b.amount,0); setText('dashToday',money(am+pm)); setText('dashAM',money(am)); setText('dashPM',money(pm));
+  document.getElementById('latestRows').innerHTML=records.slice(-30).reverse().map(r=>`<tr><td>${r.date}</td><td>${r.session}</td><td>${escapeHtml(r.name||'Default')}</td><td>${escapeHtml(normalizeWriterProfile(r.writerProfile||'AUTO'))}</td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${escapeHtml(r.source)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No records</td></tr>';
+}
+
+function jsArg(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+function getBatchId(r){ return r.batchId || ('LEGACY-'+String(r.ts||0)); }
+function getGroupId(r){ return r.groupId || (getBatchId(r)+'__'+(r.name||'Default')+'__'+String(r.source||'')); }
+function batchLabel(r){ return getBatchId(r).replace(/^LEGACY-/,'L-').slice(-8); }
+function recordFilteredRows(){
+  const date=val('recordDate')||today(), session=val('recordSession')||'AM', name=val('recordName')||'ALL', q=(val('recordSearch')||'').toLowerCase().trim();
+  return records.filter(r=>{
+    const okDate=r.date===date;
+    const okSession=session==='DAILY' || r.session===session;
+    const okName=name==='ALL' || (r.name||'Default')===name;
+    const blob=((r.name||'')+' '+(r.number||'')+' '+(r.amount||'')+' '+(r.source||'')+' '+(r.type||'')+' '+getBatchId(r)).toLowerCase();
+    return okDate && okSession && okName && (!q || blob.includes(q));
+  }).sort((a,b)=>(a.ts||0)-(b.ts||0));
+}
+function renderEntryRecords(){
+  if(!document.getElementById('entryRecordRows')) return;
+  const rows=recordFilteredRows();
+  const mode=val('recordViewMode')||'TIME';
+  setText('recordRowsCount',rows.length);
+  setText('recordRowsTotal',money(rows.reduce((s,r)=>s+Number(r.amount||0),0)));
+  setText('recordNamesCount',new Set(rows.map(r=>r.name||'Default')).size);
+  let html='';
+  if(mode==='NAME'){
+    const groups={}; rows.forEach(r=>{const n=r.name||'Default'; (groups[n] ||= []).push(r);});
+    let no=1;
+    Object.keys(groups).sort().forEach(name=>{
+      const g=groups[name], total=g.reduce((s,r)=>s+Number(r.amount||0),0);
+      html += `<tr class="recordHeaderRow"><td colspan="12">${escapeHtml(name)} — ${g.length} rows — Total ${money(total)}</td></tr>`;
+      g.forEach(r=>{html += entryRecordRowHtml(r,no++);});
+    });
+  }else{
+    html = rows.map((r,i)=>entryRecordRowHtml(r,i+1)).join('');
+  }
+  document.getElementById('entryRecordRows').innerHTML = html || '<tr><td colspan="12" class="muted">Record မရှိသေးပါ</td></tr>';
+}
+function entryRecordRowHtml(r,no){
+  const t=r.ts?new Date(r.ts).toLocaleTimeString(): '-';
+  const id=jsArg(r.id||'');
+  return `<tr><td>${no}</td><td>${t}</td><td>${r.date||''}</td><td>${r.session||''}</td><td>${escapeHtml(r.name||'Default')}</td><td>${escapeHtml(normalizeWriterProfile(r.writerProfile||'AUTO'))}</td><td><span class="miniBadge">${escapeHtml(batchLabel(r))}</span></td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${escapeHtml(r.type||'')}</td><td>${escapeHtml(r.source||'')}</td><td class="nowrap"><button class="actionBtn edit" onclick="editEntryRecord('${id}')">Edit / ပြင်</button><button class="actionBtn edit" onclick="openGroupEditByRecord('${id}')">Group / အုပ်စု</button><button class="actionBtn del" onclick="deleteEntryBatch('${id}')">Batch ဖျက်</button><button class="actionBtn del" onclick="deleteEntryRecord('${id}')">Delete / ဖျက်</button></td></tr>`;
+}
+function editEntryRecord(id){
+  const i=records.findIndex(r=>r.id===id); if(i<0){showToast('Record မတွေ့ပါ');return;}
+  const r=records[i];
+  const name=prompt('Name ပြင်ရန်', r.name||'Default'); if(name===null) return;
+  const number=prompt('Number ပြင်ရန်', r.number||''); if(number===null) return;
+  const amount=prompt('Amount ပြင်ရန်', r.amount||''); if(amount===null) return;
+  const date=prompt('Date ပြင်ရန် YYYY-MM-DD', r.date||today()); if(date===null) return;
+  const session=prompt('Session ပြင်ရန် AM / PM', r.session||'AM'); if(session===null) return;
+  if(!/^\d{2}$/.test(String(number).padStart(2,'0').slice(-2))){showToast('Number မမှန်ပါ'); return;}
+  const amt=Number(String(amount).replace(/[^\d]/g,'')); if(!amt){showToast('Amount မမှန်ပါ'); return;}
+  snapshotBeforeChange('Edit Entry Record', {name:r.name||'Default', number:r.number});
+  records[i]={...r,name:name.trim()||'Default',number:String(number).padStart(2,'0').slice(-2),amount:amt,date:date.trim()||today(),session:(session.toUpperCase().startsWith('P')?'PM':'AM'),editedAt:Date.now()};
+  saveRecords(); saveCloudSnapshot(false); pushAudit('EDIT_ROW',{label:`${r.number} → ${String(number).padStart(2,'0').slice(-2)}`,summary:'Row edit ပြီးပါပြီ',name:name.trim()||'Default',date:date.trim()||today(),session:(session.toUpperCase().startsWith('P')?'PM':'AM'),rawText:r.batchRawText||''}); renderAll(); showToast('Edited + Cloud Sync');
+}
+function openGroupEditByRecord(id){
+  const row = records.find(r=>r.id===id);
+  if(!row){showToast('Group မတွေ့ပါ'); return;}
+  const batchId=getBatchId(row), rowName=row.name||'Default';
+  const same = records.filter(r=>getBatchId(r)===batchId && (r.name||'Default')===rowName && r.date===row.date && r.session===row.session).sort((a,b)=>(a.ts||0)-(b.ts||0));
+  const seen=new Set(); const lines=[];
+  same.forEach(r=>{
+    const src=String(r.source||'').trim();
+    if(src && !seen.has(src)){ seen.add(src); lines.push(src); }
+  });
+  currentGroupEdit = {batchId, oldName:rowName, oldDate:row.date, oldSession:row.session, ts:row.ts||Date.now(), writerProfile: normalizeWriterProfile(row.writerProfile||'AUTO')};
+  setVal('groupEditName', rowName);
+  setVal('groupEditDate', row.date||today());
+  setVal('groupEditSession', row.session||'AM');
+  setVal('groupEditWriter', normalizeWriterProfile(row.writerProfile||'AUTO'));
+  setVal('groupEditText', lines.join('\n'));
+  document.getElementById('groupEditModal').classList.add('show');
+}
+function closeGroupEditModal(){
+  currentGroupEdit = null;
+  document.getElementById('groupEditModal').classList.remove('show');
+}
+function applyGroupEdit(){
+  if(!currentGroupEdit){ showToast('Group state မရှိပါ'); return; }
+  const name = (val('groupEditName')||'Default').trim() || 'Default';
+  const date = val('groupEditDate')||today();
+  const session = (val('groupEditSession')||'AM').toUpperCase().startsWith('P') ? 'PM' : 'AM';
+  const writerProfile = normalizeWriterProfile(val('groupEditWriter') || currentGroupEdit.writerProfile || 'AUTO');
+  const text = val('groupEditText').trim();
+  const parsed = parseMessage(text, name, writerProfile);
+  if(!parsed.detailRows.length){ showToast('Group text ကို parse မလုပ်နိုင်ပါ'); return; }
+
+  snapshotBeforeChange('Group Edit', {name:currentGroupEdit.oldName, date:currentGroupEdit.oldDate, session:currentGroupEdit.oldSession});
+  records = records.filter(r=>!(getBatchId(r)===currentGroupEdit.batchId && (r.name||'Default')===currentGroupEdit.oldName && r.date===currentGroupEdit.oldDate && r.session===currentGroupEdit.oldSession));
+  parsed.detailRows.forEach(r=>{
+    const rowName = r.name || name;
+    const groupId = `${currentGroupEdit.batchId}__${rowName}__${String(r.source||'').trim()}`;
+    records.push({...r, name:rowName, date, session, ts:currentGroupEdit.ts, batchId:currentGroupEdit.batchId, groupId, writerProfile, id:crypto.randomUUID?crypto.randomUUID():String(currentGroupEdit.ts)+Math.random(), editedAt:Date.now()});
+  });
+  saveRecords(); saveCloudSnapshot(false); pushAudit('GROUP_EDIT',{label:`${name} ${date} ${session}`,summary:`Group Edit ${parsed.detailRows.length} rows`,name,date,session,rawText:text}); closeGroupEditModal(); renderAll(); showToast('Group Edit + Cloud Sync');
+}
+function deleteEntryRecord(id){
+  const i=records.findIndex(r=>r.id===id); if(i<0){showToast('Record မတွေ့ပါ');return;}
+  const r=records[i]; if(!confirm(`${r.name||'Default'} | ${r.number} | ${money(r.amount)} ကို ဖျက်မလား?`)) return;
+  snapshotBeforeChange('Delete Entry Record', {name:r.name||'Default', number:r.number});
+  records.splice(i,1); saveRecords(); saveCloudSnapshot(false); pushAudit('DELETE_ROW',{label:`${r.name||'Default'} ${r.number}`,summary:`${money(r.amount)} ဖျက်ပြီး`,name:r.name||'Default',date:r.date||'',session:r.session||'',rawText:r.batchRawText||''}); renderAll(); showToast('Deleted + Cloud Sync');
+}
+function deleteEntryBatch(id){
+  const row = records.find(r=>r.id===id); if(!row){showToast('Batch မတွေ့ပါ'); return;}
+  const batchId=getBatchId(row);
+  const sameRows = records.filter(r=>getBatchId(r)===batchId && r.date===row.date && r.session===row.session);
+  const count = sameRows.length;
+  if(!confirm(`Batch ${batchLabel(row)} မှာ ${count} rows ရှိတယ်။ တစ်ခါတည်းဖျက်မလား?`)) return;
+  snapshotBeforeChange('Delete Entry Batch', {batch:batchLabel(row), count});
+  records = records.filter(r=>!(getBatchId(r)===batchId && r.date===row.date && r.session===row.session));
+  saveRecords(); saveCloudSnapshot(false); pushAudit('DELETE_BATCH',{label:batchLabel(row),summary:`Batch ${count} rows ဖျက်ပြီး`,names:collectNamesFromRows(sameRows),date:row.date||'',session:row.session||'',rawText:row.batchRawText||''}); renderAll(); showToast('Batch Deleted + Cloud Sync');
+}
+function deleteFilteredNameRows(){
+  const date=val('recordDate')||today(), session=val('recordSession')||'AM', name=val('recordName')||'ALL';
+  if(name==='ALL'){ showToast('Name တစ်ခုရွေးပြီးမှ Delete Filtered Name လုပ်ပါ'); return; }
+  const deletedRows = records.filter(r=>r.date===date && (session==='DAILY' || r.session===session) && (r.name||'Default')===name);
+  const count = deletedRows.length;
+  if(!count){ showToast('ဖျက်ရန် row မရှိပါ'); return; }
+  if(!confirm(`${date} ${session} ${name} rows ${count} ကြောင်းကို ဖျက်မလား?`)) return;
+  snapshotBeforeChange('Delete Filtered Name Rows', {name, date, session, count});
+  records = records.filter(r=>!(r.date===date && (session==='DAILY' || r.session===session) && (r.name||'Default')===name));
+  saveRecords(); saveCloudSnapshot(false); pushAudit('DELETE_FILTERED_NAME',{label:`${name} ${date} ${session}`,summary:`Filtered rows ${count} ကြောင်းဖျက်ပြီး`,name,date,session,rawText:deletedRows[0]?.batchRawText||''}); renderAll(); showToast('Filtered Name Rows Deleted + Cloud Sync');
+}
+function copyEntryRecordsText(){
+  const rows=recordFilteredRows();
+  if(!rows.length){showToast('Copy လုပ်ရန် record မရှိပါ'); return;}
+  const lines=[`Entry Records ${val('recordDate')||today()} ${val('recordSession')||'AM'} ${val('recordName')||'ALL'}`,'Time | Name | Writer | Batch | Number | Amount | Source'];
+  rows.forEach(r=>lines.push(`${r.ts?new Date(r.ts).toLocaleTimeString():'-'} | ${r.name||'Default'} | ${normalizeWriterProfile(r.writerProfile||'AUTO')} | ${batchLabel(r)} | ${r.number} | ${money(r.amount)} | ${r.source||''}`));
+  lines.push('Total = '+money(rows.reduce((s,r)=>s+Number(r.amount||0),0)));
+  copyText(lines.join('\n'));
+}
+
+
+const APP_VERSION='4.0.1';
+const APP_VERSION_LABEL='Stage 4.0.1 Auth Foundation';
+const APP_LOADED_AT=Date.now();
+let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
+let lastDiagnosticsText='';
+
+function saveRuntimeErrors(){
+  runtimeErrors=(runtimeErrors||[]).slice(0,50);
+  try{userSetItem('v2d_runtime_errors',JSON.stringify(runtimeErrors));}catch(_e){}
+}
+function addRuntimeError(type,message,source='',line=0,column=0,stack=''){
+  runtimeErrors.unshift({
+    ts:Date.now(),
+    type:String(type||'ERROR'),
+    message:String(message||'Unknown error'),
+    source:String(source||''),
+    line:Number(line||0),
+    column:Number(column||0),
+    stack:String(stack||'').slice(0,3000)
+  });
+  saveRuntimeErrors();
+  renderDiagnostics();
+}
+window.addEventListener('error',event=>{
+  addRuntimeError('WINDOW_ERROR',event.message,event.filename,event.lineno,event.colno,event.error?.stack||'');
+});
+window.addEventListener('unhandledrejection',event=>{
+  const reason=event.reason;
+  addRuntimeError('UNHANDLED_PROMISE',reason?.message||String(reason||'Promise rejected'),'','','',reason?.stack||'');
+});
+
+let lastParserTestText='';
+
+function normalizeTestRows(rows){
+  return (rows||[]).map(r=>`${String(r.number).padStart(2,'0')}:${Number(r.amount||0)}`).sort();
+}
+function sameTestArray(a,b){
+  return JSON.stringify([...(a||[])].sort())===JSON.stringify([...(b||[])].sort());
+}
+function parserRowTest(name,input,expected){
+  try{
+    const result=parseMessage(input,'Regression','AUTO');
+    const actual=normalizeTestRows(result.detailRows);
+    const pass=sameTestArray(actual,expected);
+    return {name,pass,expected:[...expected].sort(),actual,warnings:result.warnings||[]};
+  }catch(err){
+    return {name,pass:false,expected:[...expected].sort(),actual:[],error:String(err?.message||err)};
+  }
+}
+function parserBooleanTest(name,actual,expected){
+  const pass=actual===expected;
+  return {name,pass,expected:[String(expected)],actual:[String(actual)]};
+}
+function runParserRegressionTests(){
+  const tests=[];
+
+  tests.push(parserRowTest(
+    'Hyphen separator amount — 47-35-1500',
+    '47-35-1500',
+    ['47:1500','35:1500']
+  ));
+
+  tests.push(parserRowTest(
+    'Dot group amount — 11.22.77.00.5000',
+    '11.22.77.00.5000',
+    ['11:5000','22:5000','77:5000','00:5000']
+  ));
+
+  tests.push(parserRowTest(
+    'Reverse split amount — 54=1000R500',
+    '54=1000R500',
+    ['54:1000','45:500']
+  ));
+
+  tests.push(parserRowTest(
+    'Slash group + reverse — 55/58=1000R500',
+    '55/58=1000R500',
+    ['55:1000','55:500','58:1000','85:500']
+  ));
+
+  tests.push(parserRowTest(
+    'Multi group reverse — 50/51/52=500R300',
+    '50/51/52=500R300',
+    ['50:500','05:300','51:500','15:300','52:500','25:300']
+  ));
+
+  tests.push(parserRowTest(
+    'Forward carry inside one message block',
+    '63=500R200\n64\n65\n67\n97\n44=500',
+    ['63:500','36:200','64:500','46:200','65:500','56:200','67:500','76:200','97:500','79:200','44:500']
+  ));
+
+  tests.push(parserRowTest(
+    'Reverse R amount — 67R1500',
+    '67R1500',
+    ['67:1500','76:1500']
+  ));
+
+  tests.push(parserRowTest(
+    'Different original/reverse amounts — 40=3000R1000',
+    '40=3000R1000',
+    ['40:3000','04:1000']
+  ));
+
+  const h1200=parseHeaderStampMeta('Tuesday, July 7, 2026 12:00 PM');
+  const h1201=parseHeaderStampMeta('Tuesday, July 7, 2026 12:01 PM');
+  const h0939=parseHeaderStampMeta('Tuesday, July 7, 2026 9:39 AM');
+  tests.push(parserBooleanTest('Header 12:00 PM remains AM',h1200?.session,'AM'));
+  tests.push(parserBooleanTest('Header 12:01 PM becomes PM',h1201?.session,'PM'));
+  tests.push(parserBooleanTest('Header 9:39 AM becomes AM',h0939?.session,'AM'));
+
+  const noName=parseMessage('47=500','Default','AUTO');
+  tests.push(parserBooleanTest('Typing without Name requires selection',noName.needsNameSelection,true));
+
+  const blockA=makeMessageBlockKey('Tuesday, July 7, 2026 9:39 AM','Tester',[{raw:'47=500'}]);
+  const blockB=makeMessageBlockKey('Tuesday, July 7, 2026 9:39 AM','Tester',[{raw:'47=500'}]);
+  const blockC=makeMessageBlockKey('Tuesday, July 7, 2026 9:39 AM','Tester',[{raw:'48=500'}]);
+  tests.push(parserBooleanTest('Same message block creates same duplicate key',blockA===blockB,true));
+  tests.push(parserBooleanTest('Different body creates different duplicate key',blockA!==blockC,true));
+
+  const passed=tests.filter(t=>t.pass).length;
+  const failed=tests.length-passed;
+
+  setText('parserTestTotal',tests.length);
+  setText('parserTestPassed',passed);
+  setText('parserTestFailed',failed);
+
+  const status=document.getElementById('parserTestStatus');
+  if(status){
+    status.innerHTML=failed===0
+      ? '<span class="good"><b>ALL PASS</b> — အဟောင်း parser rules အားလုံးမှန်နေပါတယ်။</span>'
+      : `<span class="bad"><b>${failed} TEST FAILED</b> — Failed rows ကို copy လုပ်ပြီး မပြင်ခင် စစ်ဆေးပါ။</span>`;
+  }
+
+  const box=document.getElementById('parserTestResults');
+  if(box){
+    box.innerHTML=tests.map((t,i)=>`
+      <div class="testResultCard ${t.pass?'testPass':'testFail'}">
+        <div><b>${i+1}. ${escapeHtml(t.name)}</b> — <span class="${t.pass?'good':'bad'}">${t.pass?'PASS':'FAIL'}</span></div>
+        <pre>Expected: ${escapeHtml((t.expected||[]).join(', '))}
+Actual:   ${escapeHtml((t.actual||[]).join(', '))}${t.warnings?.length?`\nWarnings: ${escapeHtml(t.warnings.join(' | '))}`:''}${t.error?`\nError: ${escapeHtml(t.error)}`:''}</pre>
+      </div>
+    `).join('');
+  }
+
+  lastParserTestText=[
+    `Viber 2D Desk Parser Regression — ${new Date().toLocaleString()}`,
+    `Total ${tests.length} | Passed ${passed} | Failed ${failed}`,
+    '',
+    ...tests.map((t,i)=>`${i+1}. ${t.pass?'PASS':'FAIL'} — ${t.name}\nExpected: ${(t.expected||[]).join(', ')}\nActual: ${(t.actual||[]).join(', ')}${t.error?`\nError: ${t.error}`:''}`)
+  ].join('\n');
+
+  showToast(failed===0?'Parser Tests ALL PASS':'Parser Tests မှာ FAIL ရှိပါတယ်');
+}
+function copyParserTestResults(){
+  if(!lastParserTestText){
+    showToast('အရင် Run All Parser Tests လုပ်ပါ');
+    return;
+  }
+  copyText(lastParserTestText);
+}
+function clearParserTestResults(){
+  lastParserTestText='';
+  setText('parserTestTotal','0');
+  setText('parserTestPassed','0');
+  setText('parserTestFailed','0');
+  const status=document.getElementById('parserTestStatus');
+  const box=document.getElementById('parserTestResults');
+  if(status) status.textContent='Run All Parser Tests ကိုနှိပ်ပါ။';
+  if(box) box.innerHTML='';
+}
+
+
+function estimateLocalStorageBytes(){
+  let total=0;
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i)||'';
+      if(!key.startsWith(USER_STORAGE_PREFIX)) continue;
+      const value=localStorage.getItem(key)||'';
+      total += (key.length+value.length)*2;
+    }
+  }catch(_e){}
+  return total;
+}
+function formatBytes(bytes){
+  if(bytes<1024) return `${bytes} B`;
+  if(bytes<1024*1024) return `${(bytes/1024).toFixed(1)} KB`;
+  return `${(bytes/1024/1024).toFixed(2)} MB`;
+}
+function checkVersionState(){
+  const previous=userGetItem('v2d_last_version')||'';
+  const changed=previous!==APP_VERSION;
+  userSetItem('v2d_last_version',APP_VERSION);
+  return {previous,current:APP_VERSION,changed};
+}
+function renderDiagnostics(){
+  if(!document.getElementById('diagVersion')) return;
+  setText('diagVersion',APP_VERSION);
+  setText('diagErrorCount',(runtimeErrors||[]).length);
+  setText('diagStorage',formatBytes(estimateLocalStorageBytes()));
+  setText('diagLoadedAt',new Date(APP_LOADED_AT).toLocaleString());
+
+  const versionState=checkVersionState();
+  const notice=document.getElementById('diagVersionNotice');
+  if(notice){
+    if(versionState.changed && versionState.previous){
+      notice.className='diagLog';
+      notice.innerHTML=`<b>Version changed:</b> ${escapeHtml(versionState.previous)} → ${escapeHtml(versionState.current)}<br>Hard Reload ကို တစ်ကြိမ်လုပ်ပြီး feature tests ပြန်စစ်ပါ။`;
+    }else{
+      notice.className='diagOk';
+      notice.innerHTML=`<b>Current version:</b> ${escapeHtml(APP_VERSION_LABEL)}<br>URL: ${escapeHtml(location.href)}`;
+    }
+  }
+
+  const box=document.getElementById('diagErrorList');
+  if(box){
+    box.innerHTML=(runtimeErrors||[]).length
+      ? runtimeErrors.map((e,i)=>`
+        <div class="diagLog">
+          <div><b>${i+1}. ${escapeHtml(e.type)}</b> — ${escapeHtml(new Date(e.ts).toLocaleString())}</div>
+          <div class="diagCode" style="margin-top:6px">${escapeHtml(e.message)}
+${e.source?`Source: ${escapeHtml(e.source)}:${e.line||0}:${e.column||0}`:''}
+${e.stack?`\n${escapeHtml(e.stack)}`:''}</div>
+        </div>
+      `).join('')
+      : '<div class="diagOk"><b>No runtime errors</b> — App error log ရှင်းနေပါတယ်။</div>';
+  }
+}
+function runAppSelfCheck(){
+  const requiredIds=[
+    'entryText','entryName','entryDate','entrySession',
+    'reportDate','reportSession','settingsPDate',
+    'auditTrailList','parserTestResults','diagErrorList'
+  ];
+  const requiredFns=[
+    'parseMessage','savePreview','renderReports','restoreJSONBackup',
+    'runParserRegressionTests','undoLastAction','saveCloudSnapshot'
+  ];
+  const missingIds=requiredIds.filter(id=>!document.getElementById(id));
+  const missingFns=requiredFns.filter(name=>typeof window[name]!=='function');
+
+  const checks=[
+    {name:'Required page elements',pass:missingIds.length===0,detail:missingIds.length?missingIds.join(', '):'OK'},
+    {name:'Required functions',pass:missingFns.length===0,detail:missingFns.length?missingFns.join(', '):'OK'},
+    {name:'LocalStorage writable',pass:(()=>{
+      try{userSetItem('v2d_diag_test','1');userRemoveItem('v2d_diag_test');return true;}catch(_e){return false;}
+    })(),detail:'Write / remove test'},
+    {name:'Records array',pass:Array.isArray(records),detail:`${Array.isArray(records)?records.length:0} rows`},
+    {name:'Settings object',pass:!!settings && typeof settings==='object' && !Array.isArray(settings),detail:settings?.shopName||'-'},
+    {name:'P Number memory',pass:!!pMemory && typeof pMemory==='object' && !Array.isArray(pMemory),detail:`${Object.keys(pMemory||{}).length} entries`},
+    {name:'Firebase authenticated user',pass:!!CURRENT_USER?.uid,detail:CURRENT_USER?.email||'No user'},
+    {name:'User storage namespace',pass:CURRENT_UID!=='guest',detail:USER_STORAGE_PREFIX},
+    {name:'Notice / Toast element',pass:!!document.getElementById('toast'),detail:document.getElementById('toast')?'Ready':'Missing'}
+  ];
+
+  const failed=checks.filter(c=>!c.pass);
+  const box=document.getElementById('diagSelfCheck');
+  if(box){
+    box.innerHTML=checks.map(c=>`
+      <div class="${c.pass?'diagOk':'diagLog'}">
+        <b>${c.pass?'PASS':'FAIL'} — ${escapeHtml(c.name)}</b><br>
+        <span class="diagCode">${escapeHtml(c.detail)}</span>
+      </div>
+    `).join('');
+  }
+
+  lastDiagnosticsText=[
+    `Viber 2D Desk Diagnostics — ${new Date().toLocaleString()}`,
+    `Version: ${APP_VERSION_LABEL}`,
+    `URL: ${location.href}`,
+    `Storage: ${formatBytes(estimateLocalStorageBytes())}`,
+    `Runtime Errors: ${(runtimeErrors||[]).length}`,
+    '',
+    ...checks.map(c=>`${c.pass?'PASS':'FAIL'} — ${c.name}: ${c.detail}`),
+    '',
+    ...(runtimeErrors||[]).map((e,i)=>`${i+1}. ${e.type}: ${e.message} ${e.source||''}:${e.line||0}:${e.column||0}`)
+  ].join('\n');
+
+  renderDiagnostics();
+  showToast(failed.length===0?'App Self Check ALL PASS':`${failed.length} Self Check FAIL`);
+}
+function copyDiagnosticsReport(){
+  if(!lastDiagnosticsText) runAppSelfCheck();
+  copyText(lastDiagnosticsText);
+}
+function clearRuntimeErrors(){
+  runtimeErrors=[];
+  saveRuntimeErrors();
+  renderDiagnostics();
+  showToast('Runtime error log cleared');
+}
+async function hardReloadApp(){
+  const ok=confirm('Browser cache, Service Worker cache ရှင်းပြီး App ကို version အသစ်ဖြင့် reload လုပ်မယ်။ ဆက်လုပ်မလား?');
+  if(!ok) return;
+  try{
+    if('caches' in window){
+      const keys=await caches.keys();
+      await Promise.all(keys.map(k=>caches.delete(k)));
+    }
+    if('serviceWorker' in navigator){
+      const regs=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+  }catch(err){
+    addRuntimeError('CACHE_CLEAR',err?.message||String(err),'hardReloadApp');
+  }
+  const url=new URL(location.href);
+  url.searchParams.set('v',APP_VERSION+'-'+Date.now());
+  location.replace(url.toString());
+}
+
+function renderAll(){renderDashboard();renderPreview();renderEntryLive();renderLimit();renderOver();renderReports();renderImageText();renderEntryRecords();renderAuditTrail();renderDiagnostics();}
+function setText(id,v){const el=document.getElementById(id); if(el) el.textContent=v;}
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function go(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
+  document.body.classList.toggle('entry-sticky', id==='entry');
+  if(id==='entry' && topbarState==='collapsed'){
+    const box=document.getElementById('imgToolBox');
+    if(box) box.classList.remove('compact-open');
+  }
+  renderMiniTopInfo();
+  renderAll();
+}
+function insertKey(k){const ta=document.getElementById('entryText'); const add=(ta.value && !ta.value.endsWith('\n')?'\n':'')+k+' '; ta.value+=add; ta.focus();}
+function copyText(text){navigator.clipboard?.writeText(text).then(()=>showToast('Copied')).catch(()=>showToast('Copy မရပါ'));}
+function copyShareText(){copyText(document.getElementById('shareText').textContent)}
+function currentOverRows(date,session,name,limit){
+  const totals=boardTotalsByNumber(date,session,name);
+  return Object.entries(totals).filter(([n,a])=>a>limit).map(([number,amount])=>({number,amount,over:amount-limit}));
+}
+function applyOverDeduction(date,session,name,rows,reason){
+  rows.forEach(r=>overDeductions.push({date,session,name,number:r.number,amount:r.over,reason,ts:Date.now()}));
+  saveOverDeductions(); renderAll();
+}
+function copyOverText(){
+  const date=val('overDate')||today(); const session=val('overSession')||'AM'; const name=val('overName')||'ALL'; const limit=Number(val('overLimit')||settings.defaultLimit||10000); const rows=currentOverRows(date,session,name,limit);
+  if(!rows.length){showToast('Over မရှိပါ'); return;}
+  if(!confirm('Copy Over Text လုပ်ပြီး Limit Board မှ Over amount ကို နုတ်မည်။ သေချာလား?')) return;
+  const lines=[`OVER ${date} ${session} ${name}`,'No | Number | Over']; rows.forEach((r,i)=>lines.push(`${i+1}. ${r.number} | ${money(r.over)}`)); lines.push('Total Over: '+money(rows.reduce((s,r)=>s+r.over,0))); copyText(lines.join('\n'));
+  applyOverDeduction(date,session,name,rows,'copyText');
+}
+function saveOverImage(){
+  const date=val('overDate')||today(); const session=val('overSession')||'AM'; const name=val('overName')||'ALL'; const limit=Number(val('overLimit')||settings.defaultLimit||10000); const rows=currentOverRows(date,session,name,limit);
+  if(!rows.length){showToast('Over မရှိပါ'); return;}
+  if(!confirm('Save Image လုပ်ပြီး Limit Board မှ Over amount ကို နုတ်မည်။ သေချာလား?')) return;
+  const canvas=document.createElement('canvas'); canvas.width=720; canvas.height=Math.max(260,120+rows.length*34); const c=canvas.getContext('2d');
+  c.fillStyle='#0f172a'; c.fillRect(0,0,canvas.width,canvas.height); c.fillStyle='#fff'; c.font='bold 28px Arial'; c.fillText(`OVER ${date} ${session} ${name}`,24,44); c.font='20px Arial'; c.fillStyle='#bbf7d0'; c.fillText('No     Number        Over',24,88); let y=122; c.fillStyle='#e5e7eb'; rows.forEach((r,i)=>{c.fillText(`${i+1}.        ${r.number}             ${money(r.over)}`,24,y); y+=34;}); c.fillStyle='#fca5a5'; c.fillText('Total Over: '+money(rows.reduce((s,r)=>s+r.over,0)),24,y+16);
+  const a=document.createElement('a'); a.href=canvas.toDataURL('image/png'); a.download=`over-${date}-${session}-${name}.png`; a.click();
+  applyOverDeduction(date,session,name,rows,'saveImage');
+}
+function currentBackupData(){
+  return {
+    app:'Viber 2D Desk',
+    version:'Stage 4.0.1 Auth Foundation',
+    user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
+    settings,
+    records,
+    overDeductions,
+    pMemory,
+    dealerManualMemory,
+    auditTrail,
+    undoStack,
+    exportedAt:new Date().toISOString()
+  };
+}
+function downloadJSONData(data, filename){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function exportJSON(){
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  downloadJSONData(currentBackupData(),`viber-2d-desk-backup-${stamp}.json`);
+  showToast('Backup JSON download စတင်ပါပြီ');
+}
+function restoreJSONBackup(event){
+  const input=event?.target;
+  const file=input?.files?.[0];
+  if(!file) return;
+
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const data=JSON.parse(String(reader.result||''));
+      if(!data || typeof data!=='object' || Array.isArray(data)){
+        throw new Error('JSON object မဟုတ်ပါ');
+      }
+      if(!data.settings || typeof data.settings!=='object'){
+        throw new Error('settings data မပါပါ');
+      }
+      if(!Array.isArray(data.records)){
+        throw new Error('records list မပါပါ');
+      }
+
+      const recordCount=data.records.length;
+      const overCount=Array.isArray(data.overDeductions)?data.overDeductions.length:0;
+      const pCount=data.pMemory && typeof data.pMemory==='object'?Object.keys(data.pMemory).length:0;
+      const dealerCount=data.dealerManualMemory && typeof data.dealerManualMemory==='object'?Object.keys(data.dealerManualMemory).length:0;
+
+      const ok=confirm(
+        `Restore JSON စစ်ဆေးချက်\n\n`+
+        `Records: ${recordCount}\n`+
+        `Over: ${overCount}\n`+
+        `P Number entries: ${pCount}\n`+
+        `Dealer entries: ${dealerCount}\n\n`+
+        `လက်ရှိ data ကို auto-backup ထုတ်ပြီး ဒီ backup ဖြင့် အစားထိုးမည်။ ဆက်လုပ်မလား?`
+      );
+      if(!ok){
+        input.value='';
+        return;
+      }
+
+      const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+      downloadJSONData(currentBackupData(),`auto-before-restore-${stamp}.json`);
+
+      settings={...settings,...data.settings};
+      records=Array.isArray(data.records)?data.records:[];
+      overDeductions=Array.isArray(data.overDeductions)?data.overDeductions:[];
+      pMemory=(data.pMemory && typeof data.pMemory==='object' && !Array.isArray(data.pMemory))?data.pMemory:{};
+      dealerManualMemory=(data.dealerManualMemory && typeof data.dealerManualMemory==='object' && !Array.isArray(data.dealerManualMemory))?data.dealerManualMemory:{};
+      auditTrail=Array.isArray(data.auditTrail)?data.auditTrail:[];
+      undoStack=Array.isArray(data.undoStack)?data.undoStack:[];
+
+      userSetItem('v2d_settings',JSON.stringify(settings));
+      userSetItem('v2d_records',JSON.stringify(records));
+      userSetItem('v2d_over_deductions',JSON.stringify(overDeductions));
+      userSetItem('v2d_p_memory',JSON.stringify(pMemory));
+      userSetItem('v2d_dealer_manual_memory',JSON.stringify(dealerManualMemory));
+      userSetItem('v2d_audit_trail',JSON.stringify(auditTrail.slice(0,120)));
+      userSetItem('v2d_undo_stack',JSON.stringify(undoStack.slice(0,8)));
+
+      alert('Restore ပြီးပါပြီ။ App ကို ပြန်ဖွင့်ပါမယ်။');
+      location.reload();
+    }catch(err){
+      console.error(err);
+      alert('Restore မအောင်မြင်ပါ။ ' + (err?.message||err));
+      if(input) input.value='';
+    }
+  };
+  reader.onerror=()=>{
+    alert('JSON file ကိုဖတ်မရပါ');
+    if(input) input.value='';
+  };
+  reader.readAsText(file);
+}
+function clearAllData(){if(confirm('Data အကုန်ဖျက်မှာ သေချာလား?')){snapshotBeforeChange('Clear All Data'); records=[];overDeductions=[];saveRecords();saveOverDeductions(); pushAudit('CLEAR_ALL',{label:'All data cleared',summary:'records နှင့် over data အကုန်ဖျက်ပြီး'}); renderAll();showToast('Cleared');}}
+function syncLimitInputs(){const v=settings.defaultLimit||val('defaultLimit')||10000; ['defaultLimit','limitAmount','overLimit','entryLimitAmount'].forEach(id=>setVal(id,v)); renderLimit(); renderOver(); renderEntryLive();}
+function syncLimitFrom(v){
+  const n=Number(v||0); settings.defaultLimit=n; ['defaultLimit','limitAmount','overLimit','entryLimitAmount'].forEach(id=>setVal(id,n)); saveSettings(); renderLimit(); renderOver(); renderEntryLive();
+}
+function nameOptions(includeAll=false){
+  const names=(settings.names&&settings.names.length?settings.names:['Default']);
+  return (includeAll?['ALL',...names]:names).map(n=>`<option value="${escapeHtml(n)}">${n==='ALL'?'All Names':escapeHtml(n)}</option>`).join('');
+}
+function refreshNameSelects(){
+  ['entryName','entryBoardName'].forEach(id=>{const el=document.getElementById(id); if(el){const old=el.value; el.innerHTML=nameOptions(false); if(old) el.value=old;}});
+  ['recordName','limitName','overName','reportName','imageName'].forEach(id=>{const el=document.getElementById(id); if(el){const old=el.value; el.innerHTML=nameOptions(true); if(old) el.value=old;}});
+  const box=document.getElementById('nameList'); if(box){box.innerHTML=(settings.names||['Default']).map(n=>`<div class="nameRateRow"><b>${escapeHtml(n)}</b><input type="number" value="${settings.nameRates?.[n]??settings.commissionRate??20}" onchange="setNameRate('${String(n).replace(/'/g,"\'")}', this.value)" title="Cor %"><button class="btn danger small" onclick="removeName('${String(n).replace(/'/g,"\'")}')">Remove</button></div>`).join('');}
+}
+function setNameRate(n,v){ if(!settings.nameRates) settings.nameRates={}; settings.nameRates[n]=Number(v||0); saveSettings(); renderReports(); }
+function addName(){
+  const n=(val('newName')||'').trim(); if(!n){showToast('Name ထည့်ပါ'); return;}
+  settings.names=uniq([...(settings.names||[]), n]); if(!settings.nameRates) settings.nameRates={}; settings.nameRates[n]=settings.nameRates[n]??settings.commissionRate??20; setVal('newName',''); saveSettings(); refreshNameSelects(); renderAll(); showToast('Name Added');
+}
+function removeName(n){
+  if((settings.names||[]).length<=1){showToast('အနည်းဆုံး Name ၁ ခုထားပါ'); return;}
+  if(!confirm(n+' ကို ဖယ်မလား?')) return;
+  settings.names=(settings.names||[]).filter(x=>x!==n); if(settings.nameRates) delete settings.nameRates[n]; saveSettings(); refreshNameSelects(); renderAll();
+}
+function init(){
+  if(!CURRENT_USER){
+    console.error('Authenticated user မရှိဘဲ App init လုပ်မရပါ');
+    return;
+  }
+  const authName=document.getElementById('authUserName');
+  const authEmail=document.getElementById('authUserEmail');
+  if(authName) authName.textContent=CURRENT_USER.displayName||window.V2D_CURRENT_PROFILE?.displayName||'User';
+  if(authEmail) authEmail.textContent=CURRENT_USER.email||'';
+  document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active', t.dataset.id==='dashboard'));
+  ['entryDate','recordDate','limitDate','overDate','reportDate','imageDate'].forEach(id=>setVal(id,today()));
+  settings={shopName:(initialRegisteredShopName||'Viber 2D Desk'),commissionRate:20,payoutRate:80,defaultLimit:10000,amClose:'12:00',pmClose:'16:30',names:['Default'],nameRates:{Default:20},lang:'my',...settings}; if(!Array.isArray(settings.names)||!settings.names.length) settings.names=['Default']; if(!settings.nameRates) settings.nameRates={}; settings.names.forEach(n=>{if(settings.nameRates[n]==null) settings.nameRates[n]=settings.commissionRate||20;});
+  setVal('shopName',settings.shopName); setVal('commissionRate',settings.commissionRate); setVal('payoutRate',settings.payoutRate); setVal('defaultLimit',settings.defaultLimit); setVal('amClose',settings.amClose); setVal('pmClose',settings.pmClose); syncLimitInputs();
+  setVal('settingsPDate', today()); setVal('settingsPSession', 'AM'); loadSettingsPNumber(); loadManualDealerInputs();
+  const keys=['A','Z','B','//','//-3355','*2','*12','1*','1ပါ','7ပါတ်ပူးပါ','12*','1234**','12345 အခွေ','3/8ဘရိတ်','2ထိပ် 500 R 200','++','--','+-','-+','/9','9/','+/','-/','/+','/-','+1','-1','1+','1-'];
+  document.getElementById('formulaChips').innerHTML=keys.map(k=>`<span class="chip" onclick="go('entry');insertKey('${k}')">${k}</span>`).join('');
+  refreshNameSelects();
+  setLang(settings.lang||'my');
+  applyTopbarState();
+  renderMiniTopInfo();
+  renderAll();
+  renderDiagnostics();
+}
+if(CURRENT_USER){ init(); }

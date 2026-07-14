@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.0.1 Auth Foundation</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.0.1">
+  <title>Viber 2D Desk - Stage 4.0.2 Auth Foundation</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.0.2">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.0.1 · Secure Account Foundation</div>
+        <div class="muted">Stage 4.0.2 · Secure Account Foundation</div>
       </div>
     </div>
 
@@ -64,8 +64,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.0.1 Auth Foundation + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.0.1: Email Login/Register/Reset + User-specific Local Data + User Cloud Path foundation</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.0.2 Auth Foundation + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.0.2: Email Login/Register/Reset + User-specific Local Data + User Cloud Path foundation</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -74,7 +74,7 @@
           <button class="btn gray small" onclick="exportJSON()" data-i18n="backup">Backup JSON</button>
           <button class="btn gray small" onclick="document.getElementById('restoreJsonFile').click()">Restore JSON</button>
           <input id="restoreJsonFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreJSONBackup(event)">
-          <button class="btn secondary small" onclick="saveCloudSnapshot(false)">Cloud Save</button>
+          <button class="btn secondary small" onclick="saveCloudSnapshot(true)">Cloud Save</button>
           <button class="btn warn small" onclick="loadLatestCloudSnapshot()">Load Cloud</button>
           <button class="btn danger small" onclick="clearAllData()" data-i18n="clearAll">Clear All</button>
 
@@ -135,7 +135,7 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.0.1 file က အရင် stable UI/Parser/Reports မပျက်ဘဲ Firebase Authentication နဲ့ User ID အလိုက် Local/Cloud data ခွဲထားပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.0.2 file က အရင် stable UI/Parser/Reports မပျက်ဘဲ Firebase Authentication နဲ့ User ID အလိုက် Local/Cloud data ခွဲထားပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
     <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
@@ -191,7 +191,7 @@
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.0.1</span></h3>
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.0.2</span></h3>
               <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
             </div>
             <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
@@ -307,7 +307,7 @@
         <button class="btn secondary" onclick="renderEntryRecords()">Refresh / ပြန်ဖော်ပြ</button>
         <button class="btn gray" onclick="copyEntryRecordsText()">Copy Record Text / စာကူး</button>
         <button class="btn danger" onclick="deleteFilteredNameRows()">ရွေးထားသော Name ကိုဖျက်မယ်</button>
-        <button class="btn warn" onclick="saveCloudSnapshot(false)">Cloud Save / Cloud သိမ်း</button>
+        <button class="btn warn" onclick="saveCloudSnapshot(true)">Cloud Save / Cloud သိမ်း</button>
       </div>
       <div class="cloudNote">မှတ်ချက်: Same Name + Same Number + Same Amount ထပ်ထိုးတာကို မတားပါ။ Row တစ်ကြောင်းချင်း သီးသန့်သိမ်းပါတယ်။</div>
       <div class="scroll" style="margin-top:12px;max-height:620px">
@@ -537,7 +537,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.0.1"></script>
-<script src="js/auth.js?v=4.0.1"></script>
+<script src="js/firebase-config.js?v=4.0.2"></script>
+<script src="js/auth.js?v=4.0.2"></script>
 </body>
 </html>

@@ -371,7 +371,35 @@ function startAutoPMSync(){
 }
 function money(n){return Number(n||0).toLocaleString('en-US')}
 function unit(n){let v=Number(n||0)/100; return Number.isInteger(v)? String(v): String(parseFloat(v.toFixed(2)))}
-function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
+function inferToastType(message){
+  const s=String(message||'').toLowerCase();
+  if(/မအောင်မြင်|error|failed|permission|မရှိ|မရွေး|မရပါ/.test(s)) return 'error';
+  if(/duplicate|သတိ|စစ်|ရွေးပါ|ပြည့်/.test(s)) return 'warn';
+  if(/အောင်မြင်|ပြီးပါပြီ|saved|save ပြီး|login အောင်မြင်/.test(s)) return 'success';
+  return 'info';
+}
+function showToast(msg,type='',duration=4200){
+  let t=document.getElementById('toast');
+  if(!t){
+    t=document.createElement('div');
+    t.id='toast';
+    t.className='toast';
+    t.setAttribute('role','status');
+    t.setAttribute('aria-live','polite');
+    t.setAttribute('aria-atomic','true');
+    document.body.appendChild(t);
+  }
+  const finalType=type||inferToastType(msg);
+  t.textContent=String(msg||'');
+  t.className=`toast ${finalType}`;
+  // Restart the entrance animation even for back-to-back notices.
+  void t.offsetWidth;
+  t.classList.add('show');
+  clearTimeout(window.__v2dToastTimer);
+  window.__v2dToastTimer=setTimeout(()=>{
+    t.classList.remove('show');
+  },Math.max(2500,Number(duration)||4200));
+}
 function saveRecords(){
   try{
     userSetItem('v2d_records',JSON.stringify(records));
@@ -392,7 +420,7 @@ async function saveCloudSnapshot(showMsg=true){
     await currentUserSnapshotsRef().add({
       type:'stage2_full_snapshot',
       app:'Viber 2D Desk',
-      version:'Stage 4.0.0 Auth Foundation',
+      version:'Stage 4.0.1 Auth Foundation',
       ownerUid:CURRENT_UID,
       ownerEmail:CURRENT_USER?.email||'',
       records,
@@ -403,10 +431,10 @@ async function saveCloudSnapshot(showMsg=true){
       localCreatedAt:new Date().toISOString(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    if(showMsg) showToast('Cloud Save အောင်မြင်ပါပြီ');
+    if(showMsg) showToast('Cloud Save အောင်မြင်ပါပြီ','success',5000);
   }catch(err){
     console.error(err);
-    if(showMsg) showToast('Cloud Save မအောင်မြင်ပါ: '+err.message);
+    if(showMsg) showToast('Cloud Save မအောင်မြင်ပါ: '+err.message,'error',6500);
   }
 }
 async function loadLatestCloudSnapshot(){
@@ -1650,7 +1678,7 @@ function savePreview(skipDuplicateCheck=false, duplicateMode='warn'){
   const selectedName=(val('entryName')||'').trim()||'Default';
   if(preview.needsNameSelection && selectedName==='Default'){
     renderSaveFlowBox();
-    showToast('Name မရွေးရသေးပါ။ Name ရွေးပြီးမှ Confirm Save လုပ်ပါ');
+    showToast('Name မရွေးရသေးပါ။ Name ရွေးပြီးမှ Confirm Save လုပ်ပါ','error',6000);
     go('entry');
     return;
   }
@@ -1660,7 +1688,7 @@ function savePreview(skipDuplicateCheck=false, duplicateMode='warn'){
     pendingDuplicateBlockKeys = summary.duplicateBlockKeys;
     pendingDuplicateBlockLabels = summary.duplicateBlockLabels;
     renderSaveFlowBox();
-    showToast('Duplicate message block တွေ့ပါတယ်။ Action တစ်ခုရွေးပါ');
+    showToast('Duplicate message block တွေ့ပါတယ်။ Action တစ်ခုရွေးပါ','warn',6000);
     return;
   }
 
@@ -1707,7 +1735,7 @@ function savePreview(skipDuplicateCheck=false, duplicateMode='warn'){
   preview={detailRows:[],totals:[],warnings:[],issues:[]};
   renderAll();
   renderSaveFlowBox();
-  showToast('Save ပြီးပါပြီ');
+  showToast('Confirm Save အောင်မြင်ပါပြီ — စာရင်းကို Entry Records ထဲ သိမ်းပြီးပါပြီ','success',5000);
 }
 function filterRecords(date,session,name='ALL'){
   return records.filter(r=>r.date===date && (session==='DAILY' || r.session===session) && (name==='ALL' || (r.name||'Default')===name));
@@ -2067,8 +2095,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.0.0';
-const APP_VERSION_LABEL='Stage 4.0.0 Auth Foundation';
+const APP_VERSION='4.0.1';
+const APP_VERSION_LABEL='Stage 4.0.1 Auth Foundation';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -2319,7 +2347,8 @@ function runAppSelfCheck(){
     {name:'Settings object',pass:!!settings && typeof settings==='object' && !Array.isArray(settings),detail:settings?.shopName||'-'},
     {name:'P Number memory',pass:!!pMemory && typeof pMemory==='object' && !Array.isArray(pMemory),detail:`${Object.keys(pMemory||{}).length} entries`},
     {name:'Firebase authenticated user',pass:!!CURRENT_USER?.uid,detail:CURRENT_USER?.email||'No user'},
-    {name:'User storage namespace',pass:CURRENT_UID!=='guest',detail:USER_STORAGE_PREFIX}
+    {name:'User storage namespace',pass:CURRENT_UID!=='guest',detail:USER_STORAGE_PREFIX},
+    {name:'Notice / Toast element',pass:!!document.getElementById('toast'),detail:document.getElementById('toast')?'Ready':'Missing'}
   ];
 
   const failed=checks.filter(c=>!c.pass);
@@ -2423,7 +2452,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.0.0 Auth Foundation',
+    version:'Stage 4.0.1 Auth Foundation',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

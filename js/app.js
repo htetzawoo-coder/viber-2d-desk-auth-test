@@ -414,13 +414,14 @@ function currentUserSnapshotsRef(){
   return db.collection('users').doc(CURRENT_UID).collection('snapshots');
 }
 async function saveCloudSnapshot(showMsg=true){
+  if(showMsg) showToast('Cloud Save စတင်နေပါသည်…','info',3500);
   if(!db || !CURRENT_USER){ if(showMsg) showToast('Login/Firebase မချိတ်မိသေးပါ'); return; }
   try{
     const totalAmount = records.reduce((sum,r)=>sum+Number(r.amount||0),0);
     await currentUserSnapshotsRef().add({
       type:'stage2_full_snapshot',
       app:'Viber 2D Desk',
-      version:'Stage 4.0.1 Auth Foundation',
+      version:'Stage 4.0.2 Auth Foundation',
       ownerUid:CURRENT_UID,
       ownerEmail:CURRENT_USER?.email||'',
       records,
@@ -2095,8 +2096,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.0.1';
-const APP_VERSION_LABEL='Stage 4.0.1 Auth Foundation';
+const APP_VERSION='4.0.2';
+const APP_VERSION_LABEL='Stage 4.0.2 Auth Foundation';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -2452,7 +2453,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.0.1 Auth Foundation',
+    version:'Stage 4.0.2 Auth Foundation',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

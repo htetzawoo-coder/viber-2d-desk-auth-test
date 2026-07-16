@@ -301,3 +301,21 @@
   .userSessionBox{width:100%}
 }
 
+
+
+/* Stage 4.2A.1 — Cloud-First Auto Sync status */
+.cloudSyncPill{
+  display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 10px;
+  border:1px solid #334155;border-radius:12px;background:#020617;min-width:160px;
+}
+.cloudSyncDot{width:10px;height:10px;border-radius:50%;background:#64748b;box-shadow:0 0 0 3px rgba(100,116,139,.15);flex:0 0 auto}
+.cloudSyncCopy{display:flex;flex-direction:column;line-height:1.15;min-width:0}
+.cloudSyncCopy b{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cloudSyncCopy small{font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.cloudSyncPill.loading{border-color:#0369a1;background:#082f49}.cloudSyncPill.loading .cloudSyncDot{background:#38bdf8;box-shadow:0 0 10px #38bdf8}
+.cloudSyncPill.saving{border-color:#a16207;background:#422006}.cloudSyncPill.saving .cloudSyncDot{background:#facc15;box-shadow:0 0 10px #facc15;animation:v2dSyncPulse 1s infinite}
+.cloudSyncPill.synced{border-color:#166534;background:#052e16}.cloudSyncPill.synced .cloudSyncDot{background:#22c55e;box-shadow:0 0 10px #22c55e}
+.cloudSyncPill.offline{border-color:#9a3412;background:#431407}.cloudSyncPill.offline .cloudSyncDot{background:#fb923c;box-shadow:0 0 10px #fb923c}
+.cloudSyncPill.conflict,.cloudSyncPill.error{border-color:#991b1b;background:#450a0a}.cloudSyncPill.conflict .cloudSyncDot,.cloudSyncPill.error .cloudSyncDot{background:#ef4444;box-shadow:0 0 10px #ef4444}
+@keyframes v2dSyncPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.75)}}
+@media(max-width:900px){.cloudSyncPill{width:100%}.cloudSyncCopy small{max-width:none}}

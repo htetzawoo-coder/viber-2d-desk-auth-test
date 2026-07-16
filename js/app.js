@@ -6,7 +6,12 @@ const USER_STORAGE_PREFIX=`v2d_user_${CURRENT_UID}__`;
 
 function userStorageKey(base){ return USER_STORAGE_PREFIX+base; }
 function userGetItem(base){ return localStorage.getItem(userStorageKey(base)); }
-function userSetItem(base,value){ localStorage.setItem(userStorageKey(base),value); }
+function userSetItem(base,value){
+  localStorage.setItem(userStorageKey(base),value);
+  if(window.__V2D_CLOUD_SYNC_READY && !window.__V2D_APPLYING_REMOTE && typeof scheduleCloudSync==='function' && isCloudRelevantKey(base)){
+    scheduleCloudSync(base);
+  }
+}
 function userRemoveItem(base){ localStorage.removeItem(userStorageKey(base)); }
 
 const LEGACY_USER_STORAGE_KEYS=[
@@ -409,54 +414,475 @@ function saveRecords(){
   }
 }
 
+const CLOUD_SYNC_VERSION='4.2A.1';
+const CLOUD_WORKSPACE_DOC_ID='current_workspace';
+const CLOUD_SYNC_DEBOUNCE_MS=900;
+const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
+  'v2d_records','v2d_over_deductions','v2d_settings','v2d_global_view',
+  'v2d_p_memory','v2d_dealer_manual_memory','v2d_audit_trail'
+]);
+const DEVICE_ID=(()=>{
+  const key='v2d_device_id';
+  let id=localStorage.getItem(key);
+  if(!id){
+    id=(window.crypto?.randomUUID?.()||('device-'+Date.now()+'-'+Math.random().toString(36).slice(2)));
+    localStorage.setItem(key,id);
+  }
+  return id;
+})();
+
+let cloudSyncState={
+  initialized:false,
+  uiReady:false,
+  dirty:false,
+  dirtyBaseHash:'',
+  baseHash:'',
+  timer:null,
+  inFlight:false,
+  queued:false,
+  unsubscribe:null,
+  conflictData:null,
+  lastSyncedAt:'',
+  lastError:'',
+  needsInitialUpload:false
+};
+
+function isCloudRelevantKey(base){ return CLOUD_RELEVANT_STORAGE_KEYS.has(String(base||'')); }
+function cloudMetaKey(){ return userStorageKey('v2d_cloud_meta'); }
+function readCloudMeta(){
+  try{return JSON.parse(localStorage.getItem(cloudMetaKey())||'{}')||{};}catch(_e){return {};}
+}
+function writeCloudMeta(patch={}){
+  const current=readCloudMeta();
+  const next={...current,...patch,updatedAt:new Date().toISOString()};
+  localStorage.setItem(cloudMetaKey(),JSON.stringify(next));
+  return next;
+}
+function simpleHash(text){
+  let h=2166136261;
+  const str=String(text||'');
+  for(let i=0;i<str.length;i++){
+    h^=str.charCodeAt(i);
+    h=Math.imul(h,16777619);
+  }
+  return (h>>>0).toString(16).padStart(8,'0');
+}
+function compactAuditForCloud(items){
+  return (Array.isArray(items)?items:[]).slice(0,60).map(item=>({
+    ...item,
+    rawText:item?.rawText?String(item.rawText).slice(0,1500):''
+  }));
+}
+function normalizeCloudRecords(items){
+  return (Array.isArray(items)?items:[]).map((row,index)=>({
+    ...row,
+    id:row?.id||`legacy-${row?.ts||0}-${index}-${row?.number||'00'}-${row?.amount||0}`
+  }));
+}
+function currentWorkspaceState(){
+  return {
+    records:normalizeCloudRecords(records),
+    overDeductions:Array.isArray(overDeductions)?overDeductions:[],
+    settings:settings&&typeof settings==='object'?settings:{},
+    globalView:globalView&&typeof globalView==='object'?globalView:{},
+    pMemory:pMemory&&typeof pMemory==='object'?pMemory:{},
+    dealerManualMemory:dealerManualMemory&&typeof dealerManualMemory==='object'?dealerManualMemory:{},
+    auditTrail:compactAuditForCloud(auditTrail)
+  };
+}
+function workspaceContentHash(state=currentWorkspaceState()){
+  return simpleHash(JSON.stringify(state));
+}
+function buildCloudWorkspace(reason='auto'){
+  const state=currentWorkspaceState();
+  const contentHash=workspaceContentHash(state);
+  return {
+    type:'cloud_first_workspace',
+    schemaVersion:1,
+    app:'Viber 2D Desk',
+    version:'Stage 4.2A.1 Cloud-First Auto Sync',
+    syncVersion:CLOUD_SYNC_VERSION,
+    ownerUid:CURRENT_UID,
+    ownerEmail:CURRENT_USER?.email||'',
+    deviceId:DEVICE_ID,
+    reason,
+    contentHash,
+    ...state,
+    totalRecords:state.records.length,
+    totalAmount:state.records.reduce((sum,row)=>sum+Number(row.amount||0),0),
+    clientUpdatedAt:new Date().toISOString(),
+    updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+  };
+}
 function currentUserSnapshotsRef(){
   if(!db || !CURRENT_USER) return null;
   return db.collection('users').doc(CURRENT_UID).collection('snapshots');
 }
-async function saveCloudSnapshot(showMsg=true){
-  if(showMsg) showToast('Cloud Save စတင်နေပါသည်…','info',3500);
-  if(!db || !CURRENT_USER){ if(showMsg) showToast('Login/Firebase မချိတ်မိသေးပါ'); return; }
+function currentWorkspaceRef(){
+  const snapshots=currentUserSnapshotsRef();
+  return snapshots?snapshots.doc(CLOUD_WORKSPACE_DOC_ID):null;
+}
+function formatSyncTime(value){
+  const date=value?new Date(value):new Date();
+  if(Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+function setCloudSyncStatus(status,message='',detail=''){
+  const pill=document.getElementById('cloudSyncPill');
+  const text=document.getElementById('cloudSyncText');
+  const small=document.getElementById('cloudSyncDetail');
+  if(pill) pill.className=`cloudSyncPill ${status}`;
+  const defaults={
+    loading:'Cloud ဖွင့်နေသည်…',
+    saving:'Saving…',
+    synced:'Cloud Synced',
+    offline:'Offline — စောင့်ဆိုင်းနေသည်',
+    conflict:'Sync Conflict',
+    error:'Sync Error'
+  };
+  if(text) text.textContent=message||defaults[status]||'Cloud';
+  if(small) small.textContent=detail||(
+    status==='synced'&&cloudSyncState.lastSyncedAt?`Last ${formatSyncTime(cloudSyncState.lastSyncedAt)}`:
+    status==='offline'?'Internet ပြန်ရလျှင် Auto Sync':
+    status==='conflict'?'တခြားစက်မှာ Data အသစ်ရှိသည်':
+    status==='loading'?'Account data စစ်နေသည်':''
+  );
+}
+function persistWorkspaceStateLocally(){
+  window.__V2D_APPLYING_REMOTE=true;
   try{
-    const totalAmount = records.reduce((sum,r)=>sum+Number(r.amount||0),0);
-    await currentUserSnapshotsRef().add({
-      type:'stage2_full_snapshot',
-      app:'Viber 2D Desk',
-      version:'Stage 4.0.2 Auth Foundation',
-      ownerUid:CURRENT_UID,
-      ownerEmail:CURRENT_USER?.email||'',
-      records,
-      overDeductions,
-      settings,
-      totalRecords:records.length,
-      totalAmount,
-      localCreatedAt:new Date().toISOString(),
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    if(showMsg) showToast('Cloud Save အောင်မြင်ပါပြီ','success',5000);
-  }catch(err){
-    console.error(err);
-    if(showMsg) showToast('Cloud Save မအောင်မြင်ပါ: '+err.message,'error',6500);
+    userSetItem('v2d_records',JSON.stringify(records));
+    userSetItem('v2d_over_deductions',JSON.stringify(overDeductions));
+    userSetItem('v2d_settings',JSON.stringify(settings));
+    userSetItem('v2d_global_view',JSON.stringify(globalView));
+    userSetItem('v2d_p_memory',JSON.stringify(pMemory));
+    userSetItem('v2d_dealer_manual_memory',JSON.stringify(dealerManualMemory));
+    userSetItem('v2d_audit_trail',JSON.stringify((auditTrail||[]).slice(0,120)));
+  }finally{
+    window.__V2D_APPLYING_REMOTE=false;
   }
+}
+function applyCloudWorkspace(data,{initial=false}={}){
+  if(!data || typeof data!=='object') return false;
+  window.__V2D_APPLYING_REMOTE=true;
+  try{
+    records=normalizeCloudRecords(data.records);
+    overDeductions=Array.isArray(data.overDeductions)?data.overDeductions:[];
+    settings=data.settings&&typeof data.settings==='object'?data.settings:{};
+    globalView=data.globalView&&typeof data.globalView==='object'?data.globalView:{};
+    pMemory=data.pMemory&&typeof data.pMemory==='object'?data.pMemory:{};
+    dealerManualMemory=data.dealerManualMemory&&typeof data.dealerManualMemory==='object'?data.dealerManualMemory:{};
+    auditTrail=Array.isArray(data.auditTrail)?data.auditTrail:[];
+    persistWorkspaceStateLocally();
+  }finally{
+    window.__V2D_APPLYING_REMOTE=false;
+  }
+  const hash=data.contentHash||workspaceContentHash();
+  cloudSyncState.baseHash=hash;
+  cloudSyncState.dirtyBaseHash='';
+  cloudSyncState.dirty=false;
+  cloudSyncState.conflictData=null;
+  cloudSyncState.lastSyncedAt=data.clientUpdatedAt||new Date().toISOString();
+  writeCloudMeta({pending:false,lastCloudHash:hash,dirtyBaseHash:'',lastSyncedAt:cloudSyncState.lastSyncedAt,lastError:''});
+  if(!initial && cloudSyncState.uiReady) refreshUiFromCloud();
+  return true;
+}
+function refreshUiFromCloud(){
+  window.__V2D_APPLYING_REMOTE=true;
+  try{
+    settings={shopName:(initialRegisteredShopName||'Viber 2D Desk'),commissionRate:20,payoutRate:80,defaultLimit:10000,amClose:'12:00',pmClose:'16:30',names:['Default'],nameRates:{Default:20},lang:'my',...settings};
+    if(!Array.isArray(settings.names)||!settings.names.length) settings.names=['Default'];
+    if(!settings.nameRates) settings.nameRates={};
+    settings.names.forEach(name=>{if(settings.nameRates[name]==null) settings.nameRates[name]=settings.commissionRate||20;});
+    setVal('shopName',settings.shopName);
+    setVal('commissionRate',settings.commissionRate);
+    setVal('payoutRate',settings.payoutRate);
+    setVal('defaultLimit',settings.defaultLimit);
+    setVal('amClose',settings.amClose);
+    setVal('pmClose',settings.pmClose);
+    refreshNameSelects();
+    setLang(settings.lang||'my');
+    syncLimitInputs();
+    loadSettingsPNumber();
+    loadManualDealerInputs();
+    renderAll();
+    renderDiagnostics();
+  }finally{
+    window.__V2D_APPLYING_REMOTE=false;
+  }
+}
+function markCloudDirty(reason='local-change'){
+  if(window.__V2D_APPLYING_REMOTE) return;
+  if(!cloudSyncState.dirty){
+    cloudSyncState.dirtyBaseHash=cloudSyncState.baseHash||readCloudMeta().lastCloudHash||'';
+  }
+  cloudSyncState.dirty=true;
+  writeCloudMeta({pending:true,dirtyBaseHash:cloudSyncState.dirtyBaseHash,lastError:''});
+  if(!navigator.onLine){
+    setCloudSyncStatus('offline');
+  }else{
+    setCloudSyncStatus('saving','Saving…','ပြောင်းလဲမှုကို Cloud တင်ရန် စောင့်နေသည်');
+  }
+}
+function scheduleCloudSync(reason='local-change',delay=CLOUD_SYNC_DEBOUNCE_MS){
+  if(!CURRENT_USER || !db || window.__V2D_APPLYING_REMOTE) return;
+  markCloudDirty(reason);
+  clearTimeout(cloudSyncState.timer);
+  cloudSyncState.timer=setTimeout(()=>flushCloudWorkspace({showMsg:false,reason}),Math.max(100,Number(delay)||CLOUD_SYNC_DEBOUNCE_MS));
+}
+async function flushCloudWorkspace({showMsg=false,reason='auto',force=false}={}){
+  if(!CURRENT_USER || !db){
+    setCloudSyncStatus('error','Sync Error','Login/Firebase မချိတ်မိသေးပါ');
+    if(showMsg) showToast('Login/Firebase မချိတ်မိသေးပါ','error',5500);
+    return false;
+  }
+  if(!navigator.onLine){
+    markCloudDirty(reason);
+    if(showMsg) showToast('Internet မရှိသေးပါ။ Data ကို စက်ထဲသိမ်းထားပြီး Internet ပြန်ရလျှင် Auto Sync လုပ်မယ်','warn',6500);
+    return false;
+  }
+  if(cloudSyncState.inFlight){
+    cloudSyncState.queued=true;
+    return false;
+  }
+  if(cloudSyncState.conflictData && !force){
+    setCloudSyncStatus('conflict');
+    if(showMsg) showToast('တခြားစက်မှာ Cloud Data အသစ်ရှိနေပါတယ်။ Backup JSON ထုတ်ပြီး Cloud Refresh ဖြင့် စစ်ပါ','error',7500);
+    return false;
+  }
+  const payload=buildCloudWorkspace(reason);
+  const payloadBytes=new TextEncoder().encode(JSON.stringify({...payload,updatedAt:null})).length;
+  if(payloadBytes>950000){
+    const message='Cloud workspace အရွယ်အစားကြီးလွန်းနေပါတယ်။ Backup JSON ထုတ်ထားပြီး Card-based Cloud Stage ကို ဆက်တင်ပါ';
+    cloudSyncState.lastError=message;
+    writeCloudMeta({pending:true,lastError:message});
+    setCloudSyncStatus('error','Sync Size Limit',`${Math.round(payloadBytes/1024)} KB`);
+    if(showMsg) showToast(message,'error',8000);
+    return false;
+  }
+  if(!force && !cloudSyncState.dirty && payload.contentHash===cloudSyncState.baseHash){
+    setCloudSyncStatus('synced');
+    return true;
+  }
+  cloudSyncState.inFlight=true;
+  cloudSyncState.queued=false;
+  setCloudSyncStatus('saving','Saving…',showMsg?'Cloud ကို တင်နေသည်':'Auto Sync လုပ်နေသည်');
+  if(showMsg) showToast('Cloud Sync စတင်နေပါသည်…','info',3000);
+  try{
+    const ref=currentWorkspaceRef();
+    if(!ref) throw new Error('Cloud workspace path မရပါ');
+    const expectedBase=cloudSyncState.dirtyBaseHash||cloudSyncState.baseHash||'';
+    await db.runTransaction(async transaction=>{
+      const snap=await transaction.get(ref);
+      if(snap.exists){
+        const remote=snap.data()||{};
+        const remoteHash=remote.contentHash||'';
+        const changedElsewhere=remoteHash && expectedBase && remoteHash!==expectedBase && remote.deviceId!==DEVICE_ID;
+        if(changedElsewhere){
+          const err=new Error('တခြားစက်မှာ Cloud Data အသစ်ပြောင်းထားပါတယ်');
+          err.code='v2d/cloud-conflict';
+          err.remoteData=remote;
+          throw err;
+        }
+      }
+      transaction.set(ref,payload,{merge:false});
+    });
+    records=payload.records;
+    cloudSyncState.baseHash=payload.contentHash;
+    cloudSyncState.dirtyBaseHash='';
+    cloudSyncState.dirty=false;
+    cloudSyncState.conflictData=null;
+    cloudSyncState.lastError='';
+    cloudSyncState.lastSyncedAt=payload.clientUpdatedAt;
+    writeCloudMeta({pending:false,lastCloudHash:payload.contentHash,dirtyBaseHash:'',lastSyncedAt:payload.clientUpdatedAt,lastError:''});
+    userRemoveItem('v2d_force_sync_on_boot');
+    setCloudSyncStatus('synced');
+    if(showMsg) showToast('Cloud Sync အောင်မြင်ပါပြီ','success',5000);
+    return true;
+  }catch(err){
+    console.error('Cloud sync failed',err);
+    cloudSyncState.lastError=err?.message||String(err);
+    if(err?.code==='v2d/cloud-conflict'){
+      cloudSyncState.conflictData=err.remoteData||{};
+      writeCloudMeta({pending:true,lastError:cloudSyncState.lastError});
+      setCloudSyncStatus('conflict');
+      if(showMsg) showToast('Sync Conflict: တခြားစက်မှာ Data အသစ်ရှိနေပါတယ်။ Local Data ကို မဖျက်ထားပါ','error',8000);
+    }else{
+      writeCloudMeta({pending:true,lastError:cloudSyncState.lastError});
+      setCloudSyncStatus(navigator.onLine?'error':'offline','Sync Error',cloudSyncState.lastError);
+      if(showMsg) showToast('Cloud Sync မအောင်မြင်ပါ: '+cloudSyncState.lastError,'error',7500);
+    }
+    return false;
+  }finally{
+    cloudSyncState.inFlight=false;
+    if(cloudSyncState.queued && !cloudSyncState.conflictData){
+      cloudSyncState.queued=false;
+      setTimeout(()=>flushCloudWorkspace({showMsg:false,reason:'queued-change'}),250);
+    }
+  }
+}
+async function findLatestLegacySnapshot(){
+  const snapshots=currentUserSnapshotsRef();
+  if(!snapshots) return null;
+  try{
+    const snap=await snapshots.orderBy('localCreatedAt','desc').limit(30).get();
+    let found=null;
+    snap.forEach(doc=>{
+      const data=doc.data()||{};
+      if(!found && doc.id!==CLOUD_WORKSPACE_DOC_ID && data.type==='stage2_full_snapshot') found=data;
+    });
+    return found;
+  }catch(err){
+    console.warn('Legacy snapshot lookup skipped',err);
+    return null;
+  }
+}
+async function fetchCurrentWorkspace({serverFirst=true}={}){
+  const ref=currentWorkspaceRef();
+  if(!ref) return null;
+  if(serverFirst && navigator.onLine){
+    try{
+      const snap=await ref.get({source:'server'});
+      return snap.exists?snap.data():null;
+    }catch(err){
+      console.warn('Server workspace read failed; trying cache',err);
+    }
+  }
+  try{
+    const snap=await ref.get();
+    return snap.exists?snap.data():null;
+  }catch(_err){
+    return null;
+  }
+}
+function subscribeCloudWorkspace(){
+  const ref=currentWorkspaceRef();
+  if(!ref || cloudSyncState.unsubscribe) return;
+  cloudSyncState.unsubscribe=ref.onSnapshot({includeMetadataChanges:true},snap=>{
+    if(!snap.exists) return;
+    const data=snap.data()||{};
+    if(snap.metadata.hasPendingWrites){
+      setCloudSyncStatus('saving','Saving…','Browser queue ထဲမှာရှိသည်');
+      return;
+    }
+    const remoteHash=data.contentHash||'';
+    if(!remoteHash){ setCloudSyncStatus('synced'); return; }
+    if(remoteHash===cloudSyncState.baseHash){
+      cloudSyncState.lastSyncedAt=data.clientUpdatedAt||cloudSyncState.lastSyncedAt||new Date().toISOString();
+      setCloudSyncStatus('synced');
+      return;
+    }
+    if(cloudSyncState.dirty){
+      cloudSyncState.conflictData=data;
+      setCloudSyncStatus('conflict');
+      return;
+    }
+    applyCloudWorkspace(data,{initial:false});
+    setCloudSyncStatus('synced','Cloud Updated',`တခြားစက်မှ ${formatSyncTime(data.clientUpdatedAt)}`);
+    if(cloudSyncState.uiReady) showToast('တခြားစက်မှ Cloud Data အသစ်ကို Auto Update လုပ်ပြီးပါပြီ','success',4500);
+  },err=>{
+    console.error('Cloud listener error',err);
+    setCloudSyncStatus(navigator.onLine?'error':'offline','Sync Error',err?.message||String(err));
+  });
+}
+async function initializeCloudFirstSync(){
+  setCloudSyncStatus('loading');
+  const meta=readCloudMeta();
+  cloudSyncState.baseHash=meta.lastCloudHash||'';
+  cloudSyncState.dirty=meta.pending===true;
+  cloudSyncState.dirtyBaseHash=meta.dirtyBaseHash||cloudSyncState.baseHash||'';
+  cloudSyncState.lastSyncedAt=meta.lastSyncedAt||'';
+  const forceUpload=userGetItem('v2d_force_sync_on_boot')==='1';
+  try{ await Promise.resolve(window.v2dPersistenceReady); }catch(_e){}
+  const remote=await fetchCurrentWorkspace({serverFirst:true});
+  if(remote){
+    const remoteHash=remote.contentHash||'';
+    if(forceUpload){
+      cloudSyncState.baseHash=remoteHash;
+      cloudSyncState.dirty=true;
+      cloudSyncState.dirtyBaseHash=remoteHash;
+      cloudSyncState.needsInitialUpload=true;
+    }else if(cloudSyncState.dirty){
+      const expected=cloudSyncState.dirtyBaseHash||cloudSyncState.baseHash||'';
+      if(expected && remoteHash && expected!==remoteHash){
+        cloudSyncState.conflictData=remote;
+      }else{
+        cloudSyncState.baseHash=remoteHash;
+        cloudSyncState.dirtyBaseHash=remoteHash;
+        cloudSyncState.needsInitialUpload=true;
+      }
+    }else{
+      applyCloudWorkspace(remote,{initial:true});
+    }
+  }else if(!forceUpload && !cloudSyncState.dirty){
+    const legacy=await findLatestLegacySnapshot();
+    if(legacy){
+      applyCloudWorkspace(legacy,{initial:true});
+      cloudSyncState.needsInitialUpload=true;
+      cloudSyncState.dirty=true;
+      cloudSyncState.dirtyBaseHash='';
+    }else{
+      cloudSyncState.needsInitialUpload=true;
+      cloudSyncState.dirty=true;
+      cloudSyncState.dirtyBaseHash='';
+    }
+  }else{
+    cloudSyncState.needsInitialUpload=true;
+  }
+  cloudSyncState.initialized=true;
+  window.__V2D_CLOUD_SYNC_READY=true;
+  subscribeCloudWorkspace();
+  if(cloudSyncState.conflictData){
+    setCloudSyncStatus('conflict');
+  }else if(!navigator.onLine){
+    setCloudSyncStatus('offline');
+  }else if(cloudSyncState.needsInitialUpload || cloudSyncState.dirty){
+    setCloudSyncStatus('saving','Saving…','Initial Auto Sync စောင့်နေသည်');
+  }else{
+    setCloudSyncStatus('synced');
+  }
+}
+async function saveCloudSnapshot(showMsg=true){
+  if(showMsg) return flushCloudWorkspace({showMsg:true,reason:'manual-sync',force:false});
+  scheduleCloudSync('legacy-auto-call');
+  return true;
 }
 async function loadLatestCloudSnapshot(){
-  if(!db || !CURRENT_USER){ showToast('Login/Firebase မချိတ်မိသေးပါ'); return; }
+  if(!db || !CURRENT_USER){ showToast('Login/Firebase မချိတ်မိသေးပါ','error',5500); return; }
+  const hasPending=cloudSyncState.dirty||readCloudMeta().pending===true;
+  const prompt=hasPending
+    ? 'ဒီစက်မှာ Cloud မတင်ရသေးသော ပြောင်းလဲမှုရှိပါတယ်။ Backup JSON အရင်ထုတ်ရန် အကြံပြုပါတယ်။ Cloud Data ဖြင့် Local Data ကို အစားထိုးမလား?'
+    : 'Cloud မှနောက်ဆုံး Data ကို ပြန်ဖတ်မလား?';
+  if(!confirm(prompt)) return;
   try{
-    showToast('Cloud data ဖတ်နေပါသည်...');
-    const snap = await currentUserSnapshotsRef().orderBy('localCreatedAt','desc').limit(30).get();
-    let found=null;
-    snap.forEach(doc=>{ const d=doc.data(); if(!found && d.type==='stage2_full_snapshot') found=d; });
-    if(!found){ showToast('Cloud snapshot မတွေ့သေးပါ'); return; }
-    if(!confirm('ကိုယ်ပိုင် Account Cloud မှာရှိတဲ့နောက်ဆုံး data ကို ဖုန်းထဲပြန်တင်မလား? လက်ရှိ local data ကို အစားထိုးပါမယ်။')) return;
-    records = Array.isArray(found.records)? found.records : [];
-    overDeductions = Array.isArray(found.overDeductions)? found.overDeductions : [];
-    settings = found.settings || settings || {};
-    saveRecords(); saveOverDeductions(); userSetItem('v2d_settings',JSON.stringify(settings));
-    init(); renderAll(); showToast('Cloud Load အောင်မြင်ပါပြီ');
+    showToast('Cloud Data ပြန်ဖတ်နေပါသည်…','info',3500);
+    let found=await fetchCurrentWorkspace({serverFirst:true});
+    if(!found) found=await findLatestLegacySnapshot();
+    if(!found){ showToast('Cloud Data မတွေ့သေးပါ','warn',5000); return; }
+    applyCloudWorkspace(found,{initial:false});
+    cloudSyncState.conflictData=null;
+    setCloudSyncStatus('synced');
+    showToast('Cloud Refresh အောင်မြင်ပါပြီ','success',5000);
   }catch(err){
     console.error(err);
-    showToast('Cloud Load မအောင်မြင်ပါ: '+err.message);
+    showToast('Cloud Refresh မအောင်မြင်ပါ: '+(err?.message||err),'error',7000);
   }
 }
+function syncCloudNow(){ return saveCloudSnapshot(true); }
+
+window.addEventListener('offline',()=>{
+  if(cloudSyncState.dirty) writeCloudMeta({pending:true});
+  setCloudSyncStatus('offline');
+});
+window.addEventListener('online',()=>{
+  if(cloudSyncState.conflictData){ setCloudSyncStatus('conflict'); return; }
+  if(cloudSyncState.dirty || readCloudMeta().pending===true){
+    flushCloudWorkspace({showMsg:false,reason:'network-restored'});
+  }else{
+    setCloudSyncStatus('synced');
+  }
+});
+
 function saveOverDeductions(){userSetItem('v2d_over_deductions',JSON.stringify(overDeductions));}
 function saveSettings(){
   settings.shopName = val('shopName') || 'Viber 2D Desk';
@@ -2096,8 +2522,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.0.2';
-const APP_VERSION_LABEL='Stage 4.0.2 Auth Foundation';
+const APP_VERSION='4.2A.1';
+const APP_VERSION_LABEL='Stage 4.2A.1 Cloud-First Auto Sync';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -2453,7 +2879,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.0.2 Auth Foundation',
+    version:'Stage 4.2A.1 Cloud-First Auto Sync',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,
@@ -2536,8 +2962,9 @@ function restoreJSONBackup(event){
       userSetItem('v2d_dealer_manual_memory',JSON.stringify(dealerManualMemory));
       userSetItem('v2d_audit_trail',JSON.stringify(auditTrail.slice(0,120)));
       userSetItem('v2d_undo_stack',JSON.stringify(undoStack.slice(0,8)));
+      userSetItem('v2d_force_sync_on_boot','1');
 
-      alert('Restore ပြီးပါပြီ။ App ကို ပြန်ဖွင့်ပါမယ်။');
+      alert('Restore ပြီးပါပြီ။ App ကို ပြန်ဖွင့်ပြီး Cloud ကို Auto Sync လုပ်ပါမယ်။');
       location.reload();
     }catch(err){
       console.error(err);
@@ -2598,4 +3025,23 @@ function init(){
   renderAll();
   renderDiagnostics();
 }
-if(CURRENT_USER){ init(); }
+async function bootstrapCloudFirstApp(){
+  await initializeCloudFirstSync();
+  init();
+  cloudSyncState.uiReady=true;
+  if(cloudSyncState.needsInitialUpload || cloudSyncState.dirty){
+    setTimeout(()=>flushCloudWorkspace({showMsg:false,reason:'initial-auto-sync'}),350);
+  }else{
+    setCloudSyncStatus(cloudSyncState.conflictData?'conflict':(navigator.onLine?'synced':'offline'));
+  }
+  return true;
+}
+if(CURRENT_USER){
+  window.V2D_APP_READY_PROMISE=bootstrapCloudFirstApp().catch(error=>{
+    console.error('Cloud-first bootstrap failed',error);
+    setCloudSyncStatus('error','App Start Error',error?.message||String(error));
+    init();
+    cloudSyncState.uiReady=true;
+    return false;
+  });
+}

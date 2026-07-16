@@ -1,4 +1,4 @@
-const AUTH_STAGE_VERSION = "4.0.0";
+const AUTH_STAGE_VERSION = "4.2A.1";
 let v2dAppScriptLoaded = false;
 
 function authEl(id){ return document.getElementById(id); }
@@ -106,11 +106,18 @@ function loadAuthenticatedApp(){
 
   const script=document.createElement("script");
   script.src=`js/app.js?v=${AUTH_STAGE_VERSION}`;
-  script.onload=()=>{
-    const gate=authEl("authGate");
-    const app=authEl("mainApp");
-    if(gate) gate.hidden=true;
-    if(app) app.hidden=false;
+  script.onload=async()=>{
+    try{
+      setAuthMessage("Cloud workspace ကို Auto Load လုပ်နေပါသည်…","good");
+      if(window.V2D_APP_READY_PROMISE) await window.V2D_APP_READY_PROMISE;
+      const gate=authEl("authGate");
+      const app=authEl("mainApp");
+      if(gate) gate.hidden=true;
+      if(app) app.hidden=false;
+    }catch(error){
+      v2dAppScriptLoaded=false;
+      setAuthMessage("Cloud workspace ဖွင့်မရပါ။ "+(error?.message||error),"bad");
+    }
   };
   script.onerror=()=>{
     v2dAppScriptLoaded=false;

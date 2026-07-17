@@ -63,7 +63,7 @@ let overDeductions = JSON.parse(userGetItem('v2d_over_deductions')||'[]');
 let auditTrail = JSON.parse(userGetItem('v2d_audit_trail')||'[]');
 let undoStack = JSON.parse(userGetItem('v2d_undo_stack')||'[]');
 let settings = JSON.parse(userGetItem('v2d_settings')||'{}');
-let preview = {detailRows:[], totals:[], warnings:[], issues:[]};
+let preview = {detailRows:[], totals:[], warnings:[], issues:[], cards:[]};
 let globalView = JSON.parse(userGetItem('v2d_global_view')||'{}');
 let pMemory = JSON.parse(userGetItem('v2d_p_memory')||'{}');
 let dealerManualMemory = JSON.parse(userGetItem('v2d_dealer_manual_memory')||'{}');
@@ -414,7 +414,7 @@ function saveRecords(){
   }
 }
 
-const CLOUD_SYNC_VERSION='4.2A.1';
+const CLOUD_SYNC_VERSION='4.2B.1';
 const CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=900;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -476,7 +476,14 @@ function compactAuditForCloud(items){
 function normalizeCloudRecords(items){
   return (Array.isArray(items)?items:[]).map((row,index)=>({
     ...row,
-    id:row?.id||`legacy-${row?.ts||0}-${index}-${row?.number||'00'}-${row?.amount||0}`
+    id:row?.id||`legacy-${row?.ts||0}-${index}-${row?.number||'00'}-${row?.amount||0}`,
+    cardId:row?.cardId||'',
+    cardNumber:Number(row?.cardNumber||0)||0,
+    cardIndexInBatch:Number(row?.cardIndexInBatch||row?.cardIndexInPaste||0)||0,
+    cardTime:row?.cardTime||'',
+    cardHeaderStamp:row?.cardHeaderStamp||row?.headerStamp||'',
+    cardHeaderName:row?.cardHeaderName||'',
+    cardRawText:row?.cardRawText||''
   }));
 }
 function currentWorkspaceState(){
@@ -498,9 +505,9 @@ function buildCloudWorkspace(reason='auto'){
   const contentHash=workspaceContentHash(state);
   return {
     type:'cloud_first_workspace',
-    schemaVersion:1,
+    schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.2A.1 Cloud-First Auto Sync',
+    version:'Stage 4.2B.1 Viber Card Foundation',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -1649,12 +1656,12 @@ function buildMessageBlocks(text, defaultName){
     if(header){
       if(block && block.lines.length) blocks.push(block);
       const matched=matchKnownName(header.rawName);
-      block={name:matched||activeName, headerName:header.rawName, headerMatched:!!matched, headerStamp:header.headerStamp||'', date:header.headerDate||'', session:header.headerSession||'', lines:[], startLine:item.lineNo};
+      block={name:matched||activeName, headerName:header.rawName, headerMatched:!!matched, headerStamp:header.headerStamp||'', date:header.headerDate||'', session:header.headerSession||'', headerHour:header.headerHour, headerMinute:header.headerMinute, lines:[], startLine:item.lineNo};
       if(matched) activeName=matched;
       if(header.content && header.content.trim()) block.lines.push({raw:header.content.trim(), lineNo:item.lineNo, fromHeader:true, headerName:header.rawName, headerMatched:!!matched});
       else block.lines.push({raw:'', lineNo:item.lineNo, fromHeader:true, headerName:header.rawName, headerMatched:!!matched, emptyHeader:true});
     }else{
-      if(!block) block={name:activeName, headerName:'', headerMatched:false, lines:[], startLine:item.lineNo};
+      if(!block) block={name:activeName, headerName:'', headerMatched:false, headerStamp:'', date:'', session:'', headerHour:null, headerMinute:null, lines:[], startLine:item.lineNo};
       block.lines.push({raw:rawTrim, lineNo:item.lineNo, fromHeader:false, headerName:'', headerMatched:false});
     }
   });
@@ -1662,10 +1669,19 @@ function buildMessageBlocks(text, defaultName){
   blocks.forEach((b, idx)=>{
     b.blockKey = makeMessageBlockKey(b.headerStamp||'', b.headerName||b.name||'', b.lines||[]);
     b.blockLabel = b.headerStamp ? `[${b.headerStamp}] ${b.headerName||b.name||''}` : `Manual Block ${idx+1} / ${b.name||'Default'}`;
+    b.cardIndexInPaste = idx + 1;
+    b.cardRawText = (b.lines||[]).map(x=>String(x.raw||'')).filter(Boolean).join('\n').trim();
+    if(Number.isFinite(Number(b.headerHour)) && Number.isFinite(Number(b.headerMinute))){
+      const hour=Number(b.headerHour), minute=Number(b.headerMinute);
+      const h12=hour%12||12;
+      b.cardTime=`${h12}:${String(minute).padStart(2,'0')} ${hour>=12?'PM':'AM'}`;
+    }else{
+      b.cardTime='';
+    }
   });
   return blocks;
 }
-function parseMessageBlock(block, writerProfile){
+function parseMessageBlock(block, writerProfile, blockIndex=0){
   const detailRows=[]; const warnings=[]; const issues=[];
   const processed = block.lines.map(item=>{
     const lineWriter = normalizeWriterProfile(writerProfile)==='AUTO' ? detectAutoWriter(item.raw) : normalizeWriterProfile(writerProfile);
@@ -1734,6 +1750,13 @@ function parseMessageBlock(block, writerProfile){
       if(block.headerStamp) row.headerStamp = block.headerStamp;
       row.duplicateBlockKey = block.blockKey || '';
       row.duplicateBlockLabel = block.blockLabel || '';
+      row.cardBlockKey = block.blockKey || '';
+      row.cardIndexInPaste = Number(block.cardIndexInPaste||blockIndex+1)||1;
+      row.cardTime = block.cardTime || '';
+      row.cardHeaderStamp = block.headerStamp || '';
+      row.cardHeaderName = block.headerName || '';
+      row.cardRawText = block.cardRawText || '';
+      row.cardSourceLine = Number(item.lineNo||0)||0;
     });
     detailRows.push(...(r?.rows||[]));
     (r?.warnings||[]).forEach(w=>warnings.push(w));
@@ -1742,19 +1765,37 @@ function parseMessageBlock(block, writerProfile){
     }
   });
 
-  return {detailRows, warnings, issues, matchedHeader:block.headerMatched?1:0};
+  const card={
+    tempCardKey:block.blockKey||`manual-${blockIndex+1}`,
+    indexInPaste:Number(block.cardIndexInPaste||blockIndex+1)||1,
+    name:block.name||'Default',
+    date:block.date||'',
+    session:block.session||'',
+    time:block.cardTime||'',
+    headerStamp:block.headerStamp||'',
+    headerName:block.headerName||'',
+    headerMatched:!!block.headerMatched,
+    rawText:block.cardRawText||'',
+    rowCount:detailRows.length,
+    totalAmount:detailRows.reduce((sum,row)=>sum+Number(row.amount||0),0),
+    warningCount:warnings.length,
+    issueCount:issues.length,
+    status:issues.length?'review':(warnings.length?'warning':'ready')
+  };
+  return {detailRows, warnings, issues, matchedHeader:block.headerMatched?1:0, card};
 }
 function parseMessage(text, defaultName='Default', writerProfile='AUTO'){
   const blocks = buildMessageBlocks(text, defaultName||'Default');
-  const detailRows=[]; const warnings=[]; const issues=[];
+  const detailRows=[]; const warnings=[]; const issues=[]; const cards=[];
   let matchedHeaderCount=0;
-  if(!blocks.length) return {detailRows, totals:[], warnings, issues, matchedHeaderCount, needsNameSelection:false};
+  if(!blocks.length) return {detailRows, totals:[], warnings, issues, cards, matchedHeaderCount, needsNameSelection:false};
 
-  blocks.forEach(block=>{
-    const res = parseMessageBlock(block, writerProfile);
+  blocks.forEach((block,blockIndex)=>{
+    const res = parseMessageBlock(block, writerProfile, blockIndex);
     detailRows.push(...res.detailRows);
     warnings.push(...res.warnings);
     issues.push(...res.issues);
+    if(res.card) cards.push(res.card);
     matchedHeaderCount += res.matchedHeader || 0;
   });
 
@@ -1765,7 +1806,7 @@ function parseMessage(text, defaultName='Default', writerProfile='AUTO'){
   const needsNameSelection = matchedHeaderCount===0 && (!selectedName || selectedName==='Default');
   const headerDates = [...new Set(blocks.map(b=>b.date).filter(Boolean))];
   const headerSessions = [...new Set(blocks.map(b=>b.session).filter(Boolean))];
-  return {detailRows, totals, warnings, issues, matchedHeaderCount, needsNameSelection, headerDates, headerSessions};
+  return {detailRows, totals, warnings, issues, cards, matchedHeaderCount, needsNameSelection, headerDates, headerSessions};
 }
 
 let entryImageState={name:'',size:0,source:''};
@@ -1834,7 +1875,7 @@ function parseInput(){
   const allDuplicate = uniquePreviewBlockKeys.length > 0 && summary.duplicateBlockKeys.length === uniquePreviewBlockKeys.length;
 
   if(allDuplicate){
-    preview = {detailRows:[], totals:[], warnings:['All duplicate ဖြစ်နေပါတယ်။ Copy paste အသစ်ထည့်ပါ။'], issues:[]};
+    preview = {detailRows:[], totals:[], warnings:['All duplicate ဖြစ်နေပါတယ်။ Copy paste အသစ်ထည့်ပါ။'], issues:[], cards:[]};
     renderPreview();
     showToast('All duplicate ဖြစ်နေပါတယ်။ Copy paste အသစ်ထည့်ပါ။');
     return;
@@ -1859,13 +1900,14 @@ function computePreviewSaveSummary(){
     const rowSession = (r.session || selectedSession || 'AM').toUpperCase().startsWith('P') ? 'PM' : 'AM';
     const rowName = r.name || selectedName;
     const key = `${rowName}__${rowDate}__${rowSession}`;
-    const prev = targetMap.get(key) || {name:rowName, date:rowDate, session:rowSession, rows:0, amount:0};
+    const prev = targetMap.get(key) || {name:rowName, date:rowDate, session:rowSession, rows:0, amount:0, cardKeys:new Set()};
     prev.rows += 1;
     prev.amount += Number(r.amount||0);
+    prev.cardKeys.add(r.cardBlockKey||r.duplicateBlockKey||`row-${prev.rows}`);
     targetMap.set(key, prev);
   });
 
-  const targets = [...targetMap.values()].sort((a,b)=>`${a.date}${a.session}${a.name}`.localeCompare(`${b.date}${b.session}${b.name}`));
+  const targets = [...targetMap.values()].map(x=>({...x,cards:x.cardKeys.size,cardKeys:undefined})).sort((a,b)=>`${a.date}${a.session}${a.name}`.localeCompare(`${b.date}${b.session}${b.name}`));
 
   const previewBlocks = new Map();
   rows.forEach(r=>{
@@ -1921,9 +1963,9 @@ function renderSaveFlowBox(){
 
   left.innerHTML = summary.targets.length ? `
     <table>
-      <thead><tr><th>Name</th><th>Date</th><th>Session</th><th class="right">Rows</th><th class="right">Amount</th></tr></thead>
+      <thead><tr><th>Name</th><th>Date</th><th>Session</th><th class="right">Cards</th><th class="right">Rows</th><th class="right">Amount</th></tr></thead>
       <tbody>
-        ${summary.targets.map(t=>`<tr><td>${escapeHtml(t.name)}</td><td>${t.date}</td><td><b>${t.session}</b></td><td class="right">${t.rows}</td><td class="right">${money(t.amount)}</td></tr>`).join('')}
+        ${summary.targets.map(t=>`<tr><td>${escapeHtml(t.name)}</td><td>${t.date}</td><td><b>${t.session}</b></td><td class="right">${t.cards||0}</td><td class="right">${t.rows}</td><td class="right">${money(t.amount)}</td></tr>`).join('')}
       </tbody>
     </table>
   ` : '<div class="muted">Detected target မရှိသေးပါ</div>';
@@ -1976,7 +2018,7 @@ function deleteDuplicatePreviewBlocks(saveAfter=false){
     names: collectNamesFromRows(deleted),
     date: deleted[0]?.date || '',
     session: deleted[0]?.session || '',
-    rawText: deleted[0]?.batchRawText || ''
+    rawText: rawTextForBatch(deleted[0])
   });
   pendingDuplicateBlockKeys = [];
   pendingDuplicateBlockLabels = [];
@@ -1986,10 +2028,15 @@ function deleteDuplicatePreviewBlocks(saveAfter=false){
   if(saveAfter) savePreview(true,'all');
 }
 function renderPreview(){
+  setText('pvCards',(preview.cards||[]).length);
   setText('pvRows',preview.detailRows.length);
   setText('pvTotal',money(preview.detailRows.reduce((a,b)=>a+b.amount,0)));
   setText('pvWarnings',preview.warnings.length);
-  document.getElementById('previewRows').innerHTML=preview.detailRows.map((r,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(r.name||val('entryName')||'Default')}</td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${r.type}</td><td>${escapeHtml(r.source)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No preview</td></tr>';
+  const cardBody=document.getElementById('previewCardRows');
+  if(cardBody){
+    cardBody.innerHTML=(preview.cards||[]).map(card=>`<tr class="${card.status==='review'?'cardNeedsReview':''}"><td><b>${card.indexInPaste}</b></td><td>${escapeHtml(card.name||val('entryName')||'Default')}</td><td>${card.date||val('entryDate')||today()}</td><td>${card.session||val('entrySession')||'AM'}</td><td>${escapeHtml(card.time||'-')}</td><td class="right">${card.rowCount}</td><td class="right">${money(card.totalAmount)}</td><td><span class="cardStatus ${card.status}">${card.status==='review'?'Review':(card.status==='warning'?'Warning':'Ready')}</span></td></tr>`).join('') || '<tr><td colspan="8" class="muted">Viber Card မတွေ့သေးပါ</td></tr>';
+  }
+  document.getElementById('previewRows').innerHTML=preview.detailRows.map((r,i)=>`<tr><td>${i+1}</td><td><b>${r.cardIndexInPaste||1}</b></td><td>${escapeHtml(r.cardTime||'-')}</td><td>${escapeHtml(r.name||val('entryName')||'Default')}</td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${r.type}</td><td>${escapeHtml(r.source)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No preview</td></tr>';
   document.getElementById('previewAgg').innerHTML=preview.totals.map(r=>`<tr><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">No data</td></tr>';
   document.getElementById('warnBox').innerHTML=preview.warnings.length? `<div class="bad">${preview.warnings.map(escapeHtml).join('<br>')}</div>` : '<span class="good">Warnings မရှိပါ</span>';
   renderIssueEditor();
@@ -2098,6 +2145,47 @@ function clearIssueEditor(){
 function normalizeDuplicateText(s){
   return String(s||'').replace(/\s+/g,' ').trim();
 }
+function targetCardKey(name,date,session){
+  return `${String(name||'Default')}__${String(date||today())}__${String(session||'AM')}`;
+}
+function maxExistingCardNumber(name,date,session,excludeCardId=''){
+  return records.reduce((max,row)=>{
+    if(excludeCardId && row.cardId===excludeCardId) return max;
+    if((row.name||'Default')!==name || row.date!==date || row.session!==session) return max;
+    return Math.max(max,Number(row.cardNumber||0)||0);
+  },0);
+}
+function prepareRowsWithCardMetadata(rows,{batchId,selectedName,selectedDate,selectedSession,ts}){
+  const counters=new Map();
+  const assignments=new Map();
+  const rowCounters=new Map();
+  const rawStoredCards=new Set();
+  const ordered=[...rows].sort((a,b)=>(Number(a.cardIndexInPaste||0)-Number(b.cardIndexInPaste||0)) || (Number(a.cardSourceLine||0)-Number(b.cardSourceLine||0)));
+  return ordered.map((r)=>{
+    const name=r.name||selectedName||'Default';
+    const date=r.date||selectedDate||today();
+    const session=(r.session||selectedSession||'AM').toUpperCase().startsWith('P')?'PM':'AM';
+    const target=targetCardKey(name,date,session);
+    const sourceCardKey=r.cardBlockKey||r.duplicateBlockKey||`manual-${r.cardIndexInPaste||1}`;
+    const assignmentKey=`${target}__${sourceCardKey}`;
+    if(!assignments.has(assignmentKey)){
+      if(!counters.has(target)) counters.set(target,maxExistingCardNumber(name,date,session));
+      const next=counters.get(target)+1;
+      counters.set(target,next);
+      assignments.set(assignmentKey,{
+        cardId:(window.crypto?.randomUUID?.()||`C-${ts}-${assignments.size+1}-${Math.random().toString(36).slice(2)}`),
+        cardNumber:next,
+        cardIndexInBatch:Number(r.cardIndexInPaste||assignments.size+1)||assignments.size+1
+      });
+    }
+    const card=assignments.get(assignmentKey);
+    const nextRow=(rowCounters.get(assignmentKey)||0)+1;
+    rowCounters.set(assignmentKey,nextRow);
+    const keepRaw=!rawStoredCards.has(assignmentKey);
+    rawStoredCards.add(assignmentKey);
+    return {...r,...card,name,date,session,cardBlockKey:sourceCardKey,cardRawText:keepRaw?(r.cardRawText||r.source||''):'',cardTime:r.cardTime||'',cardHeaderStamp:r.cardHeaderStamp||r.headerStamp||'',cardHeaderName:r.cardHeaderName||'',cardSourceLine:Number(r.cardSourceLine||0)||0,rowIndexInCard:nextRow,batchId};
+  });
+}
 function savePreview(skipDuplicateCheck=false, duplicateMode='warn'){
   if(!preview.detailRows.length){showToast('Save လုပ်ရန် preview မရှိပါ'); return;}
   const selectedDate=val('entryDate')||today(); const selectedSession=val('entrySession')||'AM';
@@ -2133,14 +2221,16 @@ function savePreview(skipDuplicateCheck=false, duplicateMode='warn'){
     return;
   }
 
-  snapshotBeforeChange('Save Preview', {rows:rowsToSave.length, names:collectNamesFromRows(rowsToSave)});
+  rowsToSave=prepareRowsWithCardMetadata(rowsToSave,{batchId,selectedName,selectedDate,selectedSession,ts});
+  const savedCardCount=new Set(rowsToSave.map(r=>r.cardId).filter(Boolean)).size;
+  snapshotBeforeChange('Save Preview', {rows:rowsToSave.length, cards:savedCardCount, names:collectNamesFromRows(rowsToSave)});
 
-  rowsToSave.forEach(r=>{
+  rowsToSave.forEach((r,saveIndex)=>{
     const rowName = r.name || selectedName;
     const rowDate = r.date || selectedDate;
     const rowSession = (r.session || selectedSession || 'AM').toUpperCase().startsWith('P') ? 'PM' : 'AM';
-    const groupId = `${batchId}__${rowName}__${String(r.source||'').trim()}__${rowDate}__${rowSession}`;
-    records.push({...r,name:rowName,date:rowDate,session:rowSession,ts,batchId,groupId,writerProfile,batchTextHash:normalizedText,batchRawText:rawText,duplicateBlockKey:r.duplicateBlockKey||'',duplicateBlockLabel:r.duplicateBlockLabel||'',id:crypto.randomUUID?crypto.randomUUID():String(ts)+Math.random()});
+    const groupId = `${r.cardId||batchId}__${rowName}__${String(r.source||'').trim()}__${rowDate}__${rowSession}`;
+    records.push({...r,name:rowName,date:rowDate,session:rowSession,ts,batchId,groupId,writerProfile,batchTextHash:normalizedText,batchRawText:saveIndex===0?rawText:'',duplicateBlockKey:r.duplicateBlockKey||'',duplicateBlockLabel:r.duplicateBlockLabel||'',id:crypto.randomUUID?crypto.randomUUID():String(ts)+Math.random()});
   });
 
   try{
@@ -2151,7 +2241,7 @@ function savePreview(skipDuplicateCheck=false, duplicateMode='warn'){
   saveCloudSnapshot(false);
   pushAudit('SAVE', {
     label: `Saved ${rowsToSave.length} rows`,
-    summary: `Batch ${batchId} | ${rowsToSave.length} rows သိမ်းပြီး`,
+    summary: `Batch ${batchId} | ${savedCardCount} cards | ${rowsToSave.length} rows သိမ်းပြီး`,
     names: collectNamesFromRows(rowsToSave),
     date: rowsToSave[0]?.date || selectedDate,
     session: rowsToSave[0]?.session || selectedSession,
@@ -2159,10 +2249,10 @@ function savePreview(skipDuplicateCheck=false, duplicateMode='warn'){
   });
   pendingDuplicateBlockKeys = [];
   pendingDuplicateBlockLabels = [];
-  preview={detailRows:[],totals:[],warnings:[],issues:[]};
+  preview={detailRows:[],totals:[],warnings:[],issues:[],cards:[]};
   renderAll();
   renderSaveFlowBox();
-  showToast('Confirm Save အောင်မြင်ပါပြီ — စာရင်းကို Entry Records ထဲ သိမ်းပြီးပါပြီ','success',5000);
+  showToast(`Confirm Save အောင်မြင်ပါပြီ — ${savedCardCount} ကတ် / ${rowsToSave.length} rows သိမ်းပြီးပါပြီ`,'success',5500);
 }
 function filterRecords(date,session,name='ALL'){
   return records.filter(r=>r.date===date && (session==='DAILY' || r.session===session) && (name==='ALL' || (r.name||'Default')===name));
@@ -2387,20 +2477,39 @@ const I18N={
 function setLang(lang){settings.lang=lang; userSetItem('v2d_settings',JSON.stringify(settings)); const d=I18N[lang]||I18N.my; document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.dataset.i18n; if(d[k]) el.textContent=d[k];}); const sel=document.getElementById('langSelect'); if(sel) sel.value=lang;}
 function renderDashboard(){
   const t=today(); const am=filterRecords(t,'AM').reduce((a,b)=>a+b.amount,0); const pm=filterRecords(t,'PM').reduce((a,b)=>a+b.amount,0); setText('dashToday',money(am+pm)); setText('dashAM',money(am)); setText('dashPM',money(pm));
-  document.getElementById('latestRows').innerHTML=records.slice(-30).reverse().map(r=>`<tr><td>${r.date}</td><td>${r.session}</td><td>${escapeHtml(r.name||'Default')}</td><td>${escapeHtml(normalizeWriterProfile(r.writerProfile||'AUTO'))}</td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${escapeHtml(r.source)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No records</td></tr>';
+  document.getElementById('latestRows').innerHTML=records.slice(-30).reverse().map(r=>`<tr><td>${r.date}</td><td>${r.session}</td><td>${escapeHtml(r.name||'Default')}</td><td>${r.cardNumber?`#${r.cardNumber}`:'-'}</td><td>${escapeHtml(normalizeWriterProfile(r.writerProfile||'AUTO'))}</td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${escapeHtml(r.source)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No records</td></tr>';
 }
 
 function jsArg(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 function getBatchId(r){ return r.batchId || ('LEGACY-'+String(r.ts||0)); }
 function getGroupId(r){ return r.groupId || (getBatchId(r)+'__'+(r.name||'Default')+'__'+String(r.source||'')); }
 function batchLabel(r){ return getBatchId(r).replace(/^LEGACY-/,'L-').slice(-8); }
+function rawTextForBatch(row){
+  if(!row) return '';
+  return row.batchRawText || records.find(r=>getBatchId(r)===getBatchId(row) && r.batchRawText)?.batchRawText || '';
+}
+function rawTextForCard(row){
+  if(!row) return '';
+  return row.cardRawText || (row.cardId?records.find(r=>r.cardId===row.cardId && r.cardRawText)?.cardRawText:'') || '';
+}
+function transferRawTextBeforeRowDelete(row){
+  if(!row) return;
+  if(row.cardRawText && row.cardId){
+    const next=records.find(r=>r.id!==row.id && r.cardId===row.cardId);
+    if(next && !next.cardRawText) next.cardRawText=row.cardRawText;
+  }
+  if(row.batchRawText){
+    const next=records.find(r=>r.id!==row.id && getBatchId(r)===getBatchId(row));
+    if(next && !next.batchRawText) next.batchRawText=row.batchRawText;
+  }
+}
 function recordFilteredRows(){
   const date=val('recordDate')||today(), session=val('recordSession')||'AM', name=val('recordName')||'ALL', q=(val('recordSearch')||'').toLowerCase().trim();
   return records.filter(r=>{
     const okDate=r.date===date;
     const okSession=session==='DAILY' || r.session===session;
     const okName=name==='ALL' || (r.name||'Default')===name;
-    const blob=((r.name||'')+' '+(r.number||'')+' '+(r.amount||'')+' '+(r.source||'')+' '+(r.type||'')+' '+getBatchId(r)).toLowerCase();
+    const blob=((r.name||'')+' '+(r.number||'')+' '+(r.amount||'')+' '+(r.source||'')+' '+(r.type||'')+' '+getBatchId(r)+' card '+(r.cardNumber||'')+' '+(r.cardTime||'')).toLowerCase();
     return okDate && okSession && okName && (!q || blob.includes(q));
   }).sort((a,b)=>(a.ts||0)-(b.ts||0));
 }
@@ -2417,18 +2526,18 @@ function renderEntryRecords(){
     let no=1;
     Object.keys(groups).sort().forEach(name=>{
       const g=groups[name], total=g.reduce((s,r)=>s+Number(r.amount||0),0);
-      html += `<tr class="recordHeaderRow"><td colspan="12">${escapeHtml(name)} — ${g.length} rows — Total ${money(total)}</td></tr>`;
+      html += `<tr class="recordHeaderRow"><td colspan="14">${escapeHtml(name)} — ${g.length} rows — Total ${money(total)}</td></tr>`;
       g.forEach(r=>{html += entryRecordRowHtml(r,no++);});
     });
   }else{
     html = rows.map((r,i)=>entryRecordRowHtml(r,i+1)).join('');
   }
-  document.getElementById('entryRecordRows').innerHTML = html || '<tr><td colspan="12" class="muted">Record မရှိသေးပါ</td></tr>';
+  document.getElementById('entryRecordRows').innerHTML = html || '<tr><td colspan="14" class="muted">Record မရှိသေးပါ</td></tr>';
 }
 function entryRecordRowHtml(r,no){
   const t=r.ts?new Date(r.ts).toLocaleTimeString(): '-';
   const id=jsArg(r.id||'');
-  return `<tr><td>${no}</td><td>${t}</td><td>${r.date||''}</td><td>${r.session||''}</td><td>${escapeHtml(r.name||'Default')}</td><td>${escapeHtml(normalizeWriterProfile(r.writerProfile||'AUTO'))}</td><td><span class="miniBadge">${escapeHtml(batchLabel(r))}</span></td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${escapeHtml(r.type||'')}</td><td>${escapeHtml(r.source||'')}</td><td class="nowrap"><button class="actionBtn edit" onclick="editEntryRecord('${id}')">Edit / ပြင်</button><button class="actionBtn edit" onclick="openGroupEditByRecord('${id}')">Group / အုပ်စု</button><button class="actionBtn del" onclick="deleteEntryBatch('${id}')">Batch ဖျက်</button><button class="actionBtn del" onclick="deleteEntryRecord('${id}')">Delete / ဖျက်</button></td></tr>`;
+  return `<tr><td>${no}</td><td>${t}</td><td>${r.date||''}</td><td>${r.session||''}</td><td>${escapeHtml(r.name||'Default')}</td><td><span class="cardNoBadge">${r.cardNumber?`#${r.cardNumber}`:'Legacy'}</span></td><td>${escapeHtml(r.cardTime||'-')}</td><td>${escapeHtml(normalizeWriterProfile(r.writerProfile||'AUTO'))}</td><td><span class="miniBadge">${escapeHtml(batchLabel(r))}</span></td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${escapeHtml(r.type||'')}</td><td>${escapeHtml(r.source||'')}</td><td class="nowrap"><button class="actionBtn edit" onclick="editEntryRecord('${id}')">Edit / ပြင်</button><button class="actionBtn edit" onclick="openGroupEditByRecord('${id}')">${r.cardId?'Card Edit':'Group Edit'}</button><button class="actionBtn del" onclick="deleteEntryBatch('${id}')">Batch ဖျက်</button><button class="actionBtn del" onclick="deleteEntryRecord('${id}')">Delete / ဖျက်</button></td></tr>`;
 }
 function editEntryRecord(id){
   const i=records.findIndex(r=>r.id===id); if(i<0){showToast('Record မတွေ့ပါ');return;}
@@ -2442,19 +2551,27 @@ function editEntryRecord(id){
   const amt=Number(String(amount).replace(/[^\d]/g,'')); if(!amt){showToast('Amount မမှန်ပါ'); return;}
   snapshotBeforeChange('Edit Entry Record', {name:r.name||'Default', number:r.number});
   records[i]={...r,name:name.trim()||'Default',number:String(number).padStart(2,'0').slice(-2),amount:amt,date:date.trim()||today(),session:(session.toUpperCase().startsWith('P')?'PM':'AM'),editedAt:Date.now()};
-  saveRecords(); saveCloudSnapshot(false); pushAudit('EDIT_ROW',{label:`${r.number} → ${String(number).padStart(2,'0').slice(-2)}`,summary:'Row edit ပြီးပါပြီ',name:name.trim()||'Default',date:date.trim()||today(),session:(session.toUpperCase().startsWith('P')?'PM':'AM'),rawText:r.batchRawText||''}); renderAll(); showToast('Edited + Cloud Sync');
+  saveRecords(); saveCloudSnapshot(false); pushAudit('EDIT_ROW',{label:`${r.number} → ${String(number).padStart(2,'0').slice(-2)}`,summary:'Row edit ပြီးပါပြီ',name:name.trim()||'Default',date:date.trim()||today(),session:(session.toUpperCase().startsWith('P')?'PM':'AM'),rawText:rawTextForBatch(r)}); renderAll(); showToast('Edited + Cloud Sync');
 }
 function openGroupEditByRecord(id){
   const row = records.find(r=>r.id===id);
   if(!row){showToast('Group မတွေ့ပါ'); return;}
   const batchId=getBatchId(row), rowName=row.name||'Default';
-  const same = records.filter(r=>getBatchId(r)===batchId && (r.name||'Default')===rowName && r.date===row.date && r.session===row.session).sort((a,b)=>(a.ts||0)-(b.ts||0));
+  const isCard=!!row.cardId;
+  const same = records.filter(r=>isCard ? r.cardId===row.cardId : (getBatchId(r)===batchId && (r.name||'Default')===rowName && r.date===row.date && r.session===row.session)).sort((a,b)=>(a.cardSourceLine||0)-(b.cardSourceLine||0) || (a.ts||0)-(b.ts||0));
   const seen=new Set(); const lines=[];
-  same.forEach(r=>{
-    const src=String(r.source||'').trim();
-    if(src && !seen.has(src)){ seen.add(src); lines.push(src); }
-  });
-  currentGroupEdit = {batchId, oldName:rowName, oldDate:row.date, oldSession:row.session, ts:row.ts||Date.now(), writerProfile: normalizeWriterProfile(row.writerProfile||'AUTO')};
+  const savedCardRaw=rawTextForCard(row);
+  if(isCard && savedCardRaw){
+    lines.push(savedCardRaw);
+  }else{
+    same.forEach(r=>{
+      const src=String(r.source||'').trim();
+      if(src && !seen.has(src)){ seen.add(src); lines.push(src); }
+    });
+  }
+  currentGroupEdit = {scope:isCard?'CARD':'BATCH',cardId:row.cardId||'',cardNumber:Number(row.cardNumber||0)||0,cardTime:row.cardTime||'',cardHeaderStamp:row.cardHeaderStamp||'',cardHeaderName:row.cardHeaderName||'',cardIndexInBatch:Number(row.cardIndexInBatch||0)||0,batchId, oldName:rowName, oldDate:row.date, oldSession:row.session, ts:row.ts||Date.now(), writerProfile: normalizeWriterProfile(row.writerProfile||'AUTO')};
+  setText('groupEditTitle',isCard?`Card Edit #${row.cardNumber||'-'} / ကတ်ပြင်ရန်`:'Group Edit / Batch Edit');
+  setText('groupEditHelp',isCard?'ရွေးထားသော Viber Card တစ်ကတ်တည်းကို ပြင်ပြီး ပြန် Parse/Save လုပ်မယ်။ အခြားကတ်များ မထိခိုက်ပါ။':'ဒီ box ထဲမှာ batch/group source text ကို ပြင်လိုက်တာနဲ့ သက်ဆိုင်ရာ row တွေအကုန်တခါတည်းချိန်းပေးမယ်။');
   setVal('groupEditName', rowName);
   setVal('groupEditDate', row.date||today());
   setVal('groupEditSession', row.session||'AM');
@@ -2475,21 +2592,28 @@ function applyGroupEdit(){
   const text = val('groupEditText').trim();
   const parsed = parseMessage(text, name, writerProfile);
   if(!parsed.detailRows.length){ showToast('Group text ကို parse မလုပ်နိုင်ပါ'); return; }
+  if(currentGroupEdit.scope==='CARD' && (parsed.cards||[]).length>1){ showToast('Card Edit မှာ Viber Header တစ်ခုသာထားပါ','error',6000); return; }
 
-  snapshotBeforeChange('Group Edit', {name:currentGroupEdit.oldName, date:currentGroupEdit.oldDate, session:currentGroupEdit.oldSession});
-  records = records.filter(r=>!(getBatchId(r)===currentGroupEdit.batchId && (r.name||'Default')===currentGroupEdit.oldName && r.date===currentGroupEdit.oldDate && r.session===currentGroupEdit.oldSession));
-  parsed.detailRows.forEach(r=>{
+  const isCard=currentGroupEdit.scope==='CARD';
+  snapshotBeforeChange(isCard?'Card Edit':'Group Edit', {name:currentGroupEdit.oldName, date:currentGroupEdit.oldDate, session:currentGroupEdit.oldSession, cardNumber:currentGroupEdit.cardNumber||0});
+  records = records.filter(r=>isCard ? r.cardId!==currentGroupEdit.cardId : !(getBatchId(r)===currentGroupEdit.batchId && (r.name||'Default')===currentGroupEdit.oldName && r.date===currentGroupEdit.oldDate && r.session===currentGroupEdit.oldSession));
+  const sameTarget=name===currentGroupEdit.oldName && date===currentGroupEdit.oldDate && session===currentGroupEdit.oldSession;
+  const cardNumber=isCard?(sameTarget?currentGroupEdit.cardNumber:maxExistingCardNumber(name,date,session)+1):0;
+  const cardId=isCard?currentGroupEdit.cardId:'';
+  parsed.detailRows.forEach((r,editIndex)=>{
     const rowName = r.name || name;
-    const groupId = `${currentGroupEdit.batchId}__${rowName}__${String(r.source||'').trim()}`;
-    records.push({...r, name:rowName, date, session, ts:currentGroupEdit.ts, batchId:currentGroupEdit.batchId, groupId, writerProfile, id:crypto.randomUUID?crypto.randomUUID():String(currentGroupEdit.ts)+Math.random(), editedAt:Date.now()});
+    const finalCardId=isCard?cardId:(r.cardId||'');
+    const groupId = `${finalCardId||currentGroupEdit.batchId}__${rowName}__${String(r.source||'').trim()}`;
+    records.push({...r, name:rowName, date, session, ts:currentGroupEdit.ts, batchId:currentGroupEdit.batchId, groupId, writerProfile,cardId:finalCardId,cardNumber:isCard?cardNumber:(r.cardNumber||0),cardIndexInBatch:isCard?currentGroupEdit.cardIndexInBatch:(r.cardIndexInPaste||0),cardTime:isCard?(r.cardTime||currentGroupEdit.cardTime||''):(r.cardTime||''),cardHeaderStamp:isCard?(r.cardHeaderStamp||currentGroupEdit.cardHeaderStamp||''):(r.cardHeaderStamp||''),cardHeaderName:isCard?(r.cardHeaderName||currentGroupEdit.cardHeaderName||''):(r.cardHeaderName||''),cardRawText:editIndex===0?text:'', id:crypto.randomUUID?crypto.randomUUID():String(currentGroupEdit.ts)+Math.random(), editedAt:Date.now()});
   });
-  saveRecords(); saveCloudSnapshot(false); pushAudit('GROUP_EDIT',{label:`${name} ${date} ${session}`,summary:`Group Edit ${parsed.detailRows.length} rows`,name,date,session,rawText:text}); closeGroupEditModal(); renderAll(); showToast('Group Edit + Cloud Sync');
+  saveRecords(); saveCloudSnapshot(false); pushAudit(isCard?'CARD_EDIT':'GROUP_EDIT',{label:isCard?`${name} Card #${cardNumber}`:`${name} ${date} ${session}`,summary:`${isCard?'Card':'Group'} Edit ${parsed.detailRows.length} rows`,name,date,session,rawText:text}); closeGroupEditModal(); renderAll(); showToast(`${isCard?'Card':'Group'} Edit + Cloud Sync`);
 }
 function deleteEntryRecord(id){
   const i=records.findIndex(r=>r.id===id); if(i<0){showToast('Record မတွေ့ပါ');return;}
   const r=records[i]; if(!confirm(`${r.name||'Default'} | ${r.number} | ${money(r.amount)} ကို ဖျက်မလား?`)) return;
   snapshotBeforeChange('Delete Entry Record', {name:r.name||'Default', number:r.number});
-  records.splice(i,1); saveRecords(); saveCloudSnapshot(false); pushAudit('DELETE_ROW',{label:`${r.name||'Default'} ${r.number}`,summary:`${money(r.amount)} ဖျက်ပြီး`,name:r.name||'Default',date:r.date||'',session:r.session||'',rawText:r.batchRawText||''}); renderAll(); showToast('Deleted + Cloud Sync');
+  transferRawTextBeforeRowDelete(r);
+  records.splice(i,1); saveRecords(); saveCloudSnapshot(false); pushAudit('DELETE_ROW',{label:`${r.name||'Default'} ${r.number}`,summary:`${money(r.amount)} ဖျက်ပြီး`,name:r.name||'Default',date:r.date||'',session:r.session||'',rawText:rawTextForBatch(r)}); renderAll(); showToast('Deleted + Cloud Sync');
 }
 function deleteEntryBatch(id){
   const row = records.find(r=>r.id===id); if(!row){showToast('Batch မတွေ့ပါ'); return;}
@@ -2499,7 +2623,7 @@ function deleteEntryBatch(id){
   if(!confirm(`Batch ${batchLabel(row)} မှာ ${count} rows ရှိတယ်။ တစ်ခါတည်းဖျက်မလား?`)) return;
   snapshotBeforeChange('Delete Entry Batch', {batch:batchLabel(row), count});
   records = records.filter(r=>!(getBatchId(r)===batchId && r.date===row.date && r.session===row.session));
-  saveRecords(); saveCloudSnapshot(false); pushAudit('DELETE_BATCH',{label:batchLabel(row),summary:`Batch ${count} rows ဖျက်ပြီး`,names:collectNamesFromRows(sameRows),date:row.date||'',session:row.session||'',rawText:row.batchRawText||''}); renderAll(); showToast('Batch Deleted + Cloud Sync');
+  saveRecords(); saveCloudSnapshot(false); pushAudit('DELETE_BATCH',{label:batchLabel(row),summary:`Batch ${count} rows ဖျက်ပြီး`,names:collectNamesFromRows(sameRows),date:row.date||'',session:row.session||'',rawText:rawTextForBatch(row)}); renderAll(); showToast('Batch Deleted + Cloud Sync');
 }
 function deleteFilteredNameRows(){
   const date=val('recordDate')||today(), session=val('recordSession')||'AM', name=val('recordName')||'ALL';
@@ -2510,20 +2634,20 @@ function deleteFilteredNameRows(){
   if(!confirm(`${date} ${session} ${name} rows ${count} ကြောင်းကို ဖျက်မလား?`)) return;
   snapshotBeforeChange('Delete Filtered Name Rows', {name, date, session, count});
   records = records.filter(r=>!(r.date===date && (session==='DAILY' || r.session===session) && (r.name||'Default')===name));
-  saveRecords(); saveCloudSnapshot(false); pushAudit('DELETE_FILTERED_NAME',{label:`${name} ${date} ${session}`,summary:`Filtered rows ${count} ကြောင်းဖျက်ပြီး`,name,date,session,rawText:deletedRows[0]?.batchRawText||''}); renderAll(); showToast('Filtered Name Rows Deleted + Cloud Sync');
+  saveRecords(); saveCloudSnapshot(false); pushAudit('DELETE_FILTERED_NAME',{label:`${name} ${date} ${session}`,summary:`Filtered rows ${count} ကြောင်းဖျက်ပြီး`,name,date,session,rawText:rawTextForBatch(deletedRows[0])}); renderAll(); showToast('Filtered Name Rows Deleted + Cloud Sync');
 }
 function copyEntryRecordsText(){
   const rows=recordFilteredRows();
   if(!rows.length){showToast('Copy လုပ်ရန် record မရှိပါ'); return;}
-  const lines=[`Entry Records ${val('recordDate')||today()} ${val('recordSession')||'AM'} ${val('recordName')||'ALL'}`,'Time | Name | Writer | Batch | Number | Amount | Source'];
-  rows.forEach(r=>lines.push(`${r.ts?new Date(r.ts).toLocaleTimeString():'-'} | ${r.name||'Default'} | ${normalizeWriterProfile(r.writerProfile||'AUTO')} | ${batchLabel(r)} | ${r.number} | ${money(r.amount)} | ${r.source||''}`));
+  const lines=[`Entry Records ${val('recordDate')||today()} ${val('recordSession')||'AM'} ${val('recordName')||'ALL'}`,'Time | Name | Card | Card Time | Writer | Batch | Number | Amount | Source'];
+  rows.forEach(r=>lines.push(`${r.ts?new Date(r.ts).toLocaleTimeString():'-'} | ${r.name||'Default'} | ${r.cardNumber?`#${r.cardNumber}`:'Legacy'} | ${r.cardTime||'-'} | ${normalizeWriterProfile(r.writerProfile||'AUTO')} | ${batchLabel(r)} | ${r.number} | ${money(r.amount)} | ${r.source||''}`));
   lines.push('Total = '+money(rows.reduce((s,r)=>s+Number(r.amount||0),0)));
   copyText(lines.join('\n'));
 }
 
 
-const APP_VERSION='4.2A.1';
-const APP_VERSION_LABEL='Stage 4.2A.1 Cloud-First Auto Sync';
+const APP_VERSION='4.2B.1';
+const APP_VERSION_LABEL='Stage 4.2B.1 Viber Card Foundation';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -2879,7 +3003,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.2A.1 Cloud-First Auto Sync',
+    version:'Stage 4.2B.1 Viber Card Foundation',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

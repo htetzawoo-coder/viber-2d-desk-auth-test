@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.2A.1 Cloud-First Auto Sync</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.2A.1">
+  <title>Viber 2D Desk - Stage 4.2B.1 Viber Card Foundation</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.2B.1">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.2A.1 · Cloud-First Auto Sync</div>
+        <div class="muted">Stage 4.2B.1 · Viber Card Foundation</div>
       </div>
     </div>
 
@@ -64,8 +64,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.2A.1 Cloud-First + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2A.1: Login Auto Load + Save/Edit/Delete Auto Sync + Offline Queue + Cross-device Update</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.2B.1 Card Foundation + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2B.1: Viber Header → Card Detection + Card Number + Card-level Edit Foundation</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -140,10 +140,10 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2A.1 file က အရင် stable UI/Parser/Reports မပျက်ဘဲ Firebase Authentication နဲ့ User ID အလိုက် Local/Cloud data ခွဲထားပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2B.1 file က Cloud-first ကိုဆက်ထိန်းပြီး Viber Header တစ်ခုကို Card တစ်ကတ်အဖြစ် ခွဲ၊ Name/Date/Session အလိုက် Card Number တပ်ပေးပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
-    <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
+    <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
   </section>
 
   <section id="entry" class="page">
@@ -196,7 +196,7 @@
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.2A.1</span></h3>
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.2B.1</span></h3>
               <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
             </div>
             <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
@@ -266,11 +266,14 @@
             </div>
           </div>
 
-          <div class="grid3" style="margin-top:12px">
+          <div class="grid4" style="margin-top:12px">
+            <div class="stat"><div class="k">Detected Cards</div><div class="v blue" id="pvCards">0</div></div>
             <div class="stat"><div class="k" data-i18n="previewRows">Preview Rows</div><div class="v" id="pvRows">0</div></div>
             <div class="stat"><div class="k" data-i18n="previewTotal">Preview Total</div><div class="v good" id="pvTotal">0</div></div>
             <div class="stat"><div class="k" data-i18n="warnings">Warnings</div><div class="v bad" id="pvWarnings">0</div></div>
           </div>
+          <h3 style="margin-top:12px">Detected Viber Cards / တွေ့ရှိသော ကတ်များ</h3>
+          <div class="scroll cardPreviewScroll"><table><thead><tr><th>Paste Card</th><th>Name</th><th>Date</th><th>Session</th><th>Time</th><th class="right">Rows</th><th class="right">Amount</th><th>Status</th></tr></thead><tbody id="previewCardRows"></tbody></table></div>
           <h3 style="margin-top:12px" data-i18n="aggByNumber">Aggregated by Number</h3>
           <div class="scroll"><table><thead><tr><th>Number</th><th class="right">Amount</th></tr></thead><tbody id="previewAgg"></tbody></table></div>
         </div>
@@ -278,7 +281,7 @@
         <div class="card preview-card">
           <h2 data-i18n="previewDetail">Preview Detail</h2>
           <div id="warnBox" class="muted"></div>
-          <div class="scroll"><table><thead><tr><th>No</th><th>Name</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th></tr></thead><tbody id="previewRows"></tbody></table></div>
+          <div class="scroll"><table><thead><tr><th>No</th><th>Paste Card</th><th>Time</th><th>Name</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th></tr></thead><tbody id="previewRows"></tbody></table></div>
         </div>
 
         <div class="card over-card">
@@ -300,7 +303,7 @@
         <div><label>Session</label><select id="recordSession" onchange="renderEntryRecords()"><option>AM</option><option>PM</option><option>DAILY</option></select></div>
         <div><label>Name</label><select id="recordName" onchange="renderEntryRecords()"></select></div>
         <div><label>View / ကြည့်ပုံ</label><select id="recordViewMode" onchange="renderEntryRecords()"><option value="TIME">Time Order / အချိန်လိုက်</option><option value="NAME">Name Group / နာမည်လိုက်</option></select></div>
-        <div class="wide"><label>Search</label><input id="recordSearch" placeholder="Name / Number / Source" oninput="renderEntryRecords()"></div>
+        <div class="wide"><label>Search</label><input id="recordSearch" placeholder="Name / Card # / Number / Source" oninput="renderEntryRecords()"></div>
       </div>
       <div class="compactStats" style="margin-top:12px">
         <div class="stat"><div class="k">Rows</div><div class="v" id="recordRowsCount">0</div></div>
@@ -317,7 +320,7 @@
       <div class="cloudNote">Auto Sync: Save/Edit/Delete လုပ်တာနဲ့ Cloud ကို အလိုအလျောက်သိမ်းပါတယ်။ Same Name + Same Number + Same Amount ထပ်ထိုးတာကို မတားပါ။</div>
       <div class="scroll" style="margin-top:12px;max-height:620px">
         <table>
-          <thead><tr><th>No</th><th>Time</th><th>Date</th><th>Session</th><th>Name</th><th>Writer</th><th>Batch</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th><th>Action</th></tr></thead>
+          <thead><tr><th>No</th><th>Save Time</th><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Viber Time</th><th>Writer</th><th>Batch</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th><th>Action</th></tr></thead>
           <tbody id="entryRecordRows"></tbody>
         </table>
       </div>
@@ -518,8 +521,8 @@
 
 <div class="modalBack" id="groupEditModal">
   <div class="modalCard">
-    <h2 style="margin:0 0 8px">Group Edit / Batch Edit</h2>
-    <div class="muted">ဒီ box ထဲမှာ batch/group source text ကို ပြင်လိုက်တာနဲ့ သက်ဆိုင်ရာ row တွေအကုန်တခါတည်းချိန်းပေးမယ်။ line အသစ်ထပ်ဖြည့်လို့လည်းရတယ်။</div>
+    <h2 id="groupEditTitle" style="margin:0 0 8px">Group Edit / Batch Edit</h2>
+    <div class="muted" id="groupEditHelp">ဒီ box ထဲမှာ batch/group source text ကို ပြင်လိုက်တာနဲ့ သက်ဆိုင်ရာ row တွေအကုန်တခါတည်းချိန်းပေးမယ်။ line အသစ်ထပ်ဖြည့်လို့လည်းရတယ်။</div>
     <div class="modalGrid" style="margin-top:10px;grid-template-columns:1fr 140px 120px 160px">
       <div><label>Name</label><input id="groupEditName"></div>
       <div><label>Date</label><input id="groupEditDate" type="date"></div>
@@ -542,7 +545,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.2A.1"></script>
-<script src="js/auth.js?v=4.2A.1"></script>
+<script src="js/firebase-config.js?v=4.2B.1"></script>
+<script src="js/auth.js?v=4.2B.1"></script>
 </body>
 </html>

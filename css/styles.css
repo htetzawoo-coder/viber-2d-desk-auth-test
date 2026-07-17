@@ -319,3 +319,14 @@
 .cloudSyncPill.conflict,.cloudSyncPill.error{border-color:#991b1b;background:#450a0a}.cloudSyncPill.conflict .cloudSyncDot,.cloudSyncPill.error .cloudSyncDot{background:#ef4444;box-shadow:0 0 10px #ef4444}
 @keyframes v2dSyncPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.75)}}
 @media(max-width:900px){.cloudSyncPill{width:100%}.cloudSyncCopy small{max-width:none}}
+
+/* Stage 4.2B.1 — Viber Card foundation */
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.cardPreviewScroll{max-height:250px}
+.cardStatus{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:800;background:#e2e8f0;color:#334155}
+.cardStatus.ready{background:#dcfce7;color:#166534}
+.cardStatus.warning{background:#fef3c7;color:#92400e}
+.cardStatus.review{background:#fee2e2;color:#991b1b}
+.cardNeedsReview td{background:#fff7ed}
+.cardNoBadge{display:inline-flex;min-width:44px;justify-content:center;border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;border-radius:8px;padding:3px 7px;font-weight:900}
+@media(max-width:900px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}

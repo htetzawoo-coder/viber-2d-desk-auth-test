@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.2B.1 Viber Card Foundation</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.2B.1">
+  <title>Viber 2D Desk - Stage 4.2C.1 Card Navigator + Safe Card Edit</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.2C.1">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.2B.1 · Viber Card Foundation</div>
+        <div class="muted">Stage 4.2C.1 · Card Navigator + Safe Card Edit</div>
       </div>
     </div>
 
@@ -64,8 +64,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.2B.1 Card Foundation + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2B.1: Viber Header → Card Detection + Card Number + Card-level Edit Foundation</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.2C.1 Card Navigator + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2C.1: Card Navigator + One-card Detail + Safe Re-parse/Edit + Card Delete</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -140,7 +140,7 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2B.1 file က Cloud-first ကိုဆက်ထိန်းပြီး Viber Header တစ်ခုကို Card တစ်ကတ်အဖြစ် ခွဲ၊ Name/Date/Session အလိုက် Card Number တပ်ပေးပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2C.1 file က Card #1–#20 ကို တစ်ကတ်ချင်း လွယ်ကူစွာ ရှာ၊ ဖွင့်၊ ပြင်၊ ဖျက်နိုင်ပြီး Apply မလုပ်ခင် Re-parse Preview စစ်နိုင်ပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
     <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
@@ -196,7 +196,7 @@
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.2B.1</span></h3>
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.2C.1</span></h3>
               <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
             </div>
             <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
@@ -297,7 +297,7 @@
   <section id="records" class="page">
     <div class="card">
       <h2>Entry Records / သွင်းပြီးစာရင်းမှတ်တမ်း</h2>
-      <div class="muted">Entry Page ကိုမပြောင်းဘဲ သီးသန့် Record page အဖြစ် ထည့်ထားပါတယ်။ Time order / Name group / Edit / Group Edit / Delete / Del Batch ပါပါတယ်။</div>
+      <div class="muted">Entry Records အောက်တွင် Card Navigator ထည့်ထားပါတယ်။ ကတ်နံပါတ်၊ Viber အချိန်၊ Total Amount အလိုက် တစ်ကတ်ချင်း ဖွင့်/ပြင်/ဖျက်နိုင်ပြီး အရင် Row Edit၊ Batch Edit၊ Undo လုပ်ဆောင်ချက်များလည်း ဆက်ရှိပါတယ်။</div>
       <div class="recordFilters" style="margin-top:10px">
         <div><label>Date</label><input id="recordDate" type="date" onchange="renderEntryRecords()"></div>
         <div><label>Session</label><select id="recordSession" onchange="renderEntryRecords()"><option>AM</option><option>PM</option><option>DAILY</option></select></div>
@@ -318,6 +318,64 @@
         <button class="btn warn" onclick="syncCloudNow()">Sync Now / ယခု Sync</button>
       </div>
       <div class="cloudNote">Auto Sync: Save/Edit/Delete လုပ်တာနဲ့ Cloud ကို အလိုအလျောက်သိမ်းပါတယ်။ Same Name + Same Number + Same Amount ထပ်ထိုးတာကို မတားပါ။</div>
+
+      <div class="cardNavigatorShell" id="cardNavigatorShell">
+        <div class="cardNavigatorHead">
+          <div>
+            <h3>Card Navigator / ကတ်နံပါတ်အလိုက် စစ်ဆေးပြင်ဆင်ရန်</h3>
+            <div class="muted">အပေါ်က Date / Session / Name filter အတိုင်း ကတ်တစ်ကတ်ချင်း ရှာ၊ ကြည့်၊ ပြင်၊ ဖျက်နိုင်ပါတယ်။</div>
+          </div>
+          <div class="cardNavigatorSearchWrap">
+            <label>Find Card / ကတ်ရှာရန်</label>
+            <input id="cardNavigatorSearch" placeholder="#12 / 2:24 PM / Number / Source" oninput="renderCardNavigator()">
+          </div>
+        </div>
+        <div class="cardNavigatorStats">
+          <div class="stat"><div class="k">Cards</div><div class="v blue" id="navCardCount">0</div></div>
+          <div class="stat"><div class="k">Selected Rows</div><div class="v" id="navSelectedRows">0</div></div>
+          <div class="stat"><div class="k">Selected Total</div><div class="v good" id="navSelectedTotal">0</div></div>
+          <div class="stat"><div class="k">Viber Time</div><div class="v blue navTimeValue" id="navSelectedTime">-</div></div>
+        </div>
+        <div class="cardNavigatorGrid">
+          <aside class="cardNavigatorListPane">
+            <div class="cardNavigatorListHead">
+              <b>Card List / ကတ်စာရင်း</b>
+              <span class="muted" id="cardNavigatorListHint">0 cards</span>
+            </div>
+            <div id="cardNavigatorList" class="cardNavigatorList"></div>
+          </aside>
+          <div class="cardNavigatorDetailPane">
+            <div class="cardDetailHead">
+              <div>
+                <h3 id="selectedCardTitle">Card မရွေးရသေးပါ</h3>
+                <div class="muted" id="selectedCardMeta">ကတ်စာရင်းမှ တစ်ကတ်ရွေးပါ</div>
+              </div>
+              <div class="cardDetailActions">
+                <button class="btn gray small" onclick="navigateSelectedCard(-1)">◀ Previous</button>
+                <button class="btn gray small" onclick="navigateSelectedCard(1)">Next ▶</button>
+                <button class="btn small" id="selectedCardEditBtn" onclick="openSelectedCardEdit()" disabled>Edit Card / ကတ်ပြင်</button>
+                <button class="btn secondary small" id="selectedCardCopyBtn" onclick="copySelectedCardText()" disabled>Copy Raw</button>
+                <button class="btn danger small" id="selectedCardDeleteBtn" onclick="deleteSelectedCard()" disabled>Delete Card</button>
+              </div>
+            </div>
+            <div class="selectedCardBodyGrid">
+              <div class="selectedCardRawPane">
+                <div class="cardPaneLabel">Original Viber Body / မူရင်းမက်ဆေ့</div>
+                <pre id="selectedCardRawText" class="selectedCardRawText">ကတ်မရွေးရသေးပါ</pre>
+              </div>
+              <div class="selectedCardRowsPane">
+                <div class="cardPaneLabel">Parsed Entry Records / ချဲ့ထုတ်ထားသောစာရင်း</div>
+                <div class="scroll selectedCardRowsScroll">
+                  <table>
+                    <thead><tr><th>No</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th><th>Action</th></tr></thead>
+                    <tbody id="selectedCardRowsTable"><tr><td colspan="6" class="muted">ကတ်တစ်ကတ်ရွေးပါ</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="scroll" style="margin-top:12px;max-height:620px">
         <table>
           <thead><tr><th>No</th><th>Save Time</th><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Viber Time</th><th>Writer</th><th>Batch</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th><th>Action</th></tr></thead>
@@ -523,16 +581,38 @@
   <div class="modalCard">
     <h2 id="groupEditTitle" style="margin:0 0 8px">Group Edit / Batch Edit</h2>
     <div class="muted" id="groupEditHelp">ဒီ box ထဲမှာ batch/group source text ကို ပြင်လိုက်တာနဲ့ သက်ဆိုင်ရာ row တွေအကုန်တခါတည်းချိန်းပေးမယ်။ line အသစ်ထပ်ဖြည့်လို့လည်းရတယ်။</div>
+    <div id="groupEditCardMeta" class="groupEditCardMeta">Selected Group</div>
     <div class="modalGrid" style="margin-top:10px;grid-template-columns:1fr 140px 120px 160px">
-      <div><label>Name</label><input id="groupEditName"></div>
-      <div><label>Date</label><input id="groupEditDate" type="date"></div>
-      <div><label>Session</label><select id="groupEditSession"><option>AM</option><option>PM</option></select></div>
-      <div><label>Writer</label><select id="groupEditWriter"><option value="AUTO">Auto</option><option value="A">A Writer</option><option value="B">B Writer</option><option value="C">C Writer</option><option value="OTHER">Other Writer</option></select></div>
+      <div><label>Name</label><input id="groupEditName" oninput="scheduleGroupEditPreview()"></div>
+      <div><label>Date</label><input id="groupEditDate" type="date" onchange="scheduleGroupEditPreview()"></div>
+      <div><label>Session</label><select id="groupEditSession" onchange="scheduleGroupEditPreview()"><option>AM</option><option>PM</option></select></div>
+      <div><label>Writer</label><select id="groupEditWriter" onchange="scheduleGroupEditPreview()"><option value="AUTO">Auto</option><option value="A">A Writer</option><option value="B">B Writer</option><option value="C">C Writer</option><option value="OTHER">Other Writer</option></select></div>
     </div>
-    <label style="margin-top:10px">Group Source Text</label>
-    <textarea id="groupEditText"></textarea>
+    <label style="margin-top:10px">Card / Group Source Text</label>
+    <textarea id="groupEditText" oninput="scheduleGroupEditPreview()"></textarea>
+    <div class="groupEditPreviewBox">
+      <div class="groupEditPreviewHead">
+        <div>
+          <b>Re-parse Preview / ပြင်ပြီးရလဒ်ကို အရင်စစ်ရန်</b>
+          <div class="muted" id="groupEditPreviewWarning">Text ပြင်လိုက်တာနဲ့ Preview အလိုအလျောက်ပြောင်းပါမယ်။</div>
+        </div>
+        <button class="btn secondary small" onclick="renderGroupEditPreview()">Refresh Preview</button>
+      </div>
+      <div class="groupEditPreviewStats">
+        <div class="stat"><div class="k">Rows</div><div class="v" id="groupEditPreviewRowCount">0</div></div>
+        <div class="stat"><div class="k">Total</div><div class="v good" id="groupEditPreviewTotal">0</div></div>
+        <div class="stat"><div class="k">Cards</div><div class="v blue" id="groupEditPreviewCardCount">0</div></div>
+        <div class="stat"><div class="k">Warnings</div><div class="v bad" id="groupEditPreviewWarningCount">0</div></div>
+      </div>
+      <div class="scroll groupEditPreviewScroll">
+        <table>
+          <thead><tr><th>No</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th></tr></thead>
+          <tbody id="groupEditPreviewRows"><tr><td colspan="5" class="muted">Preview မရှိသေးပါ</td></tr></tbody>
+        </table>
+      </div>
+    </div>
     <div class="btnrow">
-      <button class="btn" onclick="applyGroupEdit()">Apply Group Edit</button>
+      <button class="btn" onclick="applyGroupEdit()">Apply Card / Group Edit</button>
       <button class="btn gray" onclick="closeGroupEditModal()">Cancel</button>
     </div>
   </div>
@@ -545,7 +625,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.2B.1"></script>
-<script src="js/auth.js?v=4.2B.1"></script>
+<script src="js/firebase-config.js?v=4.2C.1"></script>
+<script src="js/auth.js?v=4.2C.1"></script>
 </body>
 </html>

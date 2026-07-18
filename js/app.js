@@ -72,6 +72,7 @@ let pendingDuplicateBlockKeys = [];
 let pendingDuplicateBlockLabels = [];
 let currentGroupEdit = null;
 let currentSelectedCardId = '';
+let entryWorkspaceSelectedCardId = '';
 let reportTotalBreakdownOpen = false;
 let reportPBreakdownOpen = false;
 const reportExpandedNames = new Set();
@@ -420,7 +421,7 @@ function saveRecords(){
   }
 }
 
-const CLOUD_SYNC_VERSION='4.2D.1';
+const CLOUD_SYNC_VERSION='4.2E.1';
 const CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=900;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -513,7 +514,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.2D.1 Report Card + P Breakdown',
+    version:'Stage 4.2E.1 Laptop Professional Workspace',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -554,12 +555,19 @@ function setCloudSyncStatus(status,message='',detail=''){
     error:'Sync Error'
   };
   if(text) text.textContent=message||defaults[status]||'Cloud';
-  if(small) small.textContent=detail||(
+  const finalDetail=detail||(
     status==='synced'&&cloudSyncState.lastSyncedAt?`Last ${formatSyncTime(cloudSyncState.lastSyncedAt)}`:
     status==='offline'?'Internet ပြန်ရလျှင် Auto Sync':
     status==='conflict'?'တခြားစက်မှာ Data အသစ်ရှိသည်':
     status==='loading'?'Account data စစ်နေသည်':''
   );
+  if(small) small.textContent=finalDetail;
+  const wsBox=document.getElementById('entryWsSyncBox');
+  const wsText=document.getElementById('entryWsSyncText');
+  const wsDetail=document.getElementById('entryWsSyncDetail');
+  if(wsBox) wsBox.className=`workspaceSyncBox ${status}`;
+  if(wsText) wsText.textContent=message||defaults[status]||'Cloud';
+  if(wsDetail) wsDetail.textContent=finalDetail;
 }
 function persistWorkspaceStateLocally(){
   window.__V2D_APPLYING_REMOTE=true;
@@ -2047,6 +2055,7 @@ function renderPreview(){
   document.getElementById('warnBox').innerHTML=preview.warnings.length? `<div class="bad">${preview.warnings.map(escapeHtml).join('<br>')}</div>` : '<span class="good">Warnings မရှိပါ</span>';
   renderIssueEditor();
   renderSaveFlowBox();
+  renderEntryWorkspace();
 }
 function renderIssueEditor(){
   const wrap=document.getElementById('issueEditorWrap');
@@ -2638,7 +2647,94 @@ function renderEntryOver(){
   tbody.innerHTML=rows.map((r,i)=>`<tr><td>${i+1}</td><td><b>${r.number}</b></td><td class="right bad">${money(r.over)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">Over မရှိပါ</td></tr>';
   setText('entryOverSumOver',money(rows.reduce((a,b)=>a+b.over,0)));
 }
-function renderEntryLive(){renderMainBoard(); renderEntryOver();}
+
+
+/* Stage 4.2E.1 — Laptop Professional Workspace */
+function entryWorkspaceBaseRows(){
+  const date=val('entryDate')||today();
+  const session=val('entrySession')||'AM';
+  const name=val('entryName')||'Default';
+  return records.filter(r=>r.cardId && (r.date||'')===date && (session==='DAILY'||r.session===session) && (r.name||'Default')===name);
+}
+function buildEntryWorkspaceCards(applySearch=true){
+  const map=new Map();
+  entryWorkspaceBaseRows().forEach(r=>{
+    const key=r.cardId;
+    if(!map.has(key)) map.set(key,{cardId:key,cardNumber:Number(r.cardNumber||0)||0,name:r.name||'Default',date:r.date||'',session:r.session||'',time:r.cardTime||'',batchId:getBatchId(r),ts:Number(r.ts||0)||0,rows:[],total:0,rawText:'',edited:false});
+    const card=map.get(key);
+    card.rows.push(r); card.total+=Number(r.amount||0);
+    if(!card.rawText&&r.cardRawText) card.rawText=String(r.cardRawText||'');
+    if(r.editedAt) card.edited=true;
+    if(!card.time&&r.cardTime) card.time=r.cardTime;
+    if(!card.cardNumber&&r.cardNumber) card.cardNumber=Number(r.cardNumber||0)||0;
+    card.ts=Math.min(card.ts||Number(r.ts||0)||0,Number(r.ts||0)||0)||Number(r.ts||0)||0;
+  });
+  let cards=[...map.values()].map(card=>{
+    card.rows.sort((a,b)=>(a.cardSourceLine||0)-(b.cardSourceLine||0)||(a.ts||0)-(b.ts||0));
+    if(!card.rawText&&card.rows.length) card.rawText=rawTextForCard(card.rows[0]);
+    if(!card.rawText){const seen=new Set();card.rawText=card.rows.map(r=>String(r.source||'').trim()).filter(src=>src&&!seen.has(src)&&seen.add(src)).join('\n');}
+    card.searchBlob=[`#${card.cardNumber}`,`card ${card.cardNumber}`,card.time,card.rawText,...card.rows.flatMap(r=>[r.number,r.amount,r.source,r.type])].join(' ').toLowerCase();
+    return card;
+  }).sort((a,b)=>((a.cardNumber||0)-(b.cardNumber||0))||((a.ts||0)-(b.ts||0)));
+  if(applySearch){const q=(val('entryWorkspaceSearch')||'').trim().toLowerCase(); if(q) cards=cards.filter(card=>card.searchBlob.includes(q));}
+  return cards;
+}
+function selectedEntryWorkspaceCard(){return buildEntryWorkspaceCards(false).find(card=>card.cardId===entryWorkspaceSelectedCardId)||null;}
+function setEntryWorkspaceActions(enabled){['entryWsEditBtn','entryWsCopyBtn'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=!enabled;});}
+function applyEntryWorkspaceUiState(){
+  const board=document.querySelector('#entry .board-card');
+  const boardCollapsed=userGetItem('v2d_ui_entry_board_collapsed')==='1';
+  if(board) board.classList.toggle('workspace-collapsed',boardCollapsed);
+  const boardBtn=document.getElementById('entryBoardToggleBtn'); if(boardBtn) boardBtn.textContent=boardCollapsed?'Expand Board ▼':'Collapse Board ▲';
+  const tools=document.getElementById('entryToolsArea');
+  const toolsCollapsed=userGetItem('v2d_ui_entry_tools_collapsed')==='1';
+  if(tools) tools.classList.toggle('tools-collapsed',toolsCollapsed);
+  const toolsBtn=document.getElementById('entryToolsToggleBtn'); if(toolsBtn) toolsBtn.textContent=toolsCollapsed?'Show Tools ▼':'Hide Tools ▲';
+}
+function toggleEntryBoardCompact(){userSetItem('v2d_ui_entry_board_collapsed',userGetItem('v2d_ui_entry_board_collapsed')==='1'?'0':'1');applyEntryWorkspaceUiState();}
+function toggleEntryTools(){userSetItem('v2d_ui_entry_tools_collapsed',userGetItem('v2d_ui_entry_tools_collapsed')==='1'?'0':'1');applyEntryWorkspaceUiState();}
+function renderEntryWorkspace(){
+  const list=document.getElementById('entryWorkspaceCardList'); if(!list) return;
+  applyEntryWorkspaceUiState();
+  const date=val('entryDate')||today(), session=val('entrySession')||'AM', name=val('entryName')||'Default';
+  const cards=buildEntryWorkspaceCards(true);
+  setText('entryWsScope',`${name} · ${date} · ${session}`); setText('entryWsCardCount',cards.length);
+  if(!cards.some(c=>c.cardId===entryWorkspaceSelectedCardId)) entryWorkspaceSelectedCardId=cards[0]?.cardId||'';
+  list.innerHTML=cards.map(card=>`<button class="entryWsCardItem${card.cardId===entryWorkspaceSelectedCardId?' active':''}" onclick="selectEntryWorkspaceCard('${jsArg(card.cardId)}')"><span class="entryWsCardTop"><b>Card #${card.cardNumber||'-'}</b><span>${escapeHtml(card.time||'-')}</span></span><span class="entryWsCardSub"><span>${card.rows.length} rows${card.edited?' · Edited':''}</span><strong>${money(card.total)}</strong></span></button>`).join('')||'<div class="entryWsEmpty">ဒီ Date / Session / Name အတွက် Saved Card မရှိသေးပါ။<br>အောက်က Paste & Parse Tools မှ စာရင်းသွင်းနိုင်ပါတယ်။</div>';
+  const card=cards.find(c=>c.cardId===entryWorkspaceSelectedCardId)||null;
+  if(!card){
+    setEntryWorkspaceActions(false); setText('entryWsSelectedTitle','Card မရွေးရသေးပါ');setText('entryWsSelectedMeta','ဘယ်ဘက် Card List မှ တစ်ကတ်ရွေးပါ');
+    const raw=document.getElementById('entryWsRawText');if(raw)raw.textContent='ကတ်မရွေးရသေးပါ';
+    const body=document.getElementById('entryWsRows');if(body)body.innerHTML='<tr><td colspan="5" class="muted">ကတ်တစ်ကတ်ရွေးပါ</td></tr>';
+    setText('entryWsSelectedTotal','0');setText('entryWsSelectedRows','0 rows');setText('entryWsSelectedTime','-');
+  }else{
+    setEntryWorkspaceActions(true);setText('entryWsSelectedTitle',`${card.name} — Card #${card.cardNumber||'-'}`);setText('entryWsSelectedMeta',`${card.date} · ${card.session} · Viber ${card.time||'-'} · Batch ${batchLabel(card.rows[0]||{})}`);
+    const raw=document.getElementById('entryWsRawText');if(raw)raw.textContent=card.rawText||'Raw Viber text မရှိပါ';
+    const body=document.getElementById('entryWsRows');if(body)body.innerHTML=card.rows.map((r,i)=>`<tr class="${r.editedAt?'editedCardRow':''}"><td>${i+1}</td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${escapeHtml(r.source||'')}</td><td><button class="actionBtn edit" onclick="editEntryRecord('${jsArg(r.id||'')}')">Edit</button></td></tr>`).join('')||'<tr><td colspan="5" class="muted">Record မရှိပါ</td></tr>';
+    setText('entryWsSelectedTotal',money(card.total));setText('entryWsSelectedRows',`${card.rows.length} rows`);setText('entryWsSelectedTime',card.time||'-');
+  }
+  const nameRows=entryWorkspaceBaseRows();
+  const nameTotal=nameRows.reduce((s,r)=>s+Number(r.amount||0),0);
+  const sessionRows=records.filter(r=>(r.date||'')===date&&(session==='DAILY'||r.session===session));
+  const sessionTotal=sessionRows.reduce((s,r)=>s+Number(r.amount||0),0);
+  const pRows=nameRows.filter(r=>{const p=getStoredPNumber(date,r.session||session);return !!p&&String(r.number||'').padStart(2,'0')===String(p).padStart(2,'0');});
+  const pTotal=pRows.reduce((s,r)=>s+Number(r.amount||0),0);
+  const pLabel=session==='DAILY'?`P Amount (AM/PM)`:`P ${getStoredPNumber(date,session)||'-'} Amount`;
+  const limit=Number(val('entryLimitAmount')||settings.defaultLimit||10000);
+  const overTotal=currentOverRows(date,session,name,limit).reduce((s,r)=>s+Number(r.over||0),0);
+  const previewTotal=(preview.detailRows||[]).reduce((s,r)=>s+Number(r.amount||0),0);
+  setText('entryWsNameTotal',money(nameTotal));setText('entryWsNameLabel',name);setText('entryWsSessionTotal',money(sessionTotal));setText('entryWsPNumberLabel',pLabel);setText('entryWsPAmount',money(pTotal));setText('entryWsOverTotal',money(overTotal));setText('entryWsPreviewTotal',money(previewTotal));setText('entryWsPreviewCards',(preview.cards||[]).length);setText('entryWsPreviewRows',(preview.detailRows||[]).length);
+  const cloudText=document.getElementById('cloudSyncText')?.textContent||'Cloud'; const cloudDetail=document.getElementById('cloudSyncDetail')?.textContent||''; setText('entryWsSyncText',cloudText);setText('entryWsSyncDetail',cloudDetail);
+  const cloudPill=document.getElementById('cloudSyncPill');const wsBox=document.getElementById('entryWsSyncBox');if(cloudPill&&wsBox){const status=[...cloudPill.classList].find(c=>['loading','saving','synced','offline','conflict','error'].includes(c))||'loading';wsBox.className=`workspaceSyncBox ${status}`;}
+}
+function selectEntryWorkspaceCard(cardId){entryWorkspaceSelectedCardId=String(cardId||'');renderEntryWorkspace();}
+function navigateEntryWorkspaceCard(delta){const cards=buildEntryWorkspaceCards(true);if(!cards.length){showToast('Card မရှိပါ');return;}let i=cards.findIndex(c=>c.cardId===entryWorkspaceSelectedCardId);if(i<0)i=0;const n=i+Number(delta||0);if(n<0||n>=cards.length){showToast(n<0?'ပထမ Card ရောက်နေပါပြီ':'နောက်ဆုံး Card ရောက်နေပါပြီ');return;}entryWorkspaceSelectedCardId=cards[n].cardId;renderEntryWorkspace();}
+function openEntryWorkspaceCardEdit(){const card=selectedEntryWorkspaceCard();if(!card||!card.rows.length){showToast('Edit လုပ်မည့် Card မရှိပါ');return;}openGroupEditByRecord(card.rows[0].id);}
+function copyEntryWorkspaceCardRaw(){const card=selectedEntryWorkspaceCard();if(!card){showToast('Card မရွေးရသေးပါ');return;}copyText(card.rawText||card.rows.map(r=>r.source||'').filter(Boolean).join('\n'));}
+function openEntryWorkspaceRecords(){const card=selectedEntryWorkspaceCard();if(card){setVal('recordDate',card.date);setVal('recordSession',card.session);setVal('recordName',card.name);currentSelectedCardId=card.cardId;}else{setVal('recordDate',val('entryDate')||today());setVal('recordSession',val('entrySession')||'AM');setVal('recordName',val('entryName')||'ALL');}go('records');}
+function focusNewEntryWorkspace(){const toolsCollapsed=userGetItem('v2d_ui_entry_tools_collapsed')==='1';if(toolsCollapsed){userSetItem('v2d_ui_entry_tools_collapsed','0');applyEntryWorkspaceUiState();}const ta=document.getElementById('entryText');if(ta){ta.focus();ta.scrollIntoView({behavior:'smooth',block:'center'});}}
+
+function renderEntryLive(){renderMainBoard(); renderEntryOver(); renderEntryWorkspace();}
 const I18N={
   my:{langLabel:'ဘာသာ',backup:'Backup JSON',clearAll:'အားလုံးဖျက်',liveBoard:'Limit Table Board / Live Desk',boardNote:'Laptop screen အတွက် Board ကို အပေါ်ဆုံးမှာ သေသပ်ကျယ်ပြန့်စွာထားထားသည်။ Amount ကို Unit ဖြင့်ပြသည်။',refresh:'Refresh / ပြန်ဖော်ပြ',date:'ရက်စွဲ',session:'Session',name:'Name / ကော်မရှင်',limitAmount:'Limit Amount',total:'စုစုပေါင်း',overTotal:'Over စုစုပေါင်း',overCount:'Over အရေအတွက်',recordRows:'Rows',entryTitle:'စာရင်းထည့်ရန် / Entry',parsePreview:'Parse Preview / စစ်ကြည့်',confirmSave:'Confirm Save / သိမ်းမယ်',clearText:'Clear Text / ဖျက်မယ်',previewRows:'Preview Rows',previewTotal:'Preview Total',warnings:'Warnings / သတိ',aggByNumber:'Number အလိုက်ပေါင်း',previewDetail:'Preview Detail / အသေးစိတ်',overLive:'Over / ကျော်စာရင်း',overNote:'အပေါ်က ရက်စွဲ / Session / Name အတိုင်း Over တွက်ထားသည်။',uploadImage:'Upload Image / ပုံတင်',cameraBtn:'Camera / ကင်မရာ',clearImage:'Clear Image / ပုံဖျက်'},
   en:{langLabel:'Language',backup:'Backup JSON',clearAll:'Clear All',liveBoard:'Limit Table Board / Live Desk',boardNote:'A clean wide board is placed first for laptop screens. Amounts are displayed in unit format.',refresh:'Refresh',date:'Date',session:'Session',name:'Name / Commission',limitAmount:'Limit Amount',total:'Total',overTotal:'Over Total',overCount:'Over Count',recordRows:'Rows',entryTitle:'Entry',parsePreview:'Parse Preview',confirmSave:'Confirm Save',clearText:'Clear Text',previewRows:'Preview Rows',previewTotal:'Preview Total',warnings:'Warnings',aggByNumber:'Aggregated by Number',previewDetail:'Preview Detail',overLive:'Over',overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',cameraBtn:'Camera',clearImage:'Clear Image'}
@@ -3046,8 +3142,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.2D.1';
-const APP_VERSION_LABEL='Stage 4.2D.1 Report Card + P Breakdown';
+const APP_VERSION='4.2E.1';
+const APP_VERSION_LABEL='Stage 4.2E.1 Laptop Professional Workspace';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -3405,7 +3501,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.2D.1 Report Card + P Breakdown',
+    version:'Stage 4.2E.1 Laptop Professional Workspace',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

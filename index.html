@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.2E.1 Laptop Professional Workspace</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.2E.1">
+  <title>Viber 2D Desk - Stage 4.2F.1 Language + Theme</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.2F.1">
 </head>
 <body>
 
@@ -14,8 +14,21 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.2E.1 · Laptop Professional Workspace UI</div>
+        <div class="muted">Stage 4.2F.1 · Myanmar / English UI · Light / Dark / System Theme</div>
       </div>
+    </div>
+
+    <div class="authUiControls" aria-label="UI preferences">
+      <label class="authUiControl"><span id="authLanguageLabel">Language</span>
+        <select id="authLangSelect" onchange="setAuthLanguage(this.value)">
+          <option value="my">မြန်မာ</option><option value="en">English</option>
+        </select>
+      </label>
+      <label class="authUiControl"><span id="authThemeLabel">Theme</span>
+        <select id="authThemeSelect" onchange="setAuthTheme(this.value)">
+          <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+        </select>
+      </label>
     </div>
 
     <div class="authTabs">
@@ -64,13 +77,13 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.2E.1 Laptop Workspace + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2E.1: Card List + Selected Card Editor + Live Summary · Laptop Professional Layout</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.2F.1 Language + Theme + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2F.1: Full UI Language + Light / Dark / System Theme · Card Workspace retained</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
         <div class="btnrow" style="margin-top:0;align-items:center">
-          <div class="langbox"><span data-i18n="langLabel">Language</span><select id="langSelect" onchange="setLang(this.value)"><option value="my">မြန်မာ</option><option value="en">English</option></select></div>
+          <div class="langbox"><span data-i18n="langLabel">Language</span><select id="langSelect" onchange="setLang(this.value)"><option value="my">မြန်မာ</option><option value="en">English</option></select></div><div class="langbox"><span data-i18n="themeLabel">Theme</span><select id="themeSelect" onchange="setTheme(this.value)"><option value="system" data-i18n-option="themeSystem">System</option><option value="light" data-i18n-option="themeLight">Light</option><option value="dark" data-i18n-option="themeDark">Dark</option></select></div>
           <button class="btn gray small" onclick="exportJSON()" data-i18n="backup">Backup JSON</button>
           <button class="btn gray small" onclick="document.getElementById('restoreJsonFile').click()">Restore JSON</button>
           <input id="restoreJsonFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreJSONBackup(event)">
@@ -140,7 +153,7 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2E.1 file က Laptop အတွက် Card List + Selected Card Editor + Live Summary သုံးပိုင်း Workspace ထည့်ထားပြီး Stage 4.2D Report Drill-down အပါအဝင် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2F.1 မှာ Myanmar / English UI Language နှင့် Light / Dark / System Theme ထည့်ထားပြီး Card Workspace၊ Report Drill-down နှင့် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
     <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
@@ -179,7 +192,7 @@
 
       <div class="workspaceSectionHead">
         <div>
-          <div class="workspaceEyebrow">STAGE 4.2E.1 · LAPTOP WORKSPACE</div>
+          <div class="workspaceEyebrow">STAGE 4.2F.1 · LANGUAGE + THEME</div>
           <h2>Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်</h2>
           <div class="muted">Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။</div>
         </div>
@@ -220,7 +233,7 @@
           <div class="workspaceEditorBody">
             <div class="workspaceRawBlock">
               <div class="workspaceBlockLabel">Original Viber Body / မူရင်းမက်ဆေ့</div>
-              <pre id="entryWsRawText" class="workspaceRawText">ကတ်မရွေးရသေးပါ</pre>
+              <pre id="entryWsRawText" data-no-i18n="true" class="workspaceRawText">ကတ်မရွေးရသေးပါ</pre>
             </div>
             <div class="workspaceRowsBlock">
               <div class="workspaceBlockLabel">Parsed Entry Records / ချဲ့ထုတ်ထားသောစာရင်း</div>
@@ -273,7 +286,7 @@
             <div class="writerPick"><label>Writer / လက်ရေးပိုင်ရှင်</label><select id="entryWriter" onchange="saveSettings(); renderWriterHint();"><option value="AUTO">Auto</option><option value="A">A Writer</option><option value="B">B Writer</option><option value="C">C Writer</option><option value="OTHER">Other Writer</option></select></div>
           </div>
           <div id="writerHint" class="writerHint"></div>
-          <textarea id="entryText" placeholder="စာရင်းထည့်ရန် / Entry
+          <textarea id="entryText" data-no-i18n="true" placeholder="စာရင်းထည့်ရန် / Entry
 
 //-7733=500
 42.32,65.21.700r300
@@ -570,7 +583,7 @@
         <div><label>Title</label><input id="imageTitle" value="2D Report" oninput="renderImageText()"></div>
       </div>
       <div class="btnrow"><button class="btn secondary" onclick="copyShareText()">Copy Share Text</button><button class="btn gray" onclick="renderImageText()">Refresh</button></div>
-      <div class="sharebox" id="shareText" style="margin-top:12px"></div>
+      <div class="sharebox" id="shareText" data-no-i18n="true" style="margin-top:12px"></div>
     </div>
   </section>
 

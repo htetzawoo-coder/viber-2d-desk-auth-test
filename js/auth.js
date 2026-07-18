@@ -1,4 +1,4 @@
-const AUTH_STAGE_VERSION = "4.2B.1";
+const AUTH_STAGE_VERSION = "4.2C.1";
 let v2dAppScriptLoaded = false;
 
 function authEl(id){ return document.getElementById(id); }

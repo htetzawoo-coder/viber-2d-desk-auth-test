@@ -1,4 +1,26 @@
-const AUTH_STAGE_VERSION = "4.2E.1";
+const AUTH_UI={
+  my:{language:'ဘာသာ',theme:'Theme',login:'ဝင်မည်',register:'အကောင့်ဖွင့်မည်',forgot:'Password မေ့နေသည်',email:'Email',password:'Password',name:'အမည်',shop:'Shop / Workspace အမည်',confirmPassword:'Password အတည်ပြု',loginButton:'ဝင်မည်',registerButton:'အကောင့်ဖွင့်မည်',resetButton:'Reset Email ပို့မည်',system:'System',light:'Light',dark:'Dark'},
+  en:{language:'Language',theme:'Theme',login:'Login',register:'Register',forgot:'Forgot Password',email:'Email',password:'Password',name:'Your Name',shop:'Shop / Workspace Name',confirmPassword:'Confirm Password',loginButton:'Login',registerButton:'Create Account',resetButton:'Send Reset Email',system:'System',light:'Light',dark:'Dark'}
+};
+function authLanguage(){return localStorage.getItem('v2d_ui_language')||'my';}
+function authResolvedTheme(theme){if(theme==='system')return window.matchMedia?.('(prefers-color-scheme: light)').matches?'light':'dark';return theme==='light'?'light':'dark';}
+function applyAuthTheme(theme){theme=['light','dark','system'].includes(theme)?theme:'system';localStorage.setItem('v2d_ui_theme',theme);document.documentElement.dataset.theme=theme;document.documentElement.dataset.resolvedTheme=authResolvedTheme(theme);const sel=document.getElementById('authThemeSelect');if(sel)sel.value=theme;}
+function setAuthTheme(theme){applyAuthTheme(theme);}
+function applyAuthLanguage(lang){
+  lang=lang==='en'?'en':'my';localStorage.setItem('v2d_ui_language',lang);document.documentElement.lang=lang==='en'?'en':'my';const d=AUTH_UI[lang];
+  const set=(id,text)=>{const e=document.getElementById(id);if(e)e.textContent=text;};
+  set('authLanguageLabel',d.language);set('authThemeLabel',d.theme);set('authTabLogin',d.login);set('authTabRegister',d.register);set('authTabForgot',d.forgot);
+  const labels=document.querySelectorAll('#authGate label');
+  labels.forEach(label=>{const txt=label.childNodes[0];if(!txt||txt.nodeType!==Node.TEXT_NODE)return;const v=txt.nodeValue.trim();const map=lang==='en'?{'အမည်':'Your Name','Your Name / အမည်':'Your Name','Shop / Workspace Name':'Shop / Workspace Name','Password အတည်ပြု':'Confirm Password'}:{'Your Name / အမည်':'အမည်','Your Name':'အမည်','Shop / Workspace Name':'Shop / Workspace အမည်','Confirm Password':'Password အတည်ပြု'};if(map[v])txt.nodeValue='\n      '+map[v]+'\n      ';});
+  set('loginSubmitBtn',d.loginButton);set('registerSubmitBtn',d.registerButton);set('forgotSubmitBtn',d.resetButton);
+  const ls=document.getElementById('authLangSelect');if(ls)ls.value=lang;
+  const ts=document.getElementById('authThemeSelect');if(ts){ts.options[0].textContent=d.system;ts.options[1].textContent=d.light;ts.options[2].textContent=d.dark;}
+  const active=document.querySelector('.authTab.active')?.id||'authTabLogin';showAuthPanel(active==='authTabRegister'?'register':active==='authTabForgot'?'forgot':'login');
+}
+function setAuthLanguage(lang){applyAuthLanguage(lang);}
+function authMsg(my,en){return authLanguage()==='en'?en:my;}
+
+const AUTH_STAGE_VERSION = "4.2F.1";
 let v2dAppScriptLoaded = false;
 
 function authEl(id){ return document.getElementById(id); }
@@ -13,9 +35,10 @@ function setAuthMessage(message, type=""){
 function setAuthBusy(buttonId,busy,busyText){
   const button=authEl(buttonId);
   if(!button) return;
-  if(!button.dataset.originalText) button.dataset.originalText=button.textContent;
   button.disabled=!!busy;
-  button.textContent=busy?(busyText||"Please wait…"):button.dataset.originalText;
+  if(busy){button.textContent=busyText||authMsg("ခဏစောင့်ပါ…","Please wait…");return;}
+  const d=AUTH_UI[authLanguage()];
+  button.textContent=buttonId==="loginSubmitBtn"?d.loginButton:buttonId==="registerSubmitBtn"?d.registerButton:buttonId==="forgotSubmitBtn"?d.resetButton:button.textContent;
 }
 
 function showAuthPanel(panel){
@@ -27,9 +50,9 @@ function showAuthPanel(panel){
     if(tabEl) tabEl.classList.toggle("active",name===panel);
   });
   setAuthMessage(
-    panel==="login"?"Email နှင့် Password ဖြင့် Login ဝင်ပါ။":
-    panel==="register"?"ကိုယ်ပိုင် Workspace Account ဖွင့်ပါ။":
-    "Password reset email တောင်းပါ။"
+    panel==="login"?authMsg("Email နှင့် Password ဖြင့် Login ဝင်ပါ။","Sign in with your email and password."):
+    panel==="register"?authMsg("ကိုယ်ပိုင် Workspace Account ဖွင့်ပါ။","Create your personal workspace account."):
+    authMsg("Password reset email တောင်းပါ။","Request a password reset email.")
   );
 }
 
@@ -48,6 +71,12 @@ function friendlyAuthError(error){
     "auth/operation-not-allowed":"Firebase မှ Email/Password Sign-in ကို Enable လုပ်ပါ။",
     "auth/unauthorized-domain":"Firebase Authorized Domains ကိုစစ်ပါ။"
   };
+  if(authLanguage()==='en'){
+    const enMap={
+      "auth/invalid-credential":"Incorrect email or password.","auth/invalid-login-credentials":"Incorrect email or password.","auth/user-not-found":"No account exists for this email.","auth/wrong-password":"Incorrect password.","auth/email-already-in-use":"This email is already registered.","auth/invalid-email":"Invalid email format.","auth/weak-password":"Password must be at least 6 characters.","auth/too-many-requests":"Too many attempts. Please wait and try again.","auth/network-request-failed":"Check your internet connection.","auth/operation-not-allowed":"Enable Email/Password sign-in in Firebase.","auth/unauthorized-domain":"Check Firebase Authorized Domains."
+    };
+    return enMap[code]||error?.message||"Authentication error.";
+  }
   return map[code]||error?.message||"Authentication error ဖြစ်နေပါတယ်။";
 }
 
@@ -108,7 +137,7 @@ function loadAuthenticatedApp(){
   script.src=`js/app.js?v=${AUTH_STAGE_VERSION}`;
   script.onload=async()=>{
     try{
-      setAuthMessage("Cloud workspace ကို Auto Load လုပ်နေပါသည်…","good");
+      setAuthMessage(authMsg("Cloud workspace ကို Auto Load လုပ်နေပါသည်…","Auto-loading cloud workspace…"),"good");
       if(window.V2D_APP_READY_PROMISE) await window.V2D_APP_READY_PROMISE;
       const gate=authEl("authGate");
       const app=authEl("mainApp");
@@ -130,12 +159,12 @@ async function loginWithEmail(event){
   event.preventDefault();
   const email=String(authEl("loginEmail")?.value||"").trim();
   const password=String(authEl("loginPassword")?.value||"");
-  setAuthBusy("loginSubmitBtn",true,"Logging in…");
-  setAuthMessage("Login စစ်နေပါသည်…");
+  setAuthBusy("loginSubmitBtn",true,authMsg("Login ဝင်နေပါသည်…","Logging in…"));
+  setAuthMessage(authMsg("Login စစ်နေပါသည်…","Checking login…"));
 
   try{
     await window.v2dAuth.signInWithEmailAndPassword(email,password);
-    setAuthMessage("Login အောင်မြင်ပါပြီ။","good");
+    setAuthMessage(authMsg("Login အောင်မြင်ပါပြီ။","Login successful."),"good");
   }catch(error){
     setAuthMessage(friendlyAuthError(error),"bad");
   }finally{
@@ -160,8 +189,8 @@ async function registerWithEmail(event){
     return;
   }
 
-  setAuthBusy("registerSubmitBtn",true,"Creating account…");
-  setAuthMessage("Account ဖွင့်နေပါသည်…");
+  setAuthBusy("registerSubmitBtn",true,authMsg("Account ဖွင့်နေပါသည်…","Creating account…"));
+  setAuthMessage(authMsg("Account ဖွင့်နေပါသည်…","Creating account…"));
 
   try{
     const credential=await window.v2dAuth.createUserWithEmailAndPassword(email,password);
@@ -170,7 +199,7 @@ async function registerWithEmail(event){
 
     const shopClaimKey=`v2d_user_${credential.user.uid}__initial_shop_name`;
     localStorage.setItem(shopClaimKey,shopName);
-    setAuthMessage("Account ဖွင့်ပြီး Login ဝင်ထားပါပြီ။","good");
+    setAuthMessage(authMsg("Account ဖွင့်ပြီး Login ဝင်ထားပါပြီ။","Account created and signed in."),"good");
   }catch(error){
     setAuthMessage(friendlyAuthError(error),"bad");
   }finally{
@@ -181,12 +210,12 @@ async function registerWithEmail(event){
 async function sendPasswordReset(event){
   event.preventDefault();
   const email=String(authEl("forgotEmail")?.value||"").trim();
-  setAuthBusy("forgotSubmitBtn",true,"Sending…");
-  setAuthMessage("Password reset email ပို့နေပါသည်…");
+  setAuthBusy("forgotSubmitBtn",true,authMsg("ပို့နေပါသည်…","Sending…"));
+  setAuthMessage(authMsg("Password reset email ပို့နေပါသည်…","Sending password reset email…"));
 
   try{
     await window.v2dAuth.sendPasswordResetEmail(email);
-    setAuthMessage("Reset Email ပို့ပြီးပါပြီ။ Inbox/Spam ကိုစစ်ပါ။","good");
+    setAuthMessage(authMsg("Reset Email ပို့ပြီးပါပြီ။ Inbox/Spam ကိုစစ်ပါ။","Reset email sent. Check your Inbox/Spam."),"good");
   }catch(error){
     setAuthMessage(friendlyAuthError(error),"bad");
   }finally{
@@ -195,7 +224,7 @@ async function sendPasswordReset(event){
 }
 
 async function logoutUser(){
-  const ok=confirm("Logout ထွက်မလား?");
+  const ok=confirm(authMsg("Logout ထွက်မလား?","Log out?"));
   if(!ok) return;
   try{
     await window.v2dAuth.signOut();
@@ -227,11 +256,11 @@ function initializeAuthFoundation(){
       if(app) app.hidden=true;
       if(gate) gate.hidden=false;
       showAuthPanel("login");
-      setAuthMessage("Login ဝင်ပါ သို့မဟုတ် Account အသစ်ဖွင့်ပါ။");
+      setAuthMessage(authMsg("Login ဝင်ပါ သို့မဟုတ် Account အသစ်ဖွင့်ပါ။","Sign in or create a new account."));
       return;
     }
 
-    setAuthMessage("User workspace ဖွင့်နေပါသည်…","good");
+    setAuthMessage(authMsg("User workspace ဖွင့်နေပါသည်…","Opening user workspace…"),"good");
     const profile=await ensureUserProfile(user);
     window.V2D_CURRENT_USER=user;
     updateSignedInHeader(user,profile);
@@ -246,5 +275,11 @@ window.loginWithEmail=loginWithEmail;
 window.registerWithEmail=registerWithEmail;
 window.sendPasswordReset=sendPasswordReset;
 window.logoutUser=logoutUser;
+window.setAuthLanguage=setAuthLanguage;
+window.setAuthTheme=setAuthTheme;
+
+applyAuthTheme(localStorage.getItem('v2d_ui_theme')||'system');
+applyAuthLanguage(authLanguage());
+if(window.matchMedia){window.matchMedia('(prefers-color-scheme: light)').addEventListener?.('change',()=>{if((localStorage.getItem('v2d_ui_theme')||'system')==='system')applyAuthTheme('system');});}
 
 initializeAuthFoundation();

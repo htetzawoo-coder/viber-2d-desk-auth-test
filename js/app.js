@@ -402,7 +402,7 @@ function showToast(msg,type='',duration=4200){
     document.body.appendChild(t);
   }
   const finalType=type||inferToastType(msg);
-  t.textContent=String(msg||'');
+  t.textContent=translateUiMessage(String(msg||''));
   t.className=`toast ${finalType}`;
   // Restart the entrance animation even for back-to-back notices.
   void t.offsetWidth;
@@ -421,7 +421,7 @@ function saveRecords(){
   }
 }
 
-const CLOUD_SYNC_VERSION='4.2E.1';
+const CLOUD_SYNC_VERSION='4.2F.1';
 const CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=900;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -514,7 +514,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.2E.1 Laptop Professional Workspace',
+    version:'Stage 4.2F.1 Language + Theme',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -547,19 +547,19 @@ function setCloudSyncStatus(status,message='',detail=''){
   const small=document.getElementById('cloudSyncDetail');
   if(pill) pill.className=`cloudSyncPill ${status}`;
   const defaults={
-    loading:'Cloud ဖွင့်နေသည်…',
-    saving:'Saving…',
-    synced:'Cloud Synced',
-    offline:'Offline — စောင့်ဆိုင်းနေသည်',
-    conflict:'Sync Conflict',
-    error:'Sync Error'
+    loading:tUi('cloudLoading'),
+    saving:tUi('saving'),
+    synced:tUi('cloudSynced'),
+    offline:tUi('offlineWaiting'),
+    conflict:tUi('syncConflict'),
+    error:tUi('syncError')
   };
-  if(text) text.textContent=message||defaults[status]||'Cloud';
-  const finalDetail=detail||(
-    status==='synced'&&cloudSyncState.lastSyncedAt?`Last ${formatSyncTime(cloudSyncState.lastSyncedAt)}`:
-    status==='offline'?'Internet ပြန်ရလျှင် Auto Sync':
-    status==='conflict'?'တခြားစက်မှာ Data အသစ်ရှိသည်':
-    status==='loading'?'Account data စစ်နေသည်':''
+  if(text) text.textContent=message?translateUiMessage(message):(defaults[status]||'Cloud');
+  const finalDetail=detail?translateUiMessage(detail):(
+    status==='synced'&&cloudSyncState.lastSyncedAt?`${tUi('last')} ${formatSyncTime(cloudSyncState.lastSyncedAt)}`:
+    status==='offline'?tUi('autoSyncWhenOnline'):
+    status==='conflict'?tUi('newerDataOtherDevice'):
+    status==='loading'?tUi('checkingAccountData'):''
   );
   if(small) small.textContent=finalDetail;
   const wsBox=document.getElementById('entryWsSyncBox');
@@ -611,7 +611,7 @@ function applyCloudWorkspace(data,{initial=false}={}){
 function refreshUiFromCloud(){
   window.__V2D_APPLYING_REMOTE=true;
   try{
-    settings={shopName:(initialRegisteredShopName||'Viber 2D Desk'),commissionRate:20,payoutRate:80,defaultLimit:10000,amClose:'12:00',pmClose:'16:30',names:['Default'],nameRates:{Default:20},lang:'my',...settings};
+    settings={shopName:(initialRegisteredShopName||'Viber 2D Desk'),commissionRate:20,payoutRate:80,defaultLimit:10000,amClose:'12:00',pmClose:'16:30',names:['Default'],nameRates:{Default:20},lang:(localStorage.getItem('v2d_ui_language')||'my'),theme:(localStorage.getItem('v2d_ui_theme')||'system'),...settings};
     if(!Array.isArray(settings.names)||!settings.names.length) settings.names=['Default'];
     if(!settings.nameRates) settings.nameRates={};
     settings.names.forEach(name=>{if(settings.nameRates[name]==null) settings.nameRates[name]=settings.commissionRate||20;});
@@ -2649,7 +2649,7 @@ function renderEntryOver(){
 }
 
 
-/* Stage 4.2E.1 — Laptop Professional Workspace */
+/* Stage 4.2F.1 — Full UI Language + Theme */
 function entryWorkspaceBaseRows(){
   const date=val('entryDate')||today();
   const session=val('entrySession')||'AM';
@@ -2728,18 +2728,171 @@ function renderEntryWorkspace(){
   const cloudPill=document.getElementById('cloudSyncPill');const wsBox=document.getElementById('entryWsSyncBox');if(cloudPill&&wsBox){const status=[...cloudPill.classList].find(c=>['loading','saving','synced','offline','conflict','error'].includes(c))||'loading';wsBox.className=`workspaceSyncBox ${status}`;}
 }
 function selectEntryWorkspaceCard(cardId){entryWorkspaceSelectedCardId=String(cardId||'');renderEntryWorkspace();}
-function navigateEntryWorkspaceCard(delta){const cards=buildEntryWorkspaceCards(true);if(!cards.length){showToast('Card မရှိပါ');return;}let i=cards.findIndex(c=>c.cardId===entryWorkspaceSelectedCardId);if(i<0)i=0;const n=i+Number(delta||0);if(n<0||n>=cards.length){showToast(n<0?'ပထမ Card ရောက်နေပါပြီ':'နောက်ဆုံး Card ရောက်နေပါပြီ');return;}entryWorkspaceSelectedCardId=cards[n].cardId;renderEntryWorkspace();}
-function openEntryWorkspaceCardEdit(){const card=selectedEntryWorkspaceCard();if(!card||!card.rows.length){showToast('Edit လုပ်မည့် Card မရှိပါ');return;}openGroupEditByRecord(card.rows[0].id);}
-function copyEntryWorkspaceCardRaw(){const card=selectedEntryWorkspaceCard();if(!card){showToast('Card မရွေးရသေးပါ');return;}copyText(card.rawText||card.rows.map(r=>r.source||'').filter(Boolean).join('\n'));}
+function navigateEntryWorkspaceCard(delta){const cards=buildEntryWorkspaceCards(true);if(!cards.length){showToast(currentUiLang()==='en'?'No cards':'Card မရှိပါ');return;}let i=cards.findIndex(c=>c.cardId===entryWorkspaceSelectedCardId);if(i<0)i=0;const n=i+Number(delta||0);if(n<0||n>=cards.length){showToast(n<0?(currentUiLang()==='en'?'Already at the first card':'ပထမ Card ရောက်နေပါပြီ'):(currentUiLang()==='en'?'Already at the last card':'နောက်ဆုံး Card ရောက်နေပါပြီ'));return;}entryWorkspaceSelectedCardId=cards[n].cardId;renderEntryWorkspace();}
+function openEntryWorkspaceCardEdit(){const card=selectedEntryWorkspaceCard();if(!card||!card.rows.length){showToast(currentUiLang()==='en'?'No card available to edit':'Edit လုပ်မည့် Card မရှိပါ');return;}openGroupEditByRecord(card.rows[0].id);}
+function copyEntryWorkspaceCardRaw(){const card=selectedEntryWorkspaceCard();if(!card){showToast(currentUiLang()==='en'?'No card selected':'Card မရွေးရသေးပါ');return;}copyText(card.rawText||card.rows.map(r=>r.source||'').filter(Boolean).join('\n'));}
 function openEntryWorkspaceRecords(){const card=selectedEntryWorkspaceCard();if(card){setVal('recordDate',card.date);setVal('recordSession',card.session);setVal('recordName',card.name);currentSelectedCardId=card.cardId;}else{setVal('recordDate',val('entryDate')||today());setVal('recordSession',val('entrySession')||'AM');setVal('recordName',val('entryName')||'ALL');}go('records');}
 function focusNewEntryWorkspace(){const toolsCollapsed=userGetItem('v2d_ui_entry_tools_collapsed')==='1';if(toolsCollapsed){userSetItem('v2d_ui_entry_tools_collapsed','0');applyEntryWorkspaceUiState();}const ta=document.getElementById('entryText');if(ta){ta.focus();ta.scrollIntoView({behavior:'smooth',block:'center'});}}
 
 function renderEntryLive(){renderMainBoard(); renderEntryOver(); renderEntryWorkspace();}
 const I18N={
-  my:{langLabel:'ဘာသာ',backup:'Backup JSON',clearAll:'အားလုံးဖျက်',liveBoard:'Limit Table Board / Live Desk',boardNote:'Laptop screen အတွက် Board ကို အပေါ်ဆုံးမှာ သေသပ်ကျယ်ပြန့်စွာထားထားသည်။ Amount ကို Unit ဖြင့်ပြသည်။',refresh:'Refresh / ပြန်ဖော်ပြ',date:'ရက်စွဲ',session:'Session',name:'Name / ကော်မရှင်',limitAmount:'Limit Amount',total:'စုစုပေါင်း',overTotal:'Over စုစုပေါင်း',overCount:'Over အရေအတွက်',recordRows:'Rows',entryTitle:'စာရင်းထည့်ရန် / Entry',parsePreview:'Parse Preview / စစ်ကြည့်',confirmSave:'Confirm Save / သိမ်းမယ်',clearText:'Clear Text / ဖျက်မယ်',previewRows:'Preview Rows',previewTotal:'Preview Total',warnings:'Warnings / သတိ',aggByNumber:'Number အလိုက်ပေါင်း',previewDetail:'Preview Detail / အသေးစိတ်',overLive:'Over / ကျော်စာရင်း',overNote:'အပေါ်က ရက်စွဲ / Session / Name အတိုင်း Over တွက်ထားသည်။',uploadImage:'Upload Image / ပုံတင်',cameraBtn:'Camera / ကင်မရာ',clearImage:'Clear Image / ပုံဖျက်'},
-  en:{langLabel:'Language',backup:'Backup JSON',clearAll:'Clear All',liveBoard:'Limit Table Board / Live Desk',boardNote:'A clean wide board is placed first for laptop screens. Amounts are displayed in unit format.',refresh:'Refresh',date:'Date',session:'Session',name:'Name / Commission',limitAmount:'Limit Amount',total:'Total',overTotal:'Over Total',overCount:'Over Count',recordRows:'Rows',entryTitle:'Entry',parsePreview:'Parse Preview',confirmSave:'Confirm Save',clearText:'Clear Text',previewRows:'Preview Rows',previewTotal:'Preview Total',warnings:'Warnings',aggByNumber:'Aggregated by Number',previewDetail:'Preview Detail',overLive:'Over',overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',cameraBtn:'Camera',clearImage:'Clear Image'}
+  my:{
+    langLabel:'ဘာသာ',themeLabel:'Theme',themeSystem:'System',themeLight:'Light',themeDark:'Dark',
+    backup:'Backup JSON',clearAll:'အားလုံးဖျက်',liveBoard:'Limit Table Board / Live Desk',
+    boardNote:'Laptop screen အတွက် Board ကို အပေါ်ဆုံးမှာ သေသပ်ကျယ်ပြန့်စွာထားထားသည်။ Amount ကို Unit ဖြင့်ပြသည်။',
+    refresh:'ပြန်ဖော်ပြ',date:'ရက်စွဲ',session:'Session',name:'အမည် / ကော်မရှင်',limitAmount:'Limit Amount',
+    total:'စုစုပေါင်း',overTotal:'Over စုစုပေါင်း',overCount:'Over အရေအတွက်',recordRows:'Rows',
+    entryTitle:'စာရင်းထည့်ရန်',parsePreview:'စစ်ကြည့်မည်',confirmSave:'အတည်ပြုသိမ်းမည်',clearText:'စာသားရှင်းမည်',
+    previewRows:'Preview Rows',previewTotal:'Preview စုစုပေါင်း',warnings:'သတိပေးချက်',aggByNumber:'Number အလိုက်ပေါင်း',
+    previewDetail:'Preview အသေးစိတ်',overLive:'Over / ကျော်စာရင်း',overNote:'အပေါ်က ရက်စွဲ / Session / Name အတိုင်း Over တွက်ထားသည်။',
+    uploadImage:'ပုံတင်မည်',cameraBtn:'ကင်မရာ',clearImage:'ပုံရှင်းမည်',
+    cloudLoading:'Cloud ဖွင့်နေသည်…',saving:'သိမ်းနေသည်…',cloudSynced:'Cloud သိမ်းပြီး',offlineWaiting:'Offline — စောင့်ဆိုင်းနေသည်',
+    syncConflict:'Sync ပဋိပက္ခ',syncError:'Sync အမှား',last:'နောက်ဆုံး',autoSyncWhenOnline:'Internet ပြန်ရလျှင် Auto Sync',
+    newerDataOtherDevice:'တခြားစက်မှာ Data အသစ်ရှိသည်',checkingAccountData:'Account data စစ်နေသည်'
+  },
+  en:{
+    langLabel:'Language',themeLabel:'Theme',themeSystem:'System',themeLight:'Light',themeDark:'Dark',
+    backup:'Backup JSON',clearAll:'Clear All',liveBoard:'Limit Table Board / Live Desk',
+    boardNote:'A clean wide board is placed first for laptop screens. Amounts are displayed in unit format.',
+    refresh:'Refresh',date:'Date',session:'Session',name:'Name / Commission',limitAmount:'Limit Amount',
+    total:'Total',overTotal:'Over Total',overCount:'Over Count',recordRows:'Rows',entryTitle:'Entry',
+    parsePreview:'Parse Preview',confirmSave:'Confirm Save',clearText:'Clear Text',previewRows:'Preview Rows',previewTotal:'Preview Total',
+    warnings:'Warnings',aggByNumber:'Aggregated by Number',previewDetail:'Preview Detail',overLive:'Over',
+    overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',cameraBtn:'Camera',clearImage:'Clear Image',
+    cloudLoading:'Opening Cloud…',saving:'Saving…',cloudSynced:'Cloud Synced',offlineWaiting:'Offline — Waiting to sync',
+    syncConflict:'Sync Conflict',syncError:'Sync Error',last:'Last',autoSyncWhenOnline:'Auto sync when internet returns',
+    newerDataOtherDevice:'Newer data exists on another device',checkingAccountData:'Checking account data'
+  }
 };
-function setLang(lang){settings.lang=lang; userSetItem('v2d_settings',JSON.stringify(settings)); const d=I18N[lang]||I18N.my; document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.dataset.i18n; if(d[k]) el.textContent=d[k];}); const sel=document.getElementById('langSelect'); if(sel) sel.value=lang;}
+
+const UI_PHRASE_PAIRS=[
+  ['Dashboard','ပင်မ'],['Entry','စာရင်းသွင်း'],['Entry Records','စာရင်းမှတ်တမ်း'],['Limit Board','ကန့်သတ်ဘုတ်'],['Over','ကျော်နေသောစာရင်း'],['Reports','အစီရင်ခံစာ'],['Image','ပုံ / မျှဝေ'],['Settings','ဆက်တင်'],['History','မှတ်တမ်း / Undo'],['Tests','Parser စမ်းသပ်မှု'],['Diagnostics','Error / Version'],
+  ['Language','ဘာသာ'],['Theme','Theme'],['System','System'],['Light','Light'],['Dark','Dark'],['Backup JSON','Backup JSON'],['Restore JSON','Restore JSON'],['Sync Now','ယခု Sync'],['Cloud Refresh','Cloud ပြန်ယူ'],['Clear All','အားလုံးဖျက်'],['Logout','ထွက်မည်'],['Minimize ▲','ချုံ့မည် ▲'],['Open ▼','ဖွင့်မည် ▼'],
+  ['Global Date','ရက်စွဲအားလုံး'],['Global Session','Session အားလုံး'],['Today Total','ယနေ့ စုစုပေါင်း'],['AM Total','AM စုစုပေါင်း'],['PM Total','PM စုစုပေါင်း'],['Latest Records','နောက်ဆုံးစာရင်းများ'],['Date','ရက်စွဲ'],['Session','Session'],['Name','အမည်'],['Card','ကတ်'],['Writer','ရေးသားပုံ'],['Number','နံပါတ်'],['Amount','ငွေပမာဏ'],['Source','မူရင်း'],
+  ['Entry စတင်မယ်','စာရင်းစတင်မည်'],['Limit Board ကြည့်မယ်','Limit Board ကြည့်မည်'],['Formula Engine ပါပြီးသော Key များ','Formula Engine Key များ'],
+  ['Board View / ကြည့်ပုံ','Board ကြည့်ပုံ'],['Total / အားလုံး','အားလုံး'],['By Name / နာမည်အလိုက်','အမည်အလိုက်'],['Board Name / ကြည့်မယ့်နာမည်','Board အမည်'],['Limit Amount','Limit ပမာဏ'],['Total','စုစုပေါင်း'],['Over Total','Over စုစုပေါင်း'],['Over Count','Over အရေအတွက်'],['Rows','Rows'],['Refresh','ပြန်ဖော်ပြ'],['Collapse Board ▲','Board ခေါက်မည် ▲'],['Expand Board ▼','Board ဖြန့်မည် ▼'],
+  ['Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်','Laptop Professional Workspace / ကတ်အလုပ်ခွင်'],['Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။','Saved Card List၊ Selected Card Editor နှင့် Live Summary ကို တစ်မျက်နှာတည်းတွင် မြင်နိုင်သည်။'],['+ New Paste / စာရင်းအသစ်','+ စာရင်းအသစ်'],['Entry Records ဖွင့်မယ်','Entry Records ဖွင့်မည်'],['Card List / ကတ်စာရင်း','ကတ်စာရင်း'],['Selected Card Editor','ရွေးထားသော ကတ်ပြင်ရန်'],['Live Summary','လက်ရှိအကျဉ်းချုပ်'],['Edit Card','ကတ်ပြင်မည်'],['Copy Raw','မူရင်း Copy'],['Selected Card Total','ရွေးထားသောကတ် စုစုပေါင်း'],['Selected Card Rows','ရွေးထားသောကတ် Rows'],['Viber Time','Viber အချိန်'],['Name Total','အမည် စုစုပေါင်း'],['Session Total','Session စုစုပေါင်း'],['P Number Amount','P Number ပမာဏ'],['Current Paste Preview Total','လက်ရှိ Paste Preview စုစုပေါင်း'],['Detected Cards','တွေ့ရှိသော ကတ်များ'],['Preview Rows','Preview Rows'],['Cloud Sync Status','Cloud Sync အခြေအနေ'],
+  ['Paste & Parse Tools','Paste & Parse ကိရိယာများ'],['Hide Tools ▲','Tools ဖျောက်မည် ▲'],['Show Tools ▼','Tools ပြမည် ▼'],['Parse Preview','စစ်ကြည့်မည်'],['Confirm Save','အတည်ပြုသိမ်းမည်'],['Clear Text','စာသားရှင်းမည်'],['Preview Total','Preview စုစုပေါင်း'],['Warnings','သတိပေးချက်'],['Aggregated by Number','နံပါတ်အလိုက်ပေါင်း'],['Preview Detail','Preview အသေးစိတ်'],['Upload Image','ပုံတင်မည်'],['Camera','ကင်မရာ'],['Clear Image','ပုံရှင်းမည်'],
+  ['Search','ရှာဖွေ'],['All Names','အမည်အားလုံး'],['Edit','ပြင်မည်'],['Delete','ဖျက်မည်'],['Remove','ဖယ်မည်'],['Save','သိမ်းမည်'],['Cancel','မလုပ်တော့'],['Close','ပိတ်မည်'],['Open','ဖွင့်မည်'],['Copy','Copy'],['Previous','ယခင်'],['Next','နောက်တစ်ခု'],['Apply','အတည်ပြုအသုံးပြု'],['Undo','ပြန်ဖျက်'],['Edited','ပြင်ထားသည်'],['No records','စာရင်းမရှိသေးပါ'],['No data','Data မရှိသေးပါ'],
+  ['Report','အစီရင်ခံစာ'],['Total Amount','စုစုပေါင်းငွေ'],['P Amount','P ပမာဏ'],['Card Total','ကတ်စုစုပေါင်း'],['Time','အချိန်'],['Status','အခြေအနေ'],['Open Card','ကတ်ဖွင့်မည်'],['Daily','နေ့စဉ်'],['AM','AM'],['PM','PM'],['DAILY','DAILY'],
+  ['Login','ဝင်မည်'],['Register','အကောင့်ဖွင့်မည်'],['Forgot Password','Password မေ့နေသည်'],['Password','Password'],['Confirm Password','Password အတည်ပြု'],['Your Name / အမည်','အမည်'],['Shop / Workspace Name','Shop / Workspace အမည်'],['Create Account / Account ဖွင့်မယ်','အကောင့်ဖွင့်မည်'],['Send Reset Email','Reset Email ပို့မည်'],['Login / ဝင်မယ်','ဝင်မည်']
+];
+const UI_EN_TO_MY=new Map(UI_PHRASE_PAIRS.map(([en,my])=>[en,my]));
+const UI_MY_TO_EN=new Map(UI_PHRASE_PAIRS.map(([en,my])=>[my,en]));
+const UI_BILINGUAL_ALIASES={
+  'Restore JSON':{en:'Restore JSON',my:'Restore JSON'},'Sync Now':{en:'Sync Now',my:'ယခု Sync'},'Cloud Refresh':{en:'Cloud Refresh',my:'Cloud ပြန်ယူ'},
+  'Dashboard ပင်မ':{en:'Dashboard',my:'ပင်မ'},'Entry စာရင်းသွင်း':{en:'Entry',my:'စာရင်းသွင်း'},'Entry Records စာရင်းမှတ်တမ်း':{en:'Entry Records',my:'စာရင်းမှတ်တမ်း'},
+  'Limit Board ကန့်သတ်ဘုတ်':{en:'Limit Board',my:'ကန့်သတ်ဘုတ်'},'Over ကျော်နေသောစာရင်း':{en:'Over',my:'ကျော်နေသောစာရင်း'},'Reports အစီရင်ခံစာ':{en:'Reports',my:'အစီရင်ခံစာ'},
+  'Image ပုံ / မျှဝေ':{en:'Image',my:'ပုံ / မျှဝေ'},'Settings ဆက်တင်':{en:'Settings',my:'ဆက်တင်'},'History မှတ်တမ်း / Undo':{en:'History',my:'မှတ်တမ်း / Undo'},
+  'Tests Parser စမ်းသပ်မှု':{en:'Tests',my:'Parser စမ်းသပ်မှု'},'Diagnostics Error / Version':{en:'Diagnostics',my:'Error / Version'},'Open ထိပ်ပိုင်းဖွင့်':{en:'Open',my:'ထိပ်ပိုင်းဖွင့်'},
+  'Refresh / ပြန်ဖော်ပြ':{en:'Refresh',my:'ပြန်ဖော်ပြ'},'+ New Paste / စာရင်းအသစ်':{en:'+ New Paste',my:'+ စာရင်းအသစ်'},'Entry Records ဖွင့်မယ်':{en:'Open Entry Records',my:'Entry Records ဖွင့်မည်'},
+  'Edit Card / ကတ်ပြင်':{en:'Edit Card',my:'ကတ်ပြင်မည်'},'Copy Over Text / စာကူး':{en:'Copy Over Text',my:'Over စာကူး'},'Save Image / ပုံသိမ်း':{en:'Save Image',my:'ပုံသိမ်းမည်'},
+  'Save Commission Image / ပုံသိမ်း':{en:'Save Commission Image',my:'Commission ပုံသိမ်းမည်'},'Save Dealer Image / ပုံသိမ်း':{en:'Save Dealer Image',my:'Dealer ပုံသိမ်းမည်'},
+  'Sync Now / ယခု Sync':{en:'Sync Now',my:'ယခု Sync'},'◀ Previous':{en:'◀ Previous',my:'◀ ယခင်'},'Next ▶':{en:'Next ▶',my:'နောက်တစ်ခု ▶'},
+  'Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်':{en:'Laptop Professional Workspace',my:'Laptop ကတ်အလုပ်ခွင်'},'Card List / ကတ်စာရင်း':{en:'Card List',my:'ကတ်စာရင်း'},
+  'Live Summary / လက်ရှိအကျဉ်းချုပ်':{en:'Live Summary',my:'လက်ရှိအကျဉ်းချုပ်'},'စာရင်းထည့်ရန် / Entry':{en:'Entry',my:'စာရင်းထည့်ရန်'},
+  'အနီစာ ပြင်ရန် / Fix Lines':{en:'Fix Lines',my:'အနီစာ ပြင်ရန်'},'Save Preview / သိမ်းမည့်နေရာ စစ်ကြည့်':{en:'Save Preview',my:'သိမ်းမည့်နေရာ စစ်ကြည့်'},
+  'Detected Viber Cards / တွေ့ရှိသော ကတ်များ':{en:'Detected Viber Cards',my:'တွေ့ရှိသော Viber ကတ်များ'},'Entry Records / သွင်းပြီးစာရင်းမှတ်တမ်း':{en:'Entry Records',my:'သွင်းပြီးစာရင်းမှတ်တမ်း'},
+  'Card Navigator / ကတ်နံပါတ်အလိုက် စစ်ဆေးပြင်ဆင်ရန်':{en:'Card Navigator',my:'ကတ်နံပါတ်အလိုက် စစ်ဆေးပြင်ဆင်ရန်'},'Limit Table Board / ကန့်သတ်ဘုတ်':{en:'Limit Table Board',my:'ကန့်သတ်ဘုတ်'},
+  'Over Page / ကျော်စာရင်း':{en:'Over Page',my:'ကျော်စာရင်း'},'AM / PM / Daily Report / အစီရင်ခံစာ':{en:'AM / PM / Daily Report',my:'AM / PM / Daily အစီရင်ခံစာ'},
+  'Name Summary / နာမည်အလိုက်':{en:'Name Summary',my:'အမည်အလိုက် အကျဉ်းချုပ်'},'Number Summary / နံပါတ်အလိုက်':{en:'Number Summary',my:'နံပါတ်အလိုက် အကျဉ်းချုပ်'},
+  'ဒိုင်စာရင်း / Dealer Summary':{en:'Dealer Summary',my:'ဒိုင်စာရင်း'},'Image / Share Text Page / ပုံနှင့်မျှဝေစာ':{en:'Image / Share Text Page',my:'ပုံနှင့်မျှဝေစာ'},
+  'P Number Settings / Date နှင့် Session အလိုက်':{en:'P Number Settings by Date and Session',my:'ရက်စွဲနှင့် Session အလိုက် P Number ဆက်တင်'},
+  'Commission Names / နာမည်စာရင်း':{en:'Commission Names',my:'ကော်မရှင်အမည်စာရင်း'},'History / Audit Trail / Undo':{en:'History / Audit Trail / Undo',my:'မှတ်တမ်း / Audit / Undo'},
+  'Parser Regression Tests / အဟောင်းမှန်နေသော Logic စမ်းသပ်မှု':{en:'Parser Regression Tests',my:'Parser Logic စမ်းသပ်မှု'},'Developer Diagnostics / Error Checker / Version Control':{en:'Developer Diagnostics / Error Checker / Version Control',my:'Developer Error / Version စစ်ဆေးမှု'},
+  'Group Edit / Batch Edit':{en:'Group Edit / Batch Edit',my:'အစုလိုက်ပြင်ဆင်ရန်'}
+};
+const UI_MESSAGE_PAIRS=[
+ ['Copy လုပ်ရန် raw history မရှိသေးပါ','No raw history is available to copy.'],['Latest raw history ကို copy လုပ်ပြီးပါပြီ','Latest raw history copied.'],['Audit history cleared','Audit history cleared.'],['Undo ပြန်သွားရန် action မရှိသေးပါ','There is no action to undo.'],['Undo ပြန်သွားပါပြီ','Undo completed.'],['Raw text copied','Raw text copied.'],['P Number ကို 00 မှ 99 အတွင်း ရိုက်ပါ','Enter a P Number from 00 to 99.'],
+ ['Save storage ပြည့်နေပါတယ်။ Audit history ကို လျှော့ပြီး ထပ်သိမ်းပါ','Local storage is full. Reduce audit history and save again.'],['Login/Firebase မချိတ်မိသေးပါ','Login/Firebase is not connected.'],['Internet မရှိသေးပါ။ Data ကို စက်ထဲသိမ်းထားပြီး Internet ပြန်ရလျှင် Auto Sync လုပ်မယ်','No internet. Data is saved locally and will auto-sync when internet returns.'],
+ ['တခြားစက်မှာ Cloud Data အသစ်ရှိနေပါတယ်။ Backup JSON ထုတ်ပြီး Cloud Refresh ဖြင့် စစ်ပါ','Newer cloud data exists on another device. Export a JSON backup and check with Cloud Refresh.'],['Cloud Sync စတင်နေပါသည်…','Cloud sync started…'],['Cloud Sync အောင်မြင်ပါပြီ','Cloud sync successful.'],['Sync Conflict: တခြားစက်မှာ Data အသစ်ရှိနေပါတယ်။ Local Data ကို မဖျက်ထားပါ','Sync conflict: newer data exists on another device. Local data was not deleted.'],
+ ['တခြားစက်မှ Cloud Data အသစ်ကို Auto Update လုပ်ပြီးပါပြီ','New cloud data from another device was auto-updated.'],['Cloud Data ပြန်ဖတ်နေပါသည်…','Refreshing cloud data…'],['Cloud Data မတွေ့သေးပါ','No cloud data found yet.'],['Cloud Refresh အောင်မြင်ပါပြီ','Cloud refresh successful.'],
+ ['Image preview ready. OCR text ကို right box ထဲ paste/edit လုပ်ပါ။','Image preview is ready. Paste or edit OCR text in the right box.'],['OCR box ထဲ text မရှိသေးပါ','There is no text in the OCR box yet.'],['OCR text ကို Entry box ထဲ ထည့်ပြီးပါပြီ','OCR text was added to the Entry box.'],
+ ['All duplicate ဖြစ်နေပါတယ်။ Copy paste အသစ်ထည့်ပါ။','All rows are duplicates. Paste a new message.'],['Preview ပြီးပါပြီ','Preview completed.'],['Duplicate warning ကိုပြထားပါတယ်။ Header line ကို ပြန်စစ်နိုင်ပါတယ်','A duplicate warning is shown. You can review the header line.'],['ဖျက်ရန် duplicate message block မရှိပါ','No duplicate message block to delete.'],['Existing duplicate message block ကို ဖျက်ပြီးပါပြီ','Existing duplicate message block deleted.'],
+ ['အနီစာ / Issue line မရှိပါ','No issue line found.'],['Paste Box ထဲ line ကို ရှာပေးပြီးပါပြီ','The line was located in the Paste Box.'],['Paste Box ထဲ အစားထိုးပြီးပါပြီ','Replaced in the Paste Box.'],['အောက်ဆုံးမှာ ထည့်ပြီးပါပြီ','Added at the bottom.'],['Save လုပ်ရန် preview မရှိပါ','There is no preview to save.'],['Confirm Save လုပ်ရန် AM သို့မဟုတ် PM ကိုရွေးပါ','Select AM or PM before Confirm Save.'],['Name မရွေးရသေးပါ။ Name ရွေးပြီးမှ Confirm Save လုပ်ပါ','Select a Name before Confirm Save.'],['Duplicate message block တွေ့ပါတယ်။ Action တစ်ခုရွေးပါ','Duplicate message blocks found. Choose an action.'],['အသစ်သိမ်းရန် row မရှိပါ','There are no new rows to save.'],
+ ['Card မတွေ့ပါ','Card not found.'],['Card ဖျက်ပြီး Cloud Sync လုပ်နေပါသည်','Card deleted. Cloud sync is in progress.'],['Record မတွေ့ပါ','Record not found.'],['Number မမှန်ပါ','Invalid number.'],['Amount မမှန်ပါ','Invalid amount.'],['Edited + Cloud Sync','Edited + Cloud Sync.'],['Group မတွေ့ပါ','Group not found.'],['Group state မရှိပါ','Group state not found.'],['Group text ကို parse မလုပ်နိုင်ပါ','Unable to parse group text.'],['Card Edit မှာ Viber Header တစ်ခုသာထားပါ','Keep only one Viber header in Card Edit.'],['Deleted + Cloud Sync','Deleted + Cloud Sync.'],['Batch မတွေ့ပါ','Batch not found.'],['Batch Deleted + Cloud Sync','Batch deleted + Cloud Sync.'],
+ ['Name တစ်ခုရွေးပြီးမှ Delete Filtered Name လုပ်ပါ','Select a Name before deleting filtered name rows.'],['ဖျက်ရန် row မရှိပါ','No rows to delete.'],['Filtered Name Rows Deleted + Cloud Sync','Filtered name rows deleted + Cloud Sync.'],['Copy လုပ်ရန် record မရှိပါ','No records available to copy.'],['အရင် Run All Parser Tests လုပ်ပါ','Run all parser tests first.'],['Runtime error log cleared','Runtime error log cleared.'],['Copied','Copied.'],['Copy မရပါ','Copy failed.'],['Over မရှိပါ','No Over amount.'],['Backup JSON download စတင်ပါပြီ','Backup JSON download started.'],['Cleared','Cleared.'],['Name ထည့်ပါ','Enter a Name.'],['Name Added','Name added.'],['အနည်းဆုံး Name ၁ ခုထားပါ','Keep at least one Name.'],
+ ['Audit history ကိုပဲ ဖျက်မလား? Data records မဖျက်ပါ။','Clear audit history only? Data records will not be deleted.'],['Browser cache, Service Worker cache ရှင်းပြီး App ကို version အသစ်ဖြင့် reload လုပ်မယ်။ ဆက်လုပ်မလား?','Clear browser and service worker caches, then reload the latest app version?'],['Copy Over Text လုပ်ပြီး Limit Board မှ Over amount ကို နုတ်မည်။ သေချာလား?','Copy Over Text and deduct the Over amount from the Limit Board?'],['Save Image လုပ်ပြီး Limit Board မှ Over amount ကို နုတ်မည်။ သေချာလား?','Save the image and deduct the Over amount from the Limit Board?'],['Data အကုန်ဖျက်မှာ သေချာလား?','Delete all data?'],
+ ['Restore ပြီးပါပြီ။ App ကို ပြန်ဖွင့်ပြီး Cloud ကို Auto Sync လုပ်ပါမယ်။','Restore completed. The app will reopen and auto-sync to cloud.'],['JSON file ကိုဖတ်မရပါ','Unable to read the JSON file.']
+];
+const UI_MESSAGE_MY_TO_EN=new Map(UI_MESSAGE_PAIRS);
+const UI_MESSAGE_EN_TO_MY=new Map(UI_MESSAGE_PAIRS.map(([my,en])=>[en,my]));
+function currentUiLang(){ return settings?.lang || localStorage.getItem('v2d_ui_language') || 'my'; }
+function tUi(key){ const lang=currentUiLang(); return (I18N[lang]||I18N.my)[key] ?? (I18N.en[key]||key); }
+function translateLiteralText(text,lang=currentUiLang()){
+  const raw=String(text??''); const trimmed=raw.trim(); if(!trimmed) return raw;
+  const alias=UI_BILINGUAL_ALIASES[trimmed]; if(alias){const v=alias[lang];const lead=raw.slice(0,raw.indexOf(trimmed));const tail=raw.slice(raw.indexOf(trimmed)+trimmed.length);return lead+v+tail;}
+  const mapped=lang==='en'?UI_MY_TO_EN.get(trimmed):UI_EN_TO_MY.get(trimmed);
+  if(!mapped) return raw;
+  const lead=raw.slice(0,raw.indexOf(trimmed)); const tail=raw.slice(raw.indexOf(trimmed)+trimmed.length);
+  return lead+mapped+tail;
+}
+function translateUiMessage(message){
+  const lang=currentUiLang(); let s=String(message??'');
+  const msgMapped=lang==='en'?UI_MESSAGE_MY_TO_EN.get(s):UI_MESSAGE_EN_TO_MY.get(s); if(msgMapped) return msgMapped;
+  const exact=translateLiteralText(s,lang); if(exact!==s) return exact;
+  const rules=lang==='en' ? [
+    [/Cloud Save စတင်နေပါသည်…/g,'Cloud save started…'],[/Cloud Save အောင်မြင်ပါပြီ/g,'Cloud save successful'],[/Login အောင်မြင်ပါပြီ။?/g,'Login successful.'],[/Account ဖွင့်ပြီး Login ဝင်ထားပါပြီ။?/g,'Account created and signed in.'],[/မရှိသေးပါ/g,'not available yet'],[/မရွေးရသေးပါ/g,'not selected'],[/မအောင်မြင်ပါ/g,'failed'],[/ပြီးပါပြီ/g,'completed'],[/သိမ်းပြီး/g,'saved'],[/စစ်နေပါသည်/g,'checking'],[/ဖွင့်နေပါသည်/g,'opening']
+  ] : [
+    [/Cloud save started…/gi,'Cloud Save စတင်နေပါသည်…'],[/Cloud save successful/gi,'Cloud Save အောင်မြင်ပါပြီ'],[/Login successful\.?/gi,'Login အောင်မြင်ပါပြီ။'],[/Account created and signed in\.?/gi,'Account ဖွင့်ပြီး Login ဝင်ထားပါပြီ။'],[/No records/gi,'စာရင်းမရှိသေးပါ'],[/not selected/gi,'မရွေးရသေးပါ'],[/failed/gi,'မအောင်မြင်ပါ'],[/completed/gi,'ပြီးပါပြီ'],[/Saving…/g,'သိမ်းနေသည်…']
+  ];
+  for(const [re,repl] of rules) s=s.replace(re,repl); return s;
+}
+
+const __v2dNativeConfirm=window.confirm.bind(window);
+const __v2dNativeAlert=window.alert.bind(window);
+window.confirm=(message)=>__v2dNativeConfirm(translateUiMessage(message));
+window.alert=(message)=>__v2dNativeAlert(translateUiMessage(message));
+function shouldSkipUiTranslation(node){
+  const p=node.parentElement; if(!p) return true;
+  if(p.closest('script,style,textarea,[data-no-i18n="true"],.workspaceRawText,.sharebox')) return true;
+  const td=p.closest('td'); if(td && !p.closest('button')) return true;
+  return false;
+}
+function translateUiTree(root=document){
+  const lang=currentUiLang();
+  root.querySelectorAll?.('[data-i18n]').forEach(el=>{const key=el.dataset.i18n; const d=I18N[lang]||I18N.my; if(d[key]) el.textContent=d[key];});
+  root.querySelectorAll?.('[data-i18n-option]').forEach(el=>{const key=el.dataset.i18nOption; const d=I18N[lang]||I18N.my; if(d[key]) el.textContent=d[key];});
+  root.querySelectorAll?.('input[placeholder],textarea[placeholder]').forEach(el=>{ if(el.dataset.noI18n==='true') return; const next=translateLiteralText(el.getAttribute('placeholder')||'',lang); if(next) el.setAttribute('placeholder',next); });
+  const walker=document.createTreeWalker(root===document?document.body:root,NodeFilter.SHOW_TEXT);
+  const nodes=[]; while(walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(node=>{ if(shouldSkipUiTranslation(node)) return; const next=translateLiteralText(node.nodeValue,lang); if(next!==node.nodeValue) node.nodeValue=next; });
+  renderLanguageTabs();
+}
+function renderLanguageTabs(){
+  const lang=currentUiLang(); const labels={
+    dashboard:['Dashboard','ပင်မ'],entry:['Entry','စာရင်းသွင်း'],records:['Entry Records','စာရင်းမှတ်တမ်း'],limit:['Limit Board','ကန့်သတ်ဘုတ်'],over:['Over','ကျော်နေသောစာရင်း'],reports:['Reports','အစီရင်ခံစာ'],image:['Image','ပုံ / မျှဝေ'],settings:['Settings','ဆက်တင်'],audit:['History','မှတ်တမ်း / Undo'],tests:['Tests','Parser စမ်းသပ်မှု'],diagnostics:['Diagnostics','Error / Version']
+  };
+  document.querySelectorAll('#tabs .tab[data-id]').forEach(btn=>{const pair=labels[btn.dataset.id]; if(!pair)return; btn.innerHTML=lang==='en'?pair[0]:pair[1];});
+}
+let uiTranslateObserver=null;
+function startUiTranslationObserver(){
+  if(uiTranslateObserver) return;
+  uiTranslateObserver=new MutationObserver(mutations=>{
+    if(window.__V2D_TRANSLATING_UI) return;
+    window.__V2D_TRANSLATING_UI=true;
+    try{ for(const m of mutations){ for(const n of m.addedNodes||[]){ if(n.nodeType===Node.ELEMENT_NODE) translateUiTree(n); } } }finally{window.__V2D_TRANSLATING_UI=false;}
+  });
+  const main=document.getElementById('mainApp'); if(main) uiTranslateObserver.observe(main,{childList:true,subtree:true});
+}
+function setLang(lang){
+  lang=lang==='en'?'en':'my'; settings.lang=lang; localStorage.setItem('v2d_ui_language',lang); userSetItem('v2d_settings',JSON.stringify(settings));
+  document.documentElement.lang=lang==='en'?'en':'my';
+  const sel=document.getElementById('langSelect'); if(sel) sel.value=lang;
+  translateUiTree(document); startUiTranslationObserver();
+  renderAll(); translateUiTree(document);
+}
+function resolvedTheme(theme){ if(theme==='system') return window.matchMedia?.('(prefers-color-scheme: light)').matches?'light':'dark'; return theme==='light'?'light':'dark'; }
+function applyTheme(theme){
+  theme=['light','dark','system'].includes(theme)?theme:'system';
+  document.documentElement.dataset.theme=theme; document.documentElement.dataset.resolvedTheme=resolvedTheme(theme);
+  const sel=document.getElementById('themeSelect'); if(sel) sel.value=theme;
+}
+function setTheme(theme){
+  theme=['light','dark','system'].includes(theme)?theme:'system'; settings.theme=theme; localStorage.setItem('v2d_ui_theme',theme); userSetItem('v2d_settings',JSON.stringify(settings)); applyTheme(theme);
+}
+if(window.matchMedia){ const mq=window.matchMedia('(prefers-color-scheme: light)'); mq.addEventListener?.('change',()=>{if((settings?.theme||localStorage.getItem('v2d_ui_theme')||'system')==='system') applyTheme('system');}); }
+
 function renderDashboard(){
   const t=today(); const am=filterRecords(t,'AM').reduce((a,b)=>a+b.amount,0); const pm=filterRecords(t,'PM').reduce((a,b)=>a+b.amount,0); setText('dashToday',money(am+pm)); setText('dashAM',money(am)); setText('dashPM',money(pm));
   document.getElementById('latestRows').innerHTML=records.slice(-30).reverse().map(r=>`<tr><td>${r.date}</td><td>${r.session}</td><td>${escapeHtml(r.name||'Default')}</td><td>${r.cardNumber?`#${r.cardNumber}`:'-'}</td><td>${escapeHtml(normalizeWriterProfile(r.writerProfile||'AUTO'))}</td><td><b>${r.number}</b></td><td class="right">${money(r.amount)}</td><td>${escapeHtml(r.source)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No records</td></tr>';
@@ -2916,7 +3069,7 @@ function selectedNavigatorCard(){
 }
 function navigateSelectedCard(delta){
   const cards=buildCardNavigatorCards(true);
-  if(!cards.length){showToast('Card မရှိပါ');return;}
+  if(!cards.length){showToast(currentUiLang()==='en'?'No cards':'Card မရှိပါ');return;}
   let index=cards.findIndex(card=>card.cardId===currentSelectedCardId);
   if(index<0) index=0;
   const next=index+Number(delta||0);
@@ -2926,17 +3079,17 @@ function navigateSelectedCard(delta){
 }
 function openSelectedCardEdit(){
   const card=selectedNavigatorCard();
-  if(!card||!card.rows.length){showToast('Edit လုပ်မည့် Card မရှိပါ');return;}
+  if(!card||!card.rows.length){showToast(currentUiLang()==='en'?'No card available to edit':'Edit လုပ်မည့် Card မရှိပါ');return;}
   openGroupEditByRecord(card.rows[0].id);
 }
 function copySelectedCardText(){
   const card=selectedNavigatorCard();
-  if(!card){showToast('Card မရွေးရသေးပါ');return;}
+  if(!card){showToast(currentUiLang()==='en'?'No card selected':'Card မရွေးရသေးပါ');return;}
   copyText(card.rawText||card.rows.map(r=>r.source||'').filter(Boolean).join('\n'));
 }
 function deleteSelectedCard(){
   const card=selectedNavigatorCard();
-  if(!card){showToast('Card မရွေးရသေးပါ');return;}
+  if(!card){showToast(currentUiLang()==='en'?'No card selected':'Card မရွေးရသေးပါ');return;}
   if(!confirm(`${card.name} Card #${card.cardNumber||'-'} (${card.rows.length} rows / ${money(card.total)}) ကို အပြီးဖျက်မလား?`)) return;
   snapshotBeforeChange('Delete Card',{name:card.name,date:card.date,session:card.session,cardNumber:card.cardNumber});
   const raw=card.rawText||'';
@@ -3142,8 +3295,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.2E.1';
-const APP_VERSION_LABEL='Stage 4.2E.1 Laptop Professional Workspace';
+const APP_VERSION='4.2F.1';
+const APP_VERSION_LABEL='Stage 4.2F.1 Language + Theme';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -3456,7 +3609,7 @@ async function hardReloadApp(){
   location.replace(url.toString());
 }
 
-function renderAll(){renderDashboard();renderPreview();renderEntryLive();renderLimit();renderOver();renderReports();renderImageText();renderEntryRecords();renderAuditTrail();renderDiagnostics();}
+function renderAll(){renderDashboard();renderPreview();renderEntryLive();renderLimit();renderOver();renderReports();renderImageText();renderEntryRecords();renderAuditTrail();renderDiagnostics(); if(!window.__V2D_TRANSLATING_UI){window.__V2D_TRANSLATING_UI=true;try{translateUiTree(document);}finally{window.__V2D_TRANSLATING_UI=false;}}}
 function setText(id,v){const el=document.getElementById(id); if(el) el.textContent=v;}
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function go(id){
@@ -3501,7 +3654,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.2E.1 Laptop Professional Workspace',
+    version:'Stage 4.2F.1 Language + Theme',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,
@@ -3641,6 +3794,7 @@ function init(){
   const keys=['A','Z','B','//','//-3355','*2','*12','1*','1ပါ','7ပါတ်ပူးပါ','12*','1234**','12345 အခွေ','3/8ဘရိတ်','2ထိပ် 500 R 200','++','--','+-','-+','/9','9/','+/','-/','/+','/-','+1','-1','1+','1-'];
   document.getElementById('formulaChips').innerHTML=keys.map(k=>`<span class="chip" onclick="go('entry');insertKey('${k}')">${k}</span>`).join('');
   refreshNameSelects();
+  applyTheme(settings.theme||'system');
   setLang(settings.lang||'my');
   applyTopbarState();
   renderMiniTopInfo();

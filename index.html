@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.2F.1 Language + Theme</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.2F.1">
+  <title>Viber 2D Desk - Stage 4.3.0 Entry Safety + Parser Report</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.3.0">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.2F.1 · Myanmar / English UI · Light / Dark / System Theme</div>
+        <div class="muted">Stage 4.3.0 · Entry Safety Gate · Parser Issue Report · Language + Theme</div>
       </div>
     </div>
 
@@ -77,8 +77,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.2F.1 Language + Theme + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2F.1: Full UI Language + Light / Dark / System Theme · Card Workspace retained</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.3.0 Entry Safety + Parser Report + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.3.0: Entry Safety Gate + User Parser Issue Report · Card Workspace retained</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -153,7 +153,7 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2F.1 မှာ Myanmar / English UI Language နှင့် Light / Dark / System Theme ထည့်ထားပြီး Card Workspace၊ Report Drill-down နှင့် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.3.0 မှာ Entry Safety Gate နှင့် User Parser Issue Report ထည့်ထားပြီး Language/Theme၊ Card Workspace၊ Report Drill-down နှင့် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
     <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
@@ -192,7 +192,7 @@
 
       <div class="workspaceSectionHead">
         <div>
-          <div class="workspaceEyebrow">STAGE 4.2F.1 · LANGUAGE + THEME</div>
+          <div class="workspaceEyebrow">STAGE 4.3.0 · ENTRY SAFETY + PARSER REPORT</div>
           <h2>Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်</h2>
           <div class="muted">Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။</div>
         </div>
@@ -299,7 +299,7 @@
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.2E.1</span></h3>
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.3.0</span></h3>
               <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
             </div>
             <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
@@ -308,7 +308,8 @@
             <div class="btnrow">
               <button class="btn small" onclick="parseInput()" data-i18n="parsePreview">Parse Preview</button>
               <button class="btn secondary small" onclick="confirmSaveAction()" data-i18n="confirmSave">Confirm Save</button>
-              <button class="btn gray small" onclick="document.getElementById('entryText').value=''; clearIssueEditor()" data-i18n="clearText">Clear Text</button>
+              <button class="btn warn small" onclick="openParserIssueReport()" data-i18n="reportParserIssue">Report Parser Issue</button>
+              <button class="btn gray small" onclick="document.getElementById('entryText').value=''; clearIssueEditor(); closeEntrySafetyGate(); closeParserIssueReport()" data-i18n="clearText">Clear Text</button>
             </div>
             <div class="imgToolGrid" style="margin-top:10px">
               <div>
@@ -351,6 +352,60 @@
               <div class="issueRight issueCompact">
                 <div id="issueEditorDetail" class="issueDetailBox"></div>
               </div>
+            </div>
+          </div>
+
+          <div id="entrySafetyStatus" class="entrySafetyStatus safe" style="margin-top:10px"></div>
+
+          <div id="entrySafetyGate" class="entrySafetyGate" style="display:none">
+            <div class="entrySafetyHead">
+              <div>
+                <h3 data-i18n="parserSafety">Parser Safety Check</h3>
+                <div class="muted" id="entrySafetySummary">Preview ကို စစ်ဆေးနေပါသည်…</div>
+              </div>
+              <span class="safetyBadge" id="entrySafetyBadge">REVIEW</span>
+            </div>
+            <div class="entrySafetyActions">
+              <button class="btn warn small" onclick="focusIssueFix()" data-i18n="fixIssues">Fix Issues</button>
+              <button class="btn secondary small" onclick="savePreviewReviewed()" data-i18n="saveReviewed">Save Reviewed Rows</button>
+              <button class="btn small" onclick="openParserIssueReport()" data-i18n="reportParserIssue">Report Parser Issue</button>
+              <button class="btn gray small" onclick="closeEntrySafetyGate()" data-i18n="cancel">Cancel</button>
+            </div>
+            <div class="safetyHelp" data-i18n="safetyHelp">Parser မဖတ်နိုင်/မသေချာသောစာရှိပါက အရင်ပြင်ပါ။ User က စစ်ပြီးမှ Save Reviewed Rows ဖြင့် ဆက်သိမ်းနိုင်သည်။</div>
+          </div>
+
+          <div id="parserReportPanel" class="parserReportPanel" style="display:none">
+            <div class="parserReportHead">
+              <div>
+                <h3 data-i18n="parserReportTitle">Parser Issue Report</h3>
+                <div class="muted" data-i18n="parserReportHint">Original message နှင့် လက်ရှိ Parser Output ကို အလိုအလျောက်ထည့်ပေးထားသည်။ Correct Result နှင့် Note ကို ဖြည့်ပြီး App Owner ထံ ပို့ပါ။</div>
+              </div>
+              <button class="btn gray small" onclick="closeParserIssueReport()" data-i18n="close">Close</button>
+            </div>
+            <div class="parserReportMeta" id="parserReportMeta"></div>
+            <div class="parserReportGrid">
+              <div>
+                <label data-i18n="originalMessage">Original Viber Message</label>
+                <textarea id="parserReportOriginal" class="parserReportText" data-no-i18n="true" readonly></textarea>
+              </div>
+              <div>
+                <label data-i18n="currentParserOutput">Current Parser Output</label>
+                <textarea id="parserReportOutput" class="parserReportText" data-no-i18n="true" readonly></textarea>
+              </div>
+            </div>
+            <div class="parserReportGrid">
+              <div>
+                <label data-i18n="expectedCorrectRecords">Expected Correct Records</label>
+                <textarea id="parserReportExpected" class="parserReportText" data-no-i18n="true" placeholder="45 500&#10;54 500&#10;65 500&#10;56 500"></textarea>
+              </div>
+              <div>
+                <label data-i18n="reportNote">Note</label>
+                <textarea id="parserReportNote" class="parserReportText" placeholder="Parser မှားနေသည့်အချက်ကို ရေးပါ"></textarea>
+              </div>
+            </div>
+            <div class="parserReportFooter">
+              <div id="parserReportQueueStatus" class="muted">-</div>
+              <button id="parserReportSubmitBtn" class="btn secondary" onclick="submitParserIssueReport()" data-i18n="sendToOwner">Send to App Owner</button>
             </div>
           </div>
 
@@ -732,7 +787,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.2E.1"></script>
-<script src="js/auth.js?v=4.2E.1"></script>
+<script src="js/firebase-config.js?v=4.3.0"></script>
+<script src="js/auth.js?v=4.3.0"></script>
 </body>
 </html>

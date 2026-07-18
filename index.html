@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.2C.1 Card Navigator + Safe Card Edit</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.2C.1">
+  <title>Viber 2D Desk - Stage 4.2D.1 Report Card + P Breakdown</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.2D.1">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.2C.1 · Card Navigator + Safe Card Edit</div>
+        <div class="muted">Stage 4.2D.1 · Report Card Breakdown + P Number Breakdown</div>
       </div>
     </div>
 
@@ -64,8 +64,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.2C.1 Card Navigator + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2C.1: Card Navigator + One-card Detail + Safe Re-parse/Edit + Card Delete</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.2D.1 Report Drill-down + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2D.1: Total Amount ▼ Card Breakdown + P Amount ▼ Card Breakdown + Open Card</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -140,7 +140,7 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2C.1 file က Card #1–#20 ကို တစ်ကတ်ချင်း လွယ်ကူစွာ ရှာ၊ ဖွင့်၊ ပြင်၊ ဖျက်နိုင်ပြီး Apply မလုပ်ခင် Re-parse Preview စစ်နိုင်ပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2D.1 file က Report Total Amount နှင့် P Amount ကို ▼ နှိပ်ပြီး Card # / Time / Amount အလိုက် ချက်ချင်းစစ်နိုင်ပြီး မူရင်း Card ကို Entry Records မှာ တိုက်ရိုက်ဖွင့်နိုင်ပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
     <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
@@ -196,7 +196,7 @@
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.2C.1</span></h3>
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.2D.1</span></h3>
               <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
             </div>
             <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
@@ -427,13 +427,16 @@
         <div><label>P Number (Settings မှ)</label><input id="pNumber" readonly placeholder="Settings မှ သတ်မှတ်ပါ"></div>
       </div>
       <div class="compactStats" style="margin-top:12px">
-        <div class="stat"><div class="k">Total Amount</div><div class="v" id="rTotal">0</div></div>
+        <div class="stat reportDrillStat"><div class="k">Total Amount <button id="rTotalArrow" class="statArrowBtn" type="button" onclick="toggleReportTotalBreakdown()" title="Card Breakdown">▼</button></div><div class="v" id="rTotal">0</div></div>
         <div class="stat"><div class="k">Commission</div><div class="v blue" id="rCom">0</div></div>
         <div class="stat"><div class="k">Net</div><div class="v good" id="rNet">0</div></div>
-        <div class="stat"><div class="k">P Amount</div><div class="v warnText" id="rPamt">0</div></div>
+        <div class="stat reportDrillStat"><div class="k">P Amount <button id="rPArrow" class="statArrowBtn" type="button" onclick="toggleReportPBreakdown()" title="P Number Card Breakdown">▼</button></div><div class="v warnText" id="rPamt">0</div></div>
         <div class="stat"><div class="k">Payout</div><div class="v bad" id="rPayout">0</div></div>
         <div class="stat"><div class="k">Final</div><div class="v" id="rFinal">0</div></div>
       </div>
+      <div id="reportTotalBreakdown" class="reportDrillPanel" hidden></div>
+      <div id="reportPBreakdown" class="reportDrillPanel" hidden></div>
+      <div class="muted reportDrillHint">Total Amount ▼ သို့မဟုတ် P Amount ▼ ကိုနှိပ်ပြီး Card # / Time / Amount အလိုက် စစ်နိုင်ပါတယ်။ Name Summary ထဲက Total / P Amount ကိုလည်း တစ်ဦးချင်း ▼ ဖြန့်ကြည့်နိုင်ပါတယ်။</div>
       <h3 style="margin-top:14px">Name Summary / နာမည်အလိုက်</h3>
       <div class="scroll"><table id="reportNameRowsTable"><thead><tr><th>Name</th><th class="right">Total</th><th class="right">P Amount</th><th class="right">Payout</th><th class="right">Cor %</th><th class="right">Cor</th><th class="right">Final</th></tr></thead><tbody id="reportNameRows"></tbody></table></div>
       <h3 style="margin-top:14px">Number Summary / နံပါတ်အလိုက်</h3>
@@ -625,7 +628,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.2C.1"></script>
-<script src="js/auth.js?v=4.2C.1"></script>
+<script src="js/firebase-config.js?v=4.2D.1"></script>
+<script src="js/auth.js?v=4.2D.1"></script>
 </body>
 </html>

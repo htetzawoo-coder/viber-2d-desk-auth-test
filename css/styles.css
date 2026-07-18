@@ -381,3 +381,15 @@
 #groupEditModal textarea{min-height:170px}
 @media(max-width:1100px){.cardNavigatorGrid{grid-template-columns:240px minmax(0,1fr)}.selectedCardBodyGrid{grid-template-columns:1fr}.selectedCardRawText{min-height:180px}.cardNavigatorStats{grid-template-columns:repeat(2,minmax(120px,1fr))}}
 @media(max-width:760px){.cardNavigatorGrid{grid-template-columns:1fr}.cardNavigatorList{max-height:260px}.cardNavigatorStats,.groupEditPreviewStats{grid-template-columns:repeat(2,minmax(0,1fr))}.cardDetailActions{justify-content:flex-start}.selectedCardRowsScroll{max-height:340px}.cardNavigatorSearchWrap{min-width:100%}}
+
+
+/* Stage 4.2D.1 — Report Total/P Card Drill-down */
+.reportDrillStat .k{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.statArrowBtn{border:1px solid #475569;background:#0f172a;color:#e2e8f0;border-radius:7px;min-width:30px;height:26px;cursor:pointer;font-weight:900;line-height:1}.statArrowBtn:hover{border-color:#38bdf8;background:#172554}
+.reportDrillHint{margin-top:8px;padding:8px 10px;border-left:3px solid #38bdf8;background:rgba(14,165,233,.07);border-radius:8px}
+.reportDrillPanel{margin-top:10px;padding:12px;border:1px solid #334155;border-radius:14px;background:#020617}.reportDrillPanel[hidden]{display:none!important}
+.reportDrillHead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:9px}.reportDrillHead b{font-size:15px;color:#e2e8f0}.reportDrillHead span{font-size:13px;color:#93c5fd;font-weight:800}
+.reportDrillTable{min-width:760px}.reportDrillTable th{white-space:nowrap}.reportDrillTable td{vertical-align:top}.reportSourceCell{max-width:340px;white-space:normal;line-height:1.45;color:#cbd5e1;font-size:12px}
+.reportCellDrill{border:0;background:transparent;color:inherit;font:inherit;font-weight:900;cursor:pointer;padding:5px 7px;border-radius:8px;white-space:nowrap}.reportCellDrill:hover{background:#1e293b;color:#7dd3fc}.reportCellDrill.warnText:hover{color:#fbbf24}
+.reportInlineDetailRow td{padding:0 8px 12px!important;background:#020617}.reportInlineDetail{border:1px solid #334155;border-radius:12px;padding:10px;background:#0b1220}.reportInlineDetail .reportDrillHead:not(:first-child){margin-top:14px}
+@media (max-width:900px){.reportSourceCell{max-width:220px}.reportDrillTable{min-width:680px}}

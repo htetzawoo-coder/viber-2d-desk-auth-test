@@ -72,6 +72,10 @@ let pendingDuplicateBlockKeys = [];
 let pendingDuplicateBlockLabels = [];
 let currentGroupEdit = null;
 let currentSelectedCardId = '';
+let reportTotalBreakdownOpen = false;
+let reportPBreakdownOpen = false;
+const reportExpandedNames = new Set();
+const reportExpandedPNames = new Set();
 let groupEditPreviewTimer = null;
 let currentIssueIndex = 0;
 const initialRegisteredShopName=localStorage.getItem(`v2d_user_${CURRENT_UID}__initial_shop_name`)||"";
@@ -416,7 +420,7 @@ function saveRecords(){
   }
 }
 
-const CLOUD_SYNC_VERSION='4.2C.1';
+const CLOUD_SYNC_VERSION='4.2D.1';
 const CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=900;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -509,7 +513,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.2C.1 Card Navigator + Safe Card Edit',
+    version:'Stage 4.2D.1 Report Card + P Breakdown',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -2457,13 +2461,163 @@ function saveDealerReportImage(){
   d.overRows.forEach(x=>lines.push({text:`${x.name}: Total ${money(x.amount)} | P ${money(x.pAmount)} | Cor ${x.cor}%=${money(Math.round(x.corAmount))} | Payout ${money(x.payout)} | Final ${signedMoney(x.final)}`,color:x.final<0?'#16a34a':'#dc2626'}));
   drawReportImage('ဒိုင်စာရင်း / Dealer Summary',lines,`dealer-${date}-${session}.png`);
 }
+function reportCardKey(row){
+  if(row.cardId) return `CARD__${row.cardId}`;
+  return `LEGACY__${getBatchId(row)}__${row.name||'Default'}__${row.date||''}__${row.session||''}`;
+}
+function reportCardBreakdown(date,session,name='ALL'){
+  const map=new Map();
+  filterRecords(date,session,name).forEach(row=>{
+    const key=reportCardKey(row);
+    if(!map.has(key)){
+      map.set(key,{
+        key,
+        cardId:row.cardId||'',
+        cardNumber:Number(row.cardNumber||0)||0,
+        name:row.name||'Default',
+        date:row.date||date,
+        session:row.session||'',
+        time:row.cardTime||'',
+        batchId:getBatchId(row),
+        ts:Number(row.ts||0)||0,
+        rows:0,
+        total:0,
+        sources:[]
+      });
+    }
+    const card=map.get(key);
+    card.rows+=1;
+    card.total+=Number(row.amount||0);
+    if(!card.time && row.cardTime) card.time=row.cardTime;
+    if(!card.cardNumber && row.cardNumber) card.cardNumber=Number(row.cardNumber||0)||0;
+    const src=String(row.source||'').trim();
+    if(src && !card.sources.includes(src) && card.sources.length<3) card.sources.push(src);
+    if(!card.ts || (Number(row.ts||0)&&Number(row.ts||0)<card.ts)) card.ts=Number(row.ts||0)||card.ts;
+  });
+  return [...map.values()].sort((a,b)=>{
+    const nc=(a.name||'').localeCompare(b.name||''); if(nc) return nc;
+    const sc=String(a.session||'').localeCompare(String(b.session||'')); if(sc) return sc;
+    if((a.cardNumber||0)!==(b.cardNumber||0)) return (a.cardNumber||0)-(b.cardNumber||0);
+    return (a.ts||0)-(b.ts||0);
+  });
+}
+function reportPCardBreakdown(date,session,name='ALL'){
+  const rows=filterRecords(date,session,name).filter(row=>{
+    const p=getStoredPNumber(date,row.session||session);
+    return !!p && String(row.number||'').padStart(2,'0')===String(p).padStart(2,'0');
+  });
+  const map=new Map();
+  rows.forEach(row=>{
+    const p=getStoredPNumber(date,row.session||session);
+    const key=`${reportCardKey(row)}__P${p}`;
+    if(!map.has(key)){
+      map.set(key,{
+        key,
+        cardId:row.cardId||'',
+        cardNumber:Number(row.cardNumber||0)||0,
+        name:row.name||'Default',
+        date:row.date||date,
+        session:row.session||'',
+        time:row.cardTime||'',
+        pNumber:p||'',
+        ts:Number(row.ts||0)||0,
+        hits:0,
+        amount:0,
+        sources:[]
+      });
+    }
+    const card=map.get(key);
+    card.hits+=1;
+    card.amount+=Number(row.amount||0);
+    const src=String(row.source||'').trim();
+    if(src && !card.sources.includes(src) && card.sources.length<3) card.sources.push(src);
+  });
+  return [...map.values()].sort((a,b)=>{
+    const nc=(a.name||'').localeCompare(b.name||''); if(nc) return nc;
+    const sc=String(a.session||'').localeCompare(String(b.session||'')); if(sc) return sc;
+    if((a.cardNumber||0)!==(b.cardNumber||0)) return (a.cardNumber||0)-(b.cardNumber||0);
+    return (a.ts||0)-(b.ts||0);
+  });
+}
+function reportCardLabel(card){ return card.cardNumber?`#${card.cardNumber}`:'Legacy'; }
+function reportOpenButton(card){
+  if(!card.cardId) return '<span class="muted">Legacy</span>';
+  return `<button class="actionBtn edit" onclick="openReportCard('${jsArg(card.cardId)}')">Open</button>`;
+}
+function reportTotalBreakdownHTML(cards,{showName=false,showSession=false}={}){
+  if(!cards.length) return '<div class="muted">Card data မရှိသေးပါ</div>';
+  const total=cards.reduce((a,b)=>a+Number(b.total||0),0);
+  return `<div class="reportDrillHead"><b>Card Total Breakdown</b><span>${cards.length} cards · ${money(total)}</span></div>
+    <div class="scroll"><table class="reportDrillTable"><thead><tr>${showName?'<th>Name</th>':''}<th>Card</th><th>Time</th>${showSession?'<th>Session</th>':''}<th class="right">Rows</th><th class="right">Amount</th><th>Source</th><th></th></tr></thead><tbody>${cards.map(card=>`<tr>${showName?`<td><b>${escapeHtml(card.name)}</b></td>`:''}<td><span class="cardNoBadge">${reportCardLabel(card)}</span></td><td>${escapeHtml(card.time||'-')}</td>${showSession?`<td>${escapeHtml(card.session||'-')}</td>`:''}<td class="right">${card.rows}</td><td class="right"><b>${money(card.total)}</b></td><td class="reportSourceCell">${escapeHtml(card.sources.join(' | ')||'-')}</td><td>${reportOpenButton(card)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="${(showName?1:0)+(showSession?1:0)+3}">Total</th><th class="right">${money(total)}</th><th colspan="2"></th></tr></tfoot></table></div>`;
+}
+function reportPBreakdownHTML(cards,{showName=false,showSession=false}={}){
+  if(!cards.length) return '<div class="muted">ရွေးထားသော Date / Session အတွက် P Number Card contribution မရှိပါ</div>';
+  const total=cards.reduce((a,b)=>a+Number(b.amount||0),0);
+  return `<div class="reportDrillHead"><b>P Number Card Breakdown</b><span>${cards.length} cards · P Amount ${money(total)}</span></div>
+    <div class="scroll"><table class="reportDrillTable"><thead><tr>${showName?'<th>Name</th>':''}<th>P No.</th><th>Card</th><th>Time</th>${showSession?'<th>Session</th>':''}<th class="right">Hits</th><th class="right">P Amount</th><th>Source</th><th></th></tr></thead><tbody>${cards.map(card=>`<tr>${showName?`<td><b>${escapeHtml(card.name)}</b></td>`:''}<td><b>${escapeHtml(card.pNumber||'-')}</b></td><td><span class="cardNoBadge">${reportCardLabel(card)}</span></td><td>${escapeHtml(card.time||'-')}</td>${showSession?`<td>${escapeHtml(card.session||'-')}</td>`:''}<td class="right">${card.hits}</td><td class="right warnText"><b>${money(card.amount)}</b></td><td class="reportSourceCell">${escapeHtml(card.sources.join(' | ')||'-')}</td><td>${reportOpenButton(card)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="${(showName?1:0)+(showSession?1:0)+4}">Total P Amount</th><th class="right">${money(total)}</th><th colspan="2"></th></tr></tfoot></table></div>`;
+}
+function toggleReportTotalBreakdown(){ reportTotalBreakdownOpen=!reportTotalBreakdownOpen; renderReports(); }
+function toggleReportPBreakdown(){ reportPBreakdownOpen=!reportPBreakdownOpen; renderReports(); }
+function toggleReportNameBreakdown(name,type){
+  const set=type==='p'?reportExpandedPNames:reportExpandedNames;
+  if(set.has(name)) set.delete(name); else set.add(name);
+  renderReports();
+}
+function openReportCard(cardId){
+  const row=records.find(r=>r.cardId===cardId);
+  if(!row){ showToast('Card မတွေ့ပါ'); return; }
+  setVal('recordDate',row.date||today());
+  setVal('recordSession',row.session||'AM');
+  setVal('recordName',row.name||'Default');
+  setVal('recordSearch','');
+  currentSelectedCardId=cardId;
+  go('records');
+  renderEntryRecords();
+  setTimeout(()=>document.getElementById('cardNavigatorShell')?.scrollIntoView({behavior:'smooth',block:'start'}),80);
+}
+function renderReportTopBreakdowns(r){
+  const totalPanel=document.getElementById('reportTotalBreakdown');
+  const pPanel=document.getElementById('reportPBreakdown');
+  const totalArrow=document.getElementById('rTotalArrow');
+  const pArrow=document.getElementById('rPArrow');
+  if(totalArrow) totalArrow.textContent=reportTotalBreakdownOpen?'▲':'▼';
+  if(pArrow) pArrow.textContent=reportPBreakdownOpen?'▲':'▼';
+  if(totalPanel){
+    totalPanel.hidden=!reportTotalBreakdownOpen;
+    if(reportTotalBreakdownOpen){
+      const cards=reportCardBreakdown(r.date,r.session,r.name);
+      totalPanel.innerHTML=reportTotalBreakdownHTML(cards,{showName:r.name==='ALL',showSession:r.session==='DAILY'});
+    }
+  }
+  if(pPanel){
+    pPanel.hidden=!reportPBreakdownOpen;
+    if(reportPBreakdownOpen){
+      const cards=reportPCardBreakdown(r.date,r.session,r.name);
+      pPanel.innerHTML=reportPBreakdownHTML(cards,{showName:r.name==='ALL',showSession:r.session==='DAILY'});
+    }
+  }
+}
 function renderReports(){
   const r=reportCalc(); setText('rTotal',money(r.total)); setText('rCom',money(Math.round(r.com))); setText('rNet',money(Math.round(r.net))); setText('rPamt',money(r.pamt)); setText('rPayout',money(r.payout)); setText('rFinal',money(Math.round(r.final)));
   document.getElementById('rFinal').className='v '+(r.final>=0?'good':'bad');
-  document.getElementById('reportNameRows').innerHTML=(settings.names||[]).map(n=>{const s=commissionSummary(n,r.date,r.session); const cls=s.final<0?'resultNegative':'resultPositive'; const f=s.final<0?'('+money(Math.abs(Math.round(s.final)))+')':money(Math.round(s.final)); return `<tr><td><b>${escapeHtml(n)}</b></td><td class="right">${money(s.total)}</td><td class="right">${money(s.pamt)}</td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td></tr>`}).join('') || '<tr><td colspan="7" class="muted">No data</td></tr>';
+  renderReportTopBreakdowns(r);
+  const names=settings.names||[];
+  document.getElementById('reportNameRows').innerHTML=names.map(n=>{
+    const s=commissionSummary(n,r.date,r.session); const cls=s.final<0?'resultNegative':'resultPositive'; const f=s.final<0?'('+money(Math.abs(Math.round(s.final)))+')':money(Math.round(s.final));
+    const totalOpen=reportExpandedNames.has(n), pOpen=reportExpandedPNames.has(n);
+    let html=`<tr><td><b>${escapeHtml(n)}</b></td><td class="right"><button class="reportCellDrill" onclick="toggleReportNameBreakdown('${jsArg(n)}','total')">${money(s.total)} <span>${totalOpen?'▲':'▼'}</span></button></td><td class="right"><button class="reportCellDrill warnText" onclick="toggleReportNameBreakdown('${jsArg(n)}','p')">${money(s.pamt)} <span>${pOpen?'▲':'▼'}</span></button></td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td></tr>`;
+    if(totalOpen || pOpen){
+      const parts=[];
+      if(totalOpen) parts.push(reportTotalBreakdownHTML(reportCardBreakdown(r.date,r.session,n),{showName:false,showSession:r.session==='DAILY'}));
+      if(pOpen) parts.push(reportPBreakdownHTML(reportPCardBreakdown(r.date,r.session,n),{showName:false,showSession:r.session==='DAILY'}));
+      html+=`<tr class="reportInlineDetailRow"><td colspan="7"><div class="reportInlineDetail">${parts.join('')}</div></td></tr>`;
+    }
+    return html;
+  }).join('') || '<tr><td colspan="7" class="muted">No data</td></tr>';
   document.getElementById('reportRows').innerHTML=Object.entries(r.totals).map(([n,a])=>`<tr><td><b>${n}</b></td><td class="right">${money(a)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">No data</td></tr>';
   renderDealerSummary(r);
 }
+
 function renderImageText(){
   const date=val('imageDate')||today(); const session=val('imageSession')||'AM'; const name=val('imageName')||'ALL'; const title=val('imageTitle')||'2D Report'; const totals=totalsByNumber(date,session,name); const total=Object.values(totals).reduce((a,b)=>a+b,0);
   const lines=[]; lines.push(`${title}`); lines.push(`${settings.shopName||'Viber 2D Desk'} | ${date} | ${session} | ${name}`); lines.push('--------------------'); Object.entries(totals).forEach(([n,a])=>lines.push(`${n} = ${money(a)}`)); lines.push('--------------------'); lines.push(`Total = ${money(total)}`);
@@ -2892,8 +3046,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.2C.1';
-const APP_VERSION_LABEL='Stage 4.2C.1 Card Navigator + Safe Card Edit';
+const APP_VERSION='4.2D.1';
+const APP_VERSION_LABEL='Stage 4.2D.1 Report Card + P Breakdown';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -3251,7 +3405,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.2C.1 Card Navigator + Safe Card Edit',
+    version:'Stage 4.2D.1 Report Card + P Breakdown',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

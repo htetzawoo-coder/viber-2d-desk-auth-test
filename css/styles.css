@@ -320,7 +320,7 @@
 @keyframes v2dSyncPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.75)}}
 @media(max-width:900px){.cloudSyncPill{width:100%}.cloudSyncCopy small{max-width:none}}
 
-/* Stage 4.2B.1 — Viber Card foundation */
+/* Stage 4.2B.1 — Viber Card foundation (retained) */
 .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .cardPreviewScroll{max-height:250px}
 .cardStatus{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:800;background:#e2e8f0;color:#334155}
@@ -330,3 +330,54 @@
 .cardNeedsReview td{background:#fff7ed}
 .cardNoBadge{display:inline-flex;min-width:44px;justify-content:center;border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;border-radius:8px;padding:3px 7px;font-weight:900}
 @media(max-width:900px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Stage 4.2C.1 — Card Navigator + Safe Card Edit */
+.cardNavigatorShell{margin-top:14px;border:1px solid #334155;background:linear-gradient(180deg,#07111f 0%,#020617 100%);border-radius:16px;padding:12px;box-shadow:0 12px 30px rgba(2,6,23,.16)}
+.cardNavigatorHead{display:flex;justify-content:space-between;align-items:end;gap:14px;flex-wrap:wrap}
+.cardNavigatorHead h3{margin:0 0 4px;color:#dbeafe}
+.cardNavigatorSearchWrap{min-width:260px;max-width:420px;flex:1}
+.cardNavigatorStats{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px;margin-top:10px}
+.cardNavigatorStats .stat{padding:8px 10px}
+.cardNavigatorStats .v{font-size:18px}
+.navTimeValue{font-size:15px!important;white-space:nowrap}
+.cardNavigatorGrid{display:grid;grid-template-columns:280px minmax(0,1fr);gap:10px;margin-top:10px;min-height:390px}
+.cardNavigatorListPane,.cardNavigatorDetailPane{border:1px solid #334155;background:#0b1224;border-radius:14px;overflow:hidden}
+.cardNavigatorListHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 11px;border-bottom:1px solid #334155;background:#111827}
+.cardNavigatorList{padding:8px;display:flex;flex-direction:column;gap:7px;max-height:520px;overflow:auto}
+.cardNavNameGroup{position:sticky;top:-8px;z-index:2;margin:3px -2px 0;padding:5px 8px;border-radius:8px;background:#1e293b;color:#bfdbfe;font-size:12px;font-weight:900;letter-spacing:.02em}
+.cardNavItem{position:relative;width:100%;border:1px solid #334155;background:#111827;color:#e5e7eb;border-radius:12px;padding:9px 10px;text-align:left;cursor:pointer;transition:.15s ease;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.cardNavItem:hover{transform:translateY(-1px);border-color:#38bdf8;background:#0f1b31}
+.cardNavItem.active{border-color:#60a5fa;background:#0c2444;box-shadow:0 0 0 2px rgba(96,165,250,.18)}
+.cardNavTop,.cardNavSub{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.cardNavTop b{font-size:16px;color:#93c5fd}
+.cardNavTop span{font-size:12px;color:#cbd5e1}
+.cardNavSub{margin-top:5px;font-size:12px;color:#94a3b8}
+.cardNavSub strong{color:#bbf7d0;font-size:13px}
+.cardNavStatus{display:inline-flex;margin-top:6px;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:900;border:1px solid transparent}
+.cardNavStatus.saved{color:#bbf7d0;background:#052e16;border-color:#166534}
+.cardNavStatus.edited{color:#fde68a;background:#422006;border-color:#a16207}
+.cardNavStatus.review{color:#fecaca;background:#450a0a;border-color:#991b1b}
+.cardNavigatorEmpty{padding:30px 12px;text-align:center;color:#94a3b8;font-size:13px}
+.cardNavigatorDetailPane{padding:11px;min-width:0}
+.cardDetailHead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;border-bottom:1px solid #334155;padding-bottom:9px}
+.cardDetailHead h3{margin:0 0 4px;color:#f8fafc}
+.cardDetailActions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.cardDetailActions .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.selectedCardBodyGrid{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(420px,1.2fr);gap:10px;margin-top:10px;min-width:0}
+.selectedCardRawPane,.selectedCardRowsPane{min-width:0;border:1px solid #334155;border-radius:12px;background:#020617;overflow:hidden}
+.cardPaneLabel{padding:8px 10px;background:#111827;border-bottom:1px solid #334155;color:#bfdbfe;font-size:12px;font-weight:900}
+.selectedCardRawText{margin:0;padding:12px;min-height:270px;max-height:440px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:#e2e8f0;font:14px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;background:#020617}
+.selectedCardRowsScroll{max-height:440px}
+.editedCardRow td{background:rgba(161,98,7,.12)}
+.actionBtn.openCard{background:#8b5cf6;color:#fff}
+.groupEditCardMeta{margin-top:8px;border:1px solid #334155;background:#07111f;color:#bfdbfe;border-radius:10px;padding:8px 10px;font-size:13px;font-weight:800}
+.groupEditPreviewBox{margin-top:10px;border:1px solid #334155;background:#020617;border-radius:14px;padding:10px}
+.groupEditPreviewHead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.groupEditPreviewStats{display:grid;grid-template-columns:repeat(4,minmax(105px,1fr));gap:7px;margin-top:8px}
+.groupEditPreviewStats .stat{padding:7px 9px}
+.groupEditPreviewStats .v{font-size:17px}
+.groupEditPreviewScroll{max-height:260px;margin-top:8px}
+#groupEditModal .modalCard{width:min(1180px,97vw)}
+#groupEditModal textarea{min-height:170px}
+@media(max-width:1100px){.cardNavigatorGrid{grid-template-columns:240px minmax(0,1fr)}.selectedCardBodyGrid{grid-template-columns:1fr}.selectedCardRawText{min-height:180px}.cardNavigatorStats{grid-template-columns:repeat(2,minmax(120px,1fr))}}
+@media(max-width:760px){.cardNavigatorGrid{grid-template-columns:1fr}.cardNavigatorList{max-height:260px}.cardNavigatorStats,.groupEditPreviewStats{grid-template-columns:repeat(2,minmax(0,1fr))}.cardDetailActions{justify-content:flex-start}.selectedCardRowsScroll{max-height:340px}.cardNavigatorSearchWrap{min-width:100%}}

@@ -421,7 +421,7 @@ function saveRecords(){
   }
 }
 
-const CLOUD_SYNC_VERSION='4.2F.1';
+const CLOUD_SYNC_VERSION='4.3.0';
 const CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=900;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -514,7 +514,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.2F.1 Language + Theme',
+    version:'Stage 4.3.0 Language + Theme',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -896,6 +896,7 @@ window.addEventListener('offline',()=>{
   setCloudSyncStatus('offline');
 });
 window.addEventListener('online',()=>{
+  flushParserReportQueue();
   if(cloudSyncState.conflictData){ setCloudSyncStatus('conflict'); return; }
   if(cloudSyncState.dirty || readCloudMeta().pending===true){
     flushCloudWorkspace({showMsg:false,reason:'network-restored'});
@@ -1872,8 +1873,178 @@ function toggleImageTools(){
   box.classList.toggle('compact-open');
 }
 
+const PARSER_REPORT_QUEUE_KEY='v2d_parser_report_queue';
+let parserReportSubmitting=false;
+
+function getPreviewSafetyState(){
+  const issues=Array.isArray(preview?.issues)?preview.issues:[];
+  const warnings=Array.isArray(preview?.warnings)?preview.warnings:[];
+  const cards=Array.isArray(preview?.cards)?preview.cards:[];
+  const reviewCards=cards.filter(c=>c?.status==='review').length;
+  return {
+    issueCount:issues.length,
+    warningCount:warnings.length,
+    reviewCardCount:reviewCards,
+    requiresReview:issues.length>0 || warnings.length>0 || reviewCards>0
+  };
+}
+function renderEntrySafetyStatus(){
+  const box=document.getElementById('entrySafetyStatus');
+  if(!box) return;
+  if(!preview?.detailRows?.length && !(preview?.issues||[]).length){
+    box.className='entrySafetyStatus safe';
+    box.innerHTML=currentUiLang()==='en'?'Parse a message to run the safety check.':'Message ကို Parse လုပ်ပြီး Safety Check စစ်ပါ။';
+    return;
+  }
+  const st=getPreviewSafetyState();
+  if(st.requiresReview){
+    box.className='entrySafetyStatus review';
+    box.innerHTML=`<b>${currentUiLang()==='en'?'Review Required':'ပြန်လည်စစ်ဆေးရန်လို'}</b> · ${st.issueCount} issues · ${st.warningCount} warnings · ${st.reviewCardCount} review cards <button class="btn warn tinyBtn" onclick="openEntrySafetyGate()">${currentUiLang()==='en'?'Review':'စစ်ဆေးမည်'}</button> <button class="btn gray tinyBtn" onclick="openParserIssueReport()">${currentUiLang()==='en'?'Report':'Owner ထံ Report'}</button>`;
+  }else{
+    box.className='entrySafetyStatus safe';
+    box.innerHTML=`<b>${currentUiLang()==='en'?'Safety Check Passed':'Safety Check အောင်မြင်'}</b> · ${preview.detailRows.length} rows · ${(preview.cards||[]).length} cards`;
+  }
+}
+function openEntrySafetyGate(){
+  const gate=document.getElementById('entrySafetyGate');
+  const summary=document.getElementById('entrySafetySummary');
+  if(!gate) return;
+  const st=getPreviewSafetyState();
+  if(summary) summary.textContent=currentUiLang()==='en'
+    ? `${st.issueCount} issue(s), ${st.warningCount} warning(s), ${st.reviewCardCount} review card(s). Fix the source or explicitly save reviewed rows.`
+    : `Issue ${st.issueCount} ခု၊ Warning ${st.warningCount} ခု၊ Review Card ${st.reviewCardCount} ခု ရှိပါသည်။ မူရင်းစာကိုပြင်ပါ သို့မဟုတ် စစ်ပြီးသား Rows ကို အတည်ပြုသိမ်းပါ။`;
+  gate.style.display='block';
+  gate.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function closeEntrySafetyGate(){ const gate=document.getElementById('entrySafetyGate'); if(gate) gate.style.display='none'; }
+function focusIssueFix(){
+  closeEntrySafetyGate();
+  if(preview?.issues?.length){ loadIssueLinesToEditor(); document.getElementById('issueEditorWrap')?.scrollIntoView({behavior:'smooth',block:'center'}); }
+  else document.getElementById('entryText')?.focus();
+}
+function savePreviewReviewed(){
+  const st=getPreviewSafetyState();
+  const message=currentUiLang()==='en'
+    ? `Save the current reviewed rows despite ${st.issueCount} issue(s) and ${st.warningCount} warning(s)? You can still edit saved records later.`
+    : `Issue ${st.issueCount} ခုနှင့် Warning ${st.warningCount} ခု ရှိနေသော်လည်း လက်ရှိစစ်ပြီးသား Rows ကို သိမ်းမလား? သိမ်းပြီးနောက် Entry Record မှာ ဆက်ပြင်နိုင်ပါတယ်။`;
+  if(!confirm(message)) return;
+  try{
+    window.__V2D_SAFETY_OVERRIDE=true;
+    closeEntrySafetyGate();
+    savePreview();
+  }finally{
+    window.__V2D_SAFETY_OVERRIDE=false;
+  }
+}
+function parserOutputText(){
+  const rows=preview?.detailRows||[];
+  if(!rows.length) return '';
+  return rows.map((r,i)=>`${i+1}. Card ${r.cardIndexInPaste||1} | ${r.number} | ${Number(r.amount||0)} | ${r.source||''}`).join('\n');
+}
+function parserReportQueue(){
+  try{return JSON.parse(userGetItem(PARSER_REPORT_QUEUE_KEY)||'[]')||[];}catch(_e){return[];}
+}
+function saveParserReportQueue(queue){ userSetItem(PARSER_REPORT_QUEUE_KEY,JSON.stringify((queue||[]).slice(-100))); renderParserReportQueueStatus(); }
+function renderParserReportQueueStatus(){
+  const el=document.getElementById('parserReportQueueStatus'); if(!el) return;
+  const count=parserReportQueue().length;
+  el.textContent=count
+    ? (currentUiLang()==='en'?`${count} report(s) waiting to send`:`Report ${count} ခု ပို့ရန်စောင့်နေသည်`)
+    : (currentUiLang()==='en'?'No pending reports':'စောင့်နေသော Report မရှိပါ');
+}
+function openParserIssueReport(){
+  const panel=document.getElementById('parserReportPanel'); if(!panel) return;
+  const raw=val('entryText')||'';
+  setVal('parserReportOriginal',raw);
+  setVal('parserReportOutput',parserOutputText());
+  const st=getPreviewSafetyState();
+  const meta=document.getElementById('parserReportMeta');
+  if(meta) meta.innerHTML=`<span>${escapeHtml(val('entryName')||'Default')}</span><span>${escapeHtml(val('entryDate')||today())}</span><span>${escapeHtml(val('entrySession')||'AM')}</span><span>${(preview.cards||[]).length} cards</span><span>${(preview.detailRows||[]).length} rows</span><span>${st.issueCount} issues</span>`;
+  panel.style.display='block'; renderParserReportQueueStatus();
+  panel.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function closeParserIssueReport(){ const panel=document.getElementById('parserReportPanel'); if(panel) panel.style.display='none'; }
+function buildParserIssueReportPayload(){
+  const st=getPreviewSafetyState();
+  const clientId=window.crypto?.randomUUID?.()||`PR-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return {
+    clientId,
+    userUid:CURRENT_UID,
+    userEmail:CURRENT_USER?.email||'',
+    userDisplayName:CURRENT_USER?.displayName||window.V2D_CURRENT_PROFILE?.displayName||'',
+    workspaceName:settings?.shopName||initialRegisteredShopName||'',
+    entryName:val('entryName')||'Default',
+    entryDate:val('entryDate')||today(),
+    entrySession:val('entrySession')||'AM',
+    writerProfile:selectedWriterProfile(),
+    originalMessage:val('parserReportOriginal')||val('entryText')||'',
+    parserOutput:val('parserReportOutput')||parserOutputText(),
+    expectedCorrectRecords:val('parserReportExpected')||'',
+    userNote:val('parserReportNote')||'',
+    issueLines:(preview?.issues||[]).map(x=>({lineNo:Number(x.lineNo||0),line:String(x.line||''),message:String(x.message||'')})),
+    warnings:(preview?.warnings||[]).map(String),
+    cardCount:(preview?.cards||[]).length,
+    rowCount:(preview?.detailRows||[]).length,
+    issueCount:st.issueCount,
+    warningCount:st.warningCount,
+    appVersion:'4.3.0',
+    parserVersion:'core-3.12.2-stage4.3',
+    status:'new',
+    localCreatedAt:new Date().toISOString()
+  };
+}
+async function sendParserIssueReportPayload(payload){
+  if(!db || !CURRENT_USER) throw new Error('Firebase/Login not ready');
+  const clean={...payload}; delete clean.__queued;
+  clean.createdAt=firebase.firestore.FieldValue.serverTimestamp();
+  return db.collection('parserReports').doc(clean.clientId).set(clean);
+}
+async function flushParserReportQueue(){
+  if(!navigator.onLine || !db || !CURRENT_USER) return false;
+  let queue=parserReportQueue(); if(!queue.length){renderParserReportQueueStatus();return true;}
+  const remaining=[];
+  for(const item of queue){
+    try{ await sendParserIssueReportPayload(item); }
+    catch(err){ console.warn('Parser report queue send failed',err); remaining.push(item); }
+  }
+  saveParserReportQueue(remaining);
+  return remaining.length===0;
+}
+async function submitParserIssueReport(){
+  if(parserReportSubmitting) return;
+  const payload=buildParserIssueReportPayload();
+  if(!String(payload.originalMessage||'').trim()){
+    showToast(currentUiLang()==='en'?'Original Viber message is required.':'Original Viber Message မရှိသေးပါ။','error',5500); return;
+  }
+  parserReportSubmitting=true;
+  const btn=document.getElementById('parserReportSubmitBtn'); if(btn) btn.disabled=true;
+  try{
+    if(!navigator.onLine || !db){
+      const q=parserReportQueue(); q.push({...payload,__queued:true}); saveParserReportQueue(q);
+      showToast(currentUiLang()==='en'?'Offline: report queued and will send automatically.':'Offline ဖြစ်နေပါသည်။ Report ကို Queue ထဲသိမ်းပြီး Internet ပြန်ရလျှင် Auto ပို့ပါမယ်။','warn',6500);
+      return;
+    }
+    await sendParserIssueReportPayload(payload);
+    setVal('parserReportExpected',''); setVal('parserReportNote','');
+    showToast(currentUiLang()==='en'?'Parser issue report sent to the App Owner queue.':'Parser Issue Report ကို App Owner Queue သို့ ပို့ပြီးပါပြီ။','success',6500);
+    closeParserIssueReport();
+  }catch(err){
+    console.error('Parser issue report failed',err);
+    if(!navigator.onLine){ const q=parserReportQueue(); q.push({...payload,__queued:true}); saveParserReportQueue(q); }
+    showToast((currentUiLang()==='en'?'Report failed: ':'Report ပို့မရပါ: ')+(err?.message||err),'error',7500);
+  }finally{
+    parserReportSubmitting=false; if(btn) btn.disabled=false; renderParserReportQueueStatus();
+  }
+}
+
 function confirmSaveAction(){
   try{
+    const st=getPreviewSafetyState();
+    if(st.requiresReview && !window.__V2D_SAFETY_OVERRIDE){
+      openEntrySafetyGate();
+      showToast(currentUiLang()==='en'?'Review required before saving.':'Save မလုပ်ခင် Parser Safety Review လုပ်ရန်လိုပါသည်။','warn',6000);
+      return;
+    }
     savePreview();
   }catch(err){
     console.error(err);
@@ -2055,6 +2226,8 @@ function renderPreview(){
   document.getElementById('warnBox').innerHTML=preview.warnings.length? `<div class="bad">${preview.warnings.map(escapeHtml).join('<br>')}</div>` : '<span class="good">Warnings မရှိပါ</span>';
   renderIssueEditor();
   renderSaveFlowBox();
+  renderEntrySafetyStatus();
+  renderParserReportQueueStatus();
   renderEntryWorkspace();
 }
 function renderIssueEditor(){
@@ -2649,7 +2822,7 @@ function renderEntryOver(){
 }
 
 
-/* Stage 4.2F.1 — Full UI Language + Theme */
+/* Stage 4.3.0 — Full UI Language + Theme */
 function entryWorkspaceBaseRows(){
   const date=val('entryDate')||today();
   const session=val('entrySession')||'AM';
@@ -2743,6 +2916,8 @@ const I18N={
     refresh:'ပြန်ဖော်ပြ',date:'ရက်စွဲ',session:'Session',name:'အမည် / ကော်မရှင်',limitAmount:'Limit Amount',
     total:'စုစုပေါင်း',overTotal:'Over စုစုပေါင်း',overCount:'Over အရေအတွက်',recordRows:'Rows',
     entryTitle:'စာရင်းထည့်ရန်',parsePreview:'စစ်ကြည့်မည်',confirmSave:'အတည်ပြုသိမ်းမည်',clearText:'စာသားရှင်းမည်',
+    parserSafety:'Parser လုံခြုံရေးစစ်ဆေးမှု',fixIssues:'Issue များပြင်မည်',saveReviewed:'စစ်ပြီး Rows သိမ်းမည်',reportParserIssue:'Parser မှားယွင်းမှု Report',cancel:'မလုပ်တော့',safetyHelp:'Parser မဖတ်နိုင်/မသေချာသောစာရှိပါက အရင်ပြင်ပါ။ User က စစ်ပြီးမှ စစ်ပြီး Rows သိမ်းမည် ဖြင့် ဆက်သိမ်းနိုင်သည်။',
+    parserReportTitle:'Parser မှားယွင်းမှု Report',parserReportHint:'Original message နှင့် လက်ရှိ Parser Output ကို အလိုအလျောက်ထည့်ပေးထားသည်။ Correct Result နှင့် Note ကို ဖြည့်ပြီး App Owner ထံ ပို့ပါ။',originalMessage:'မူရင်း Viber Message',currentParserOutput:'လက်ရှိ Parser Output',expectedCorrectRecords:'အမှန်ဖြစ်ရမည့် Records',reportNote:'မှတ်ချက်',sendToOwner:'App Owner ထံပို့မည်',close:'ပိတ်မည်',
     previewRows:'Preview Rows',previewTotal:'Preview စုစုပေါင်း',warnings:'သတိပေးချက်',aggByNumber:'Number အလိုက်ပေါင်း',
     previewDetail:'Preview အသေးစိတ်',overLive:'Over / ကျော်စာရင်း',overNote:'အပေါ်က ရက်စွဲ / Session / Name အတိုင်း Over တွက်ထားသည်။',
     uploadImage:'ပုံတင်မည်',cameraBtn:'ကင်မရာ',clearImage:'ပုံရှင်းမည်',
@@ -2756,7 +2931,9 @@ const I18N={
     boardNote:'A clean wide board is placed first for laptop screens. Amounts are displayed in unit format.',
     refresh:'Refresh',date:'Date',session:'Session',name:'Name / Commission',limitAmount:'Limit Amount',
     total:'Total',overTotal:'Over Total',overCount:'Over Count',recordRows:'Rows',entryTitle:'Entry',
-    parsePreview:'Parse Preview',confirmSave:'Confirm Save',clearText:'Clear Text',previewRows:'Preview Rows',previewTotal:'Preview Total',
+    parsePreview:'Parse Preview',confirmSave:'Confirm Save',clearText:'Clear Text',
+    parserSafety:'Parser Safety Check',fixIssues:'Fix Issues',saveReviewed:'Save Reviewed Rows',reportParserIssue:'Report Parser Issue',cancel:'Cancel',safetyHelp:'Fix unread or uncertain text first. After review, the user may explicitly save the reviewed rows.',
+    parserReportTitle:'Parser Issue Report',parserReportHint:'The original message and current parser output are filled automatically. Add the correct result and a note, then send it to the App Owner.',originalMessage:'Original Viber Message',currentParserOutput:'Current Parser Output',expectedCorrectRecords:'Expected Correct Records',reportNote:'Note',sendToOwner:'Send to App Owner',close:'Close',previewRows:'Preview Rows',previewTotal:'Preview Total',
     warnings:'Warnings',aggByNumber:'Aggregated by Number',previewDetail:'Preview Detail',overLive:'Over',
     overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',cameraBtn:'Camera',clearImage:'Clear Image',
     cloudLoading:'Opening Cloud…',saving:'Saving…',cloudSynced:'Cloud Synced',offlineWaiting:'Offline — Waiting to sync',
@@ -3295,8 +3472,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.2F.1';
-const APP_VERSION_LABEL='Stage 4.2F.1 Language + Theme';
+const APP_VERSION='4.3.0';
+const APP_VERSION_LABEL='Stage 4.3.0 Language + Theme';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -3654,7 +3831,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.2F.1 Language + Theme',
+    version:'Stage 4.3.0 Language + Theme',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,
@@ -3805,6 +3982,7 @@ async function bootstrapCloudFirstApp(){
   await initializeCloudFirstSync();
   init();
   cloudSyncState.uiReady=true;
+  setTimeout(()=>flushParserReportQueue(),700);
   if(cloudSyncState.needsInitialUpload || cloudSyncState.dirty){
     setTimeout(()=>flushCloudWorkspace({showMsg:false,reason:'initial-auto-sync'}),350);
   }else{

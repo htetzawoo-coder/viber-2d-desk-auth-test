@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.2D.1 Report Card + P Breakdown</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.2D.1">
+  <title>Viber 2D Desk - Stage 4.2E.1 Laptop Professional Workspace</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.2E.1">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.2D.1 · Report Card Breakdown + P Number Breakdown</div>
+        <div class="muted">Stage 4.2E.1 · Laptop Professional Workspace UI</div>
       </div>
     </div>
 
@@ -64,8 +64,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.2D.1 Report Drill-down + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2D.1: Total Amount ▼ Card Breakdown + P Amount ▼ Card Breakdown + Open Card</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.2E.1 Laptop Workspace + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.2E.1: Card List + Selected Card Editor + Live Summary · Laptop Professional Layout</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -140,7 +140,7 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2D.1 file က Report Total Amount နှင့် P Amount ကို ▼ နှိပ်ပြီး Card # / Time / Amount အလိုက် ချက်ချင်းစစ်နိုင်ပြီး မူရင်း Card ကို Entry Records မှာ တိုက်ရိုက်ဖွင့်နိုင်ပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.2E.1 file က Laptop အတွက် Card List + Selected Card Editor + Live Summary သုံးပိုင်း Workspace ထည့်ထားပြီး Stage 4.2D Report Drill-down အပါအဝင် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
     <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
@@ -154,7 +154,7 @@
             <div class="wide-board-title"><h2 data-i18n="liveBoard">Limit Table Board / Live Desk</h2><span class="unit-badge">Unit = 100</span></div>
             <div class="muted" data-i18n="boardNote">Top board is shown first for laptop screen. Amounts display in Unit format.</div>
           </div>
-          <div class="btnrow" style="margin-top:0"><button class="btn secondary small" onclick="renderMainBoard()" data-i18n="refresh">Refresh</button></div>
+          <div class="btnrow" style="margin-top:0"><button class="btn gray small" id="entryBoardToggleBtn" onclick="toggleEntryBoardCompact()">Collapse Board ▲</button><button class="btn secondary small" onclick="renderMainBoard()" data-i18n="refresh">Refresh</button></div>
         </div>
         <div class="board-toolbar">
           <div><label data-i18n="date">Date</label><input id="entryDate" type="date" onchange="renderEntryLive()"></div>
@@ -174,6 +174,96 @@
         </div>
         <div class="board-wrap"><div class="board-table" id="mainLimitBoard"></div></div>
       </div>
+
+
+
+      <div class="workspaceSectionHead">
+        <div>
+          <div class="workspaceEyebrow">STAGE 4.2E.1 · LAPTOP WORKSPACE</div>
+          <h2>Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်</h2>
+          <div class="muted">Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။</div>
+        </div>
+        <div class="workspaceHeadActions">
+          <button class="btn secondary small" onclick="focusNewEntryWorkspace()">+ New Paste / စာရင်းအသစ်</button>
+          <button class="btn gray small" onclick="openEntryWorkspaceRecords()">Entry Records ဖွင့်မယ်</button>
+        </div>
+      </div>
+
+      <div class="professionalWorkspace" id="professionalWorkspace">
+        <aside class="workspacePanel workspaceCardPanel">
+          <div class="workspacePanelHead">
+            <div>
+              <h3>Card List / ကတ်စာရင်း</h3>
+              <div class="workspaceMiniMeta" id="entryWsScope">-</div>
+            </div>
+            <span class="workspaceCountBadge" id="entryWsCardCount">0</span>
+          </div>
+          <div class="workspaceSearch">
+            <input id="entryWorkspaceSearch" placeholder="#12 / 2:24 PM / Number / Source" oninput="renderEntryWorkspace()">
+          </div>
+          <div id="entryWorkspaceCardList" class="entryWorkspaceCardList"></div>
+        </aside>
+
+        <section class="workspacePanel workspaceEditorPanel">
+          <div class="workspacePanelHead editorHead">
+            <div>
+              <h3 id="entryWsSelectedTitle">Card မရွေးရသေးပါ</h3>
+              <div class="workspaceMiniMeta" id="entryWsSelectedMeta">ဘယ်ဘက် Card List မှ တစ်ကတ်ရွေးပါ</div>
+            </div>
+            <div class="workspaceEditorActions">
+              <button class="btn gray small" onclick="navigateEntryWorkspaceCard(-1)">◀</button>
+              <button class="btn gray small" onclick="navigateEntryWorkspaceCard(1)">▶</button>
+              <button class="btn small" id="entryWsEditBtn" onclick="openEntryWorkspaceCardEdit()" disabled>Edit Card</button>
+              <button class="btn secondary small" id="entryWsCopyBtn" onclick="copyEntryWorkspaceCardRaw()" disabled>Copy Raw</button>
+            </div>
+          </div>
+          <div class="workspaceEditorBody">
+            <div class="workspaceRawBlock">
+              <div class="workspaceBlockLabel">Original Viber Body / မူရင်းမက်ဆေ့</div>
+              <pre id="entryWsRawText" class="workspaceRawText">ကတ်မရွေးရသေးပါ</pre>
+            </div>
+            <div class="workspaceRowsBlock">
+              <div class="workspaceBlockLabel">Parsed Entry Records / ချဲ့ထုတ်ထားသောစာရင်း</div>
+              <div class="scroll workspaceRowsScroll">
+                <table>
+                  <thead><tr><th>No</th><th>Number</th><th class="right">Amount</th><th>Source</th><th></th></tr></thead>
+                  <tbody id="entryWsRows"><tr><td colspan="5" class="muted">ကတ်တစ်ကတ်ရွေးပါ</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="workspacePanel workspaceSummaryPanel">
+          <div class="workspacePanelHead">
+            <div><h3>Live Summary / လက်ရှိအကျဉ်းချုပ်</h3><div class="workspaceMiniMeta">ရွေးထားသော Date · Session · Name</div></div>
+          </div>
+          <div class="workspaceSummaryGrid">
+            <div class="workspaceSummaryStat"><span>Selected Card</span><b id="entryWsSelectedTotal">0</b><small id="entryWsSelectedRows">0 rows</small></div>
+            <div class="workspaceSummaryStat"><span>Viber Time</span><b id="entryWsSelectedTime">-</b><small>Current card</small></div>
+            <div class="workspaceSummaryStat"><span>Name Total</span><b id="entryWsNameTotal">0</b><small id="entryWsNameLabel">-</small></div>
+            <div class="workspaceSummaryStat"><span>Session Total</span><b id="entryWsSessionTotal">0</b><small>All names</small></div>
+            <div class="workspaceSummaryStat"><span id="entryWsPNumberLabel">P Amount</span><b class="warnText" id="entryWsPAmount">0</b><small>P contribution</small></div>
+            <div class="workspaceSummaryStat"><span>Over Total</span><b class="bad" id="entryWsOverTotal">0</b><small>Current limit</small></div>
+            <div class="workspaceSummaryStat wide"><span>Current Paste Preview</span><b class="good" id="entryWsPreviewTotal">0</b><small><span id="entryWsPreviewCards">0</span> cards · <span id="entryWsPreviewRows">0</span> rows</small></div>
+          </div>
+          <div class="workspaceSyncBox" id="entryWsSyncBox">
+            <span class="workspaceSyncDot"></span>
+            <div><b id="entryWsSyncText">Cloud ဖွင့်နေသည်…</b><small id="entryWsSyncDetail">Account data စစ်နေသည်</small></div>
+          </div>
+          <div class="workspaceQuickActions">
+            <button class="btn secondary small" onclick="syncCloudNow()">Sync Now</button>
+            <button class="btn gray small" onclick="renderEntryWorkspace()">Refresh</button>
+            <button class="btn warn small" onclick="go('reports')">Reports</button>
+          </div>
+        </aside>
+      </div>
+
+      <div class="workspaceToolsBar">
+        <div><b>Paste & Parse Tools / Copy Paste စာရင်းသွင်းကိရိယာ</b><span class="muted">မူရင်း Entry / Preview / Over လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိသည်။</span></div>
+        <button class="btn gray small" id="entryToolsToggleBtn" onclick="toggleEntryTools()">Hide Tools ▲</button>
+      </div>
+      <div id="entryToolsArea" class="entryToolsArea">
 
       <div class="desk-columns">
         <div class="card entry-card">
@@ -196,7 +286,7 @@
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.2D.1</span></h3>
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.2E.1</span></h3>
               <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
             </div>
             <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
@@ -289,6 +379,7 @@
           <div class="muted" data-i18n="overNote">Over is calculated from the selected date/session/name above.</div>
           <div class="scroll" style="margin-top:10px"><table><thead><tr><th>No</th><th>Number</th><th class="right">Over</th></tr></thead><tbody id="entryOverRows"></tbody><tfoot><tr><th colspan="2">Total</th><th class="right" id="entryOverSumOver">0</th></tr></tfoot></table></div>
         </div>
+      </div>
       </div>
     </div>
   </section>
@@ -628,7 +719,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.2D.1"></script>
-<script src="js/auth.js?v=4.2D.1"></script>
+<script src="js/firebase-config.js?v=4.2E.1"></script>
+<script src="js/auth.js?v=4.2E.1"></script>
 </body>
 </html>

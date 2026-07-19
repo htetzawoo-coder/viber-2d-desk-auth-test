@@ -82,7 +82,7 @@ let groupEditPreviewTimer = null;
 let currentIssueIndex = 0;
 
 
-// Stage 4.4.0 — Runtime Parser Rule Engine
+// Stage 4.4.1 — Runtime Parser Rule Engine + Issue-card-only Reports
 let activeParserRules=[];
 let globalActiveParserRules=[];
 let workspaceActiveParserRules=[];
@@ -584,7 +584,7 @@ function saveRecords(){
   }
 }
 
-const CLOUD_SYNC_VERSION='4.4.0';
+const CLOUD_SYNC_VERSION='4.4.1';
 const CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=900;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -677,7 +677,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.4.0 Owner Parser Control',
+    version:'Stage 4.4.1 Issue Card Report Filter',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -2103,10 +2103,47 @@ function savePreviewReviewed(){
     window.__V2D_SAFETY_OVERRIDE=false;
   }
 }
-function parserOutputText(){
-  const rows=preview?.detailRows||[];
+function parserOutputText(cardIndexes=null){
+  let rows=preview?.detailRows||[];
+  if(cardIndexes && cardIndexes.size){
+    rows=rows.filter(r=>cardIndexes.has(Number(r.cardIndexInPaste||1)));
+  }
   if(!rows.length) return '';
   return rows.map((r,i)=>`${i+1}. Card ${r.cardIndexInPaste||1} | ${r.number} | ${Number(r.amount||0)} | ${r.source||''}`).join('\n');
+}
+function parserReportIssueCards(){
+  const cards=Array.isArray(preview?.cards)?preview.cards:[];
+  const issueCards=cards.filter(c=>Number(c?.issueCount||0)>0 || Number(c?.warningCount||0)>0 || c?.status==='review' || c?.status==='warning');
+  return issueCards.length?issueCards:cards;
+}
+function parserReportOriginalText(cards){
+  const list=Array.isArray(cards)?cards:[];
+  if(!list.length) return val('entryText')||'';
+  return list.map(card=>{
+    const body=String(card?.rawText||'').trim();
+    if(!body) return '';
+    const stamp=String(card?.headerStamp||'').trim();
+    const name=String(card?.headerName||card?.name||val('entryName')||'Default').replace(/[⁨⁩]/g,'').trim();
+    if(!stamp) return body;
+    const lines=body.split(/\r?\n/);
+    const first=lines.shift()||'';
+    return `[ ${stamp} ] ${name}: ${first}${lines.length?'\n'+lines.join('\n'):''}`;
+  }).filter(Boolean).join('\n');
+}
+function parserReportContext(){
+  const allCards=Array.isArray(preview?.cards)?preview.cards:[];
+  const cards=parserReportIssueCards();
+  const filtered=cards.length>0 && cards.length<allCards.length;
+  const cardIndexes=new Set(cards.map(c=>Number(c?.indexInPaste||0)).filter(Boolean));
+  const rows=(preview?.detailRows||[]).filter(r=>!cardIndexes.size || cardIndexes.has(Number(r.cardIndexInPaste||1)));
+  return {
+    cards,
+    filtered,
+    cardIndexes,
+    rows,
+    originalMessage:parserReportOriginalText(cards),
+    parserOutput:parserOutputText(cardIndexes)
+  };
 }
 function parserReportQueue(){
   try{return JSON.parse(userGetItem(PARSER_REPORT_QUEUE_KEY)||'[]')||[];}catch(_e){return[];}
@@ -2121,18 +2158,19 @@ function renderParserReportQueueStatus(){
 }
 function openParserIssueReport(){
   const panel=document.getElementById('parserReportPanel'); if(!panel) return;
-  const raw=val('entryText')||'';
-  setVal('parserReportOriginal',raw);
-  setVal('parserReportOutput',parserOutputText());
+  const ctx=parserReportContext();
+  setVal('parserReportOriginal',ctx.originalMessage);
+  setVal('parserReportOutput',ctx.parserOutput);
   const st=getPreviewSafetyState();
   const meta=document.getElementById('parserReportMeta');
-  if(meta) meta.innerHTML=`<span>${escapeHtml(val('entryName')||'Default')}</span><span>${escapeHtml(val('entryDate')||today())}</span><span>${escapeHtml(val('entrySession')||'AM')}</span><span>${(preview.cards||[]).length} cards</span><span>${(preview.detailRows||[]).length} rows</span><span>${st.issueCount} issues</span>`;
+  if(meta) meta.innerHTML=`<span>${escapeHtml(val('entryName')||'Default')}</span><span>${escapeHtml(val('entryDate')||today())}</span><span>${escapeHtml(val('entrySession')||'AM')}</span><span>${ctx.cards.length} ${ctx.filtered?'issue cards':'cards'}</span><span>${ctx.rows.length} ${ctx.filtered?'affected rows':'rows'}</span><span>${st.issueCount} issues</span>`;
   panel.style.display='block'; renderParserReportQueueStatus();
   panel.scrollIntoView({behavior:'smooth',block:'center'});
 }
 function closeParserIssueReport(){ const panel=document.getElementById('parserReportPanel'); if(panel) panel.style.display='none'; }
 function buildParserIssueReportPayload(){
   const st=getPreviewSafetyState();
+  const ctx=parserReportContext();
   const clientId=window.crypto?.randomUUID?.()||`PR-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return {
     clientId,
@@ -2150,11 +2188,14 @@ function buildParserIssueReportPayload(){
     userNote:val('parserReportNote')||'',
     issueLines:(preview?.issues||[]).map(x=>({lineNo:Number(x.lineNo||0),line:String(x.line||''),message:String(x.message||'')})),
     warnings:(preview?.warnings||[]).map(String),
-    cardCount:(preview?.cards||[]).length,
-    rowCount:(preview?.detailRows||[]).length,
+    cardCount:ctx.cards.length,
+    rowCount:ctx.rows.length,
+    batchCardCount:(preview?.cards||[]).length,
+    batchRowCount:(preview?.detailRows||[]).length,
+    reportScope:ctx.filtered?'issue-cards-only':'current-preview',
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'4.4.0',
+    appVersion:'4.4.1',
     parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
@@ -3084,7 +3125,7 @@ const I18N={
     total:'စုစုပေါင်း',overTotal:'Over စုစုပေါင်း',overCount:'Over အရေအတွက်',recordRows:'Rows',
     entryTitle:'စာရင်းထည့်ရန်',parsePreview:'စစ်ကြည့်မည်',confirmSave:'အတည်ပြုသိမ်းမည်',clearText:'စာသားရှင်းမည်',
     parserSafety:'Parser လုံခြုံရေးစစ်ဆေးမှု',fixIssues:'Issue များပြင်မည်',saveReviewed:'စစ်ပြီး Rows သိမ်းမည်',reportParserIssue:'Parser မှားယွင်းမှု Report',cancel:'မလုပ်တော့',safetyHelp:'Parser မဖတ်နိုင်/မသေချာသောစာရှိပါက အရင်ပြင်ပါ။ User က စစ်ပြီးမှ စစ်ပြီး Rows သိမ်းမည် ဖြင့် ဆက်သိမ်းနိုင်သည်။',
-    parserReportTitle:'Parser မှားယွင်းမှု Report',parserReportHint:'Original message နှင့် လက်ရှိ Parser Output ကို အလိုအလျောက်ထည့်ပေးထားသည်။ Correct Result နှင့် Note ကို ဖြည့်ပြီး App Owner ထံ ပို့ပါ။',originalMessage:'မူရင်း Viber Message',currentParserOutput:'လက်ရှိ Parser Output',expectedCorrectRecords:'အမှန်ဖြစ်ရမည့် Records',reportNote:'မှတ်ချက်',sendToOwner:'App Owner ထံပို့မည်',close:'ပိတ်မည်',
+    parserReportTitle:'Parser မှားယွင်းမှု Report',parserReportHint:'မဖတ်နိုင်/Issue ဖြစ်သော Viber Card များနှင့် သက်ဆိုင်ရာ Parser Output ကိုသာ အလိုအလျောက်ပြထားသည်။ Correct Result နှင့် Note ကို ဖြည့်ပြီး App Owner ထံ ပို့ပါ။',originalMessage:'မူရင်း Viber Message',currentParserOutput:'လက်ရှိ Parser Output',expectedCorrectRecords:'အမှန်ဖြစ်ရမည့် Records',reportNote:'မှတ်ချက်',sendToOwner:'App Owner ထံပို့မည်',close:'ပိတ်မည်',
     previewRows:'Preview Rows',previewTotal:'Preview စုစုပေါင်း',warnings:'သတိပေးချက်',aggByNumber:'Number အလိုက်ပေါင်း',
     previewDetail:'Preview အသေးစိတ်',overLive:'Over / ကျော်စာရင်း',overNote:'အပေါ်က ရက်စွဲ / Session / Name အတိုင်း Over တွက်ထားသည်။',
     uploadImage:'ပုံတင်မည်',cameraBtn:'ကင်မရာ',clearImage:'ပုံရှင်းမည်',
@@ -3100,7 +3141,7 @@ const I18N={
     total:'Total',overTotal:'Over Total',overCount:'Over Count',recordRows:'Rows',entryTitle:'Entry',
     parsePreview:'Parse Preview',confirmSave:'Confirm Save',clearText:'Clear Text',
     parserSafety:'Parser Safety Check',fixIssues:'Fix Issues',saveReviewed:'Save Reviewed Rows',reportParserIssue:'Report Parser Issue',cancel:'Cancel',safetyHelp:'Fix unread or uncertain text first. After review, the user may explicitly save the reviewed rows.',
-    parserReportTitle:'Parser Issue Report',parserReportHint:'The original message and current parser output are filled automatically. Add the correct result and a note, then send it to the App Owner.',originalMessage:'Original Viber Message',currentParserOutput:'Current Parser Output',expectedCorrectRecords:'Expected Correct Records',reportNote:'Note',sendToOwner:'Send to App Owner',close:'Close',previewRows:'Preview Rows',previewTotal:'Preview Total',
+    parserReportTitle:'Parser Issue Report',parserReportHint:'Only Viber cards with parser issues and their affected parser output are filled automatically. Add the correct result and a note, then send it to the App Owner.',originalMessage:'Original Viber Message',currentParserOutput:'Current Parser Output',expectedCorrectRecords:'Expected Correct Records',reportNote:'Note',sendToOwner:'Send to App Owner',close:'Close',previewRows:'Preview Rows',previewTotal:'Preview Total',
     warnings:'Warnings',aggByNumber:'Aggregated by Number',previewDetail:'Preview Detail',overLive:'Over',
     overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',cameraBtn:'Camera',clearImage:'Clear Image',
     cloudLoading:'Opening Cloud…',saving:'Saving…',cloudSynced:'Cloud Synced',offlineWaiting:'Offline — Waiting to sync',
@@ -3640,8 +3681,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.4.0';
-const APP_VERSION_LABEL='Stage 4.4.0 Owner Parser Control';
+const APP_VERSION='4.4.1';
+const APP_VERSION_LABEL='Stage 4.4.1 Issue Card Report Filter';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -3956,7 +3997,7 @@ async function hardReloadApp(){
 
 
 
-// Stage 4.4.0 — App Owner Parser Control Center
+// Stage 4.4.1 — App Owner Parser Control Center
 function ownerL(my,en){return currentUiLang()==='en'?en:my;}
 function ownerCurrentReport(){ return ownerParserReports.find(r=>r.id===ownerSelectedReportId)||null; }
 function ownerCurrentRule(){ return ownerParserRules.find(r=>r.id===ownerSelectedRuleId && r.__collection===ownerSelectedRuleCollection)||null; }
@@ -4160,7 +4201,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.4.0 Owner Parser Control',
+    version:'Stage 4.4.1 Issue Card Report Filter',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

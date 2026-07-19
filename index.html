@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.3.0 Entry Safety + Parser Report</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.3.0">
+  <title>Viber 2D Desk - Stage 4.4.0 Owner Parser Control Center</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.4.0">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.3.0 · Entry Safety Gate · Parser Issue Report · Language + Theme</div>
+        <div class="muted">Stage 4.4.0 · Owner Parser Control Center · Safe Runtime Rules</div>
       </div>
     </div>
 
@@ -77,8 +77,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.3.0 Entry Safety + Parser Report + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.3.0: Entry Safety Gate + User Parser Issue Report · Card Workspace retained</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.4.0 Owner Parser Control Center + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.4.0: App Owner Report Inbox + Rule Test + Conflict Check + Activate</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -125,6 +125,7 @@
       <button class="tab" data-id="reports" onclick="go('reports')">Reports<small>အစီရင်ခံစာ</small></button>
       <button class="tab" data-id="image" onclick="go('image')">Image<small>ပုံ / မျှဝေ</small></button>
       <button class="tab" data-id="settings" onclick="go('settings')">Settings<small>ဆက်တင်</small></button>
+      <button id="ownerParserTab" class="tab ownerOnlyTab" data-id="ownerParser" onclick="go('ownerParser')" style="display:none">Owner Parser<small>Owner Rule Control</small></button>
       <button class="tab" data-id="audit" onclick="go('audit')">History<small>မှတ်တမ်း / Undo</small></button>
       <button class="tab" data-id="tests" onclick="go('tests')">Tests<small>Parser စမ်းသပ်မှု</small></button>
       <button class="tab" data-id="diagnostics" onclick="go('diagnostics')">Diagnostics<small>Error / Version</small></button>
@@ -153,7 +154,7 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.3.0 မှာ Entry Safety Gate နှင့် User Parser Issue Report ထည့်ထားပြီး Language/Theme၊ Card Workspace၊ Report Drill-down နှင့် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.4.0 မှာ Owner Parser Control Center ထည့်ထားပြီး Entry Safety၊ User Report၊ Language/Theme၊ Card Workspace နှင့် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
     <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
@@ -192,7 +193,7 @@
 
       <div class="workspaceSectionHead">
         <div>
-          <div class="workspaceEyebrow">STAGE 4.3.0 · ENTRY SAFETY + PARSER REPORT</div>
+          <div class="workspaceEyebrow">STAGE 4.4.0 · OWNER PARSER CONTROL CENTER</div>
           <h2>Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်</h2>
           <div class="muted">Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။</div>
         </div>
@@ -299,7 +300,7 @@
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.3.0</span></h3>
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.4.0</span></h3>
               <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
             </div>
             <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
@@ -645,6 +646,12 @@
   <section id="settings" class="page">
     <div class="card">
       <h2>Settings</h2>
+      <div class="card accountIdentityCard" style="margin-bottom:12px">
+        <div class="grid2">
+          <div><label>Account UID</label><input id="accountUidDisplay" readonly data-no-i18n="true"></div>
+          <div style="display:flex;align-items:end;gap:8px"><button class="btn gray" onclick="copyText(CURRENT_UID)">Copy UID</button><span class="miniBadge" id="accountOwnerStatus">User</span></div>
+        </div>
+      </div>
       <div class="grid3">
         <div><label>Shop Name</label><input id="shopName" oninput="saveSettings()"></div>
         <div><label>Commission %</label><input id="commissionRate" type="number" oninput="saveSettings();renderReports();"></div>
@@ -675,6 +682,125 @@
         <div class="nameRateGrid" id="nameList"></div>
       </div>
       <div class="muted" style="margin-top:12px">Stage 3.8.0: localStorage + Firestore Cloud Snapshot Sync ပါပြီး။ နောက်အဆင့်မှာ Firebase Auth + Owner/Admin role rules ထည့်ပါမယ်။</div>
+    </div>
+  </section>
+
+
+  <section id="ownerParser" class="page">
+    <div class="card ownerControlShell">
+      <div class="ownerControlHeader">
+        <div>
+          <h2 data-i18n="ownerParserCenter">App Owner Parser Control Center</h2>
+          <div class="muted" data-i18n="ownerParserHint">User Parser Reports ကို စစ်ဆေးပြီး Safe Rule ဖန်တီး၊ Test၊ Conflict Check၊ Activate လုပ်ရန်။</div>
+        </div>
+        <div class="ownerBadge" id="ownerAccessBadge">Owner access checking…</div>
+      </div>
+
+      <div class="grid4 ownerStats" style="margin-top:12px">
+        <div class="stat"><div class="k">New Reports</div><div class="v warnText" id="ownerNewReportCount">0</div></div>
+        <div class="stat"><div class="k">In Review</div><div class="v blue" id="ownerReviewReportCount">0</div></div>
+        <div class="stat"><div class="k">Active Rules</div><div class="v good" id="ownerActiveRuleCount">0</div></div>
+        <div class="stat"><div class="k">Draft Rules</div><div class="v" id="ownerDraftRuleCount">0</div></div>
+      </div>
+
+      <div class="ownerControlGrid" style="margin-top:12px">
+        <div class="ownerPane ownerReportPane">
+          <div class="ownerPaneTitle">
+            <h3>Parser Issue Reports</h3>
+            <button class="btn gray small" onclick="ownerRefreshControlCenter()">Refresh</button>
+          </div>
+          <div class="grid2 ownerFilters">
+            <div><label>Status</label><select id="ownerReportStatusFilter" onchange="renderOwnerParserReports()"><option value="ALL">All</option><option value="new">New</option><option value="in_review">In Review</option><option value="resolved">Resolved</option><option value="dismissed">Dismissed</option></select></div>
+            <div><label>Search</label><input id="ownerReportSearch" placeholder="Email / Name / Message" oninput="renderOwnerParserReports()"></div>
+          </div>
+          <div id="ownerParserReportList" class="ownerReportList"></div>
+        </div>
+
+        <div class="ownerPane ownerDetailPane">
+          <div class="ownerPaneTitle">
+            <h3>Selected Report</h3>
+            <span class="miniBadge" id="ownerSelectedReportStatus">No report</span>
+          </div>
+          <div id="ownerReportEmpty" class="muted ownerEmpty">Report တစ်ခုရွေးပါ။</div>
+          <div id="ownerReportDetail" style="display:none">
+            <div class="ownerReportMeta" id="ownerReportMeta"></div>
+            <div class="parserReportGrid">
+              <div><label>Original Viber Message</label><textarea id="ownerReportOriginal" class="parserReportText" readonly data-no-i18n="true"></textarea></div>
+              <div><label>Current Parser Output</label><textarea id="ownerReportCurrentOutput" class="parserReportText" readonly data-no-i18n="true"></textarea></div>
+            </div>
+            <div class="parserReportGrid">
+              <div><label>Expected Correct Records</label><textarea id="ownerReportExpected" class="parserReportText" readonly data-no-i18n="true"></textarea></div>
+              <div><label>User Note</label><textarea id="ownerReportUserNote" class="parserReportText" readonly data-no-i18n="true"></textarea></div>
+            </div>
+            <div class="btnrow ownerReportActions">
+              <button class="btn warn small" onclick="ownerMarkReportInReview()">Mark In Review</button>
+              <button class="btn secondary small" onclick="ownerResolveReport()">Resolve Report</button>
+              <button class="btn gray small" onclick="ownerDismissReport()">Dismiss</button>
+            </div>
+
+            <div class="card ownerRuleStudio" style="margin-top:12px">
+              <div class="ownerPaneTitle">
+                <h3>Parser Rule Studio</h3>
+                <button class="btn gray small" onclick="ownerSuggestSafeTransform()">Auto Suggest</button>
+              </div>
+              <div class="grid3">
+                <div><label>Rule Name</label><input id="ownerRuleName" placeholder="ဥပမာ @ and ) aliases"></div>
+                <div><label>Rule Type</label><select id="ownerRuleType" onchange="ownerRuleTypeChanged()"><option value="EXACT_CORRECTION">Exact Card Correction</option><option value="SAFE_TRANSFORM">Safe Transform Set</option><option value="LITERAL_REWRITE">Exact Line Rewrite</option></select></div>
+                <div><label>Scope</label><select id="ownerRuleScope" onchange="ownerRuleScopeChanged()"><option value="workspace">This User Workspace</option><option value="global">All App Users</option></select></div>
+              </div>
+              <div class="grid3" style="margin-top:8px">
+                <div><label>Target User UID</label><input id="ownerRuleTargetUser" readonly data-no-i18n="true"></div>
+                <div><label>Entry Name Filter (optional)</label><input id="ownerRuleEntryName" placeholder="ဒေါ်သီတာ"></div>
+                <div><label>Writer Filter</label><select id="ownerRuleWriter"><option value="">All Writers</option><option value="AUTO">AUTO</option><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="OTHER">OTHER</option></select></div>
+              </div>
+
+              <div id="ownerExactFields" class="ownerRuleFields" style="margin-top:10px">
+                <label>Exact Card Body to Match</label>
+                <textarea id="ownerRuleMatchText" class="parserReportText" data-no-i18n="true"></textarea>
+              </div>
+
+              <div id="ownerTransformFields" class="ownerRuleFields" style="display:none;margin-top:10px">
+                <div class="parserReportGrid">
+                  <div><label>Literal Replacements — one per line: find =&gt; replace</label><textarea id="ownerRuleReplacements" class="parserReportText" placeholder="@ => R&#10;) => =" data-no-i18n="true"></textarea></div>
+                  <div><label>Trailing Note Delimiter (optional)</label><textarea id="ownerRuleNoteDelimiter" class="parserReportText shortText" placeholder="===ရဲ့နောက်က စာသားကို Note အဖြစ်ဖယ်ရန် ===" data-no-i18n="true"></textarea></div>
+                </div>
+              </div>
+
+              <div id="ownerRewriteFields" class="ownerRuleFields" style="display:none;margin-top:10px">
+                <div class="parserReportGrid">
+                  <div><label>Exact Line</label><textarea id="ownerRuleLiteralMatch" class="parserReportText" data-no-i18n="true"></textarea></div>
+                  <div><label>Rewrite As</label><textarea id="ownerRuleLiteralReplace" class="parserReportText" data-no-i18n="true"></textarea></div>
+                </div>
+              </div>
+
+              <div style="margin-top:10px">
+                <label>Expected Correct Records used for Test</label>
+                <textarea id="ownerRuleExpected" class="parserReportText" placeholder="45 500&#10;54 500&#10;65 500&#10;56 500&#10;85 5000" data-no-i18n="true"></textarea>
+              </div>
+              <div class="grid3" style="margin-top:8px">
+                <div><label>Priority</label><input id="ownerRulePriority" type="number" value="100"></div>
+                <div><label>Selected Rule ID</label><input id="ownerRuleSelectedId" readonly placeholder="New rule" data-no-i18n="true"></div>
+                <div><label>Rule Status</label><input id="ownerRuleSelectedStatus" readonly value="draft"></div>
+              </div>
+
+              <div class="btnrow" style="margin-top:10px">
+                <button class="btn gray" onclick="ownerResetRuleStudio()">New Rule</button>
+                <button class="btn secondary" onclick="ownerTestRule()">1. Test Rule</button>
+                <button class="btn warn" onclick="ownerConflictCheck()">2. Conflict Check</button>
+                <button class="btn" onclick="ownerSaveRuleDraft()">Save Draft</button>
+                <button class="btn goodBtn" onclick="ownerActivateRule()">3. Activate Rule</button>
+              </div>
+              <div id="ownerRuleTestResult" class="ownerRuleResult muted">Rule Test မလုပ်ရသေးပါ။</div>
+              <div id="ownerRuleConflictResult" class="ownerRuleResult muted">Conflict Check မလုပ်ရသေးပါ။</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="ownerPaneTitle"><h3>Parser Rules</h3><div class="muted">Active / Draft / Disabled rules</div></div>
+        <div id="ownerParserRuleList" class="ownerRuleList"></div>
+      </div>
     </div>
   </section>
 
@@ -787,7 +913,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.3.0"></script>
-<script src="js/auth.js?v=4.3.0"></script>
+<script src="js/firebase-config.js?v=4.4.0"></script>
+<script src="js/auth.js?v=4.4.0"></script>
 </body>
 </html>

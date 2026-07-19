@@ -49,6 +49,7 @@ const pages = [
   ['reports',{en:'Reports',my:'အစီရင်ခံစာ'}],
   ['image',{en:'Image',my:'ပုံ / မျှဝေ'}],
   ['settings',{en:'Settings',my:'ဆက်တင်'}],
+  ['ownerParser',{en:'Owner Parser',my:'Owner Parser Control'}],
   ['audit',{en:'History',my:'မှတ်တမ်း / Undo'}]
 ];
 const N2 = Array.from({length:100},(_,i)=>String(i).padStart(2,'0'));
@@ -79,6 +80,168 @@ const reportExpandedNames = new Set();
 const reportExpandedPNames = new Set();
 let groupEditPreviewTimer = null;
 let currentIssueIndex = 0;
+
+
+// Stage 4.4.0 — Runtime Parser Rule Engine
+let activeParserRules=[];
+let globalActiveParserRules=[];
+let workspaceActiveParserRules=[];
+let parserRuleGlobalUnsub=null;
+let parserRuleWorkspaceUnsub=null;
+let IS_APP_OWNER=false;
+let ownerParserReports=[];
+let ownerParserRules=[];
+let ownerSelectedReportId='';
+let ownerSelectedRuleId='';
+let ownerSelectedRuleCollection='';
+let ownerReportsUnsub=null;
+let ownerGlobalRulesUnsub=null;
+let ownerWorkspaceRulesUnsub=null;
+
+function normalizeRuntimeRuleText(value){
+  return String(value||'')
+    .replace(/[⁨⁩\u200e\u200f\u202a-\u202e]/g,'')
+    .replace(/\r/g,'')
+    .split('\n').map(x=>x.trim().replace(/[ \t]+/g,' ')).filter(Boolean).join('\n')
+    .trim().toLowerCase();
+}
+function parseExpectedRowsText(text){
+  const rows=[];
+  String(text||'').replace(/\r/g,'').split('\n').forEach(line=>{
+    const clean=String(line||'').trim();
+    if(!clean) return;
+    let m=clean.match(/^(?:\d+\.\s*)?(\d{1,2})\s*(?:[|,:=\-]|\s)\s*([\d,]+(?:\.\d+)?)\b/);
+    if(!m) m=clean.match(/^(\d{1,2})\s+([\d,]+(?:\.\d+)?)\b/);
+    if(!m) return;
+    const number=String(m[1]).padStart(2,'0').slice(-2);
+    const amount=Number(String(m[2]).replace(/,/g,''));
+    if(/^\d{2}$/.test(number) && Number.isFinite(amount)) rows.push({number,amount});
+  });
+  return rows;
+}
+function parseReplacementPairsText(text){
+  const rows=[];
+  String(text||'').replace(/\r/g,'').split('\n').forEach(line=>{
+    const idx=line.indexOf('=>');
+    if(idx<0) return;
+    const find=line.slice(0,idx).trim();
+    const replace=line.slice(idx+2).trim();
+    if(find) rows.push({find,replace});
+  });
+  return rows;
+}
+function effectiveParserRules(){
+  const list=[...(activeParserRules||[])];
+  const test=window.__V2D_OWNER_TEST_RULE;
+  if(test){
+    const id=test.id||'__candidate__';
+    const filtered=list.filter(r=>(r.id||'')!==id);
+    filtered.push(test);
+    return filtered.sort((a,b)=>Number(a.priority||100)-Number(b.priority||100));
+  }
+  return list.sort((a,b)=>Number(a.priority||100)-Number(b.priority||100));
+}
+function runtimeRuleContext(block,writerProfile){
+  return {
+    userUid:window.__V2D_RULE_CONTEXT_USER_UID||CURRENT_UID,
+    entryName:block?.name||'',
+    writerProfile:normalizeWriterProfile(writerProfile||'AUTO')
+  };
+}
+function runtimeRuleApplies(rule,ctx){
+  if(!rule || (rule.status && rule.status!=='active' && !window.__V2D_OWNER_TEST_RULE)) return false;
+  if(rule.scope==='workspace' && String(rule.targetUserUid||'')!==String(ctx.userUid||'')) return false;
+  if(rule.targetEntryName && cleanNameText(rule.targetEntryName)!==cleanNameText(ctx.entryName||'')) return false;
+  if(rule.targetWriterProfile && normalizeWriterProfile(rule.targetWriterProfile)!==normalizeWriterProfile(ctx.writerProfile||'AUTO')) return false;
+  return true;
+}
+function applyRuntimeLineRules(raw,ctx){
+  let out=String(raw||'');
+  effectiveParserRules().forEach(rule=>{
+    if(!runtimeRuleApplies(rule,ctx)) return;
+    if(rule.type==='SAFE_TRANSFORM'){
+      (rule.replacements||[]).forEach(pair=>{
+        const find=String(pair?.find||'');
+        if(!find) return;
+        out=out.split(find).join(String(pair?.replace??''));
+      });
+      const delimiter=String(rule.noteDelimiter||'');
+      if(delimiter){
+        const idx=out.indexOf(delimiter);
+        if(idx>=0 && /\d/.test(out.slice(0,idx))) out=out.slice(0,idx).trim();
+      }
+    }else if(rule.type==='LITERAL_REWRITE'){
+      if(normalizeRuntimeRuleText(out)===normalizeRuntimeRuleText(rule.matchText||'')) out=String(rule.replaceText||'');
+    }
+  });
+  return out;
+}
+function findExactCorrectionRule(block,writerProfile){
+  const ctx=runtimeRuleContext(block,writerProfile);
+  const body=normalizeRuntimeRuleText(block?.cardRawText||'');
+  if(!body) return null;
+  return effectiveParserRules().find(rule=>rule.type==='EXACT_CORRECTION' && runtimeRuleApplies(rule,ctx) && normalizeRuntimeRuleText(rule.matchText||'')===body) || null;
+}
+function exactCorrectionResult(block,writerProfile,blockIndex,rule){
+  const expected=Array.isArray(rule.expectedRows)&&rule.expectedRows.length?rule.expectedRows:parseExpectedRowsText(rule.expectedCorrectRecords||'');
+  const detailRows=expected.map((x,i)=>({
+    number:String(x.number||'').padStart(2,'0').slice(-2), amount:Number(x.amount||0), type:'owner-rule-exact', source:`Owner Rule: ${rule.name||rule.id||'Exact Correction'}`,
+    name:block.name||'Default', ...(block.date?{date:block.date}:{}), ...(block.session?{session:block.session}:{}), ...(block.headerStamp?{headerStamp:block.headerStamp}:{}),
+    duplicateBlockKey:block.blockKey||'', duplicateBlockLabel:block.blockLabel||'', cardBlockKey:block.blockKey||'', cardIndexInPaste:Number(block.cardIndexInPaste||blockIndex+1)||1,
+    cardTime:block.cardTime||'', cardHeaderStamp:block.headerStamp||'', cardHeaderName:block.headerName||'', cardRawText:block.cardRawText||'', cardSourceLine:Number(block.lines?.[0]?.lineNo||0)||0,
+    ownerRuleId:rule.id||'', ownerRuleVersion:Number(rule.version||1)
+  })).filter(x=>/^\d{2}$/.test(x.number)&&Number.isFinite(x.amount));
+  const warnings=detailRows.length?[]:['Owner Exact Correction Rule တွင် expected rows မရှိပါ'];
+  const issues=detailRows.length?[]:[{lineNo:block.lines?.[0]?.lineNo||0,line:block.cardRawText||'',edited:block.cardRawText||'',message:warnings[0]}];
+  const card={tempCardKey:block.blockKey||`manual-${blockIndex+1}`,indexInPaste:Number(block.cardIndexInPaste||blockIndex+1)||1,name:block.name||'Default',date:block.date||'',session:block.session||'',time:block.cardTime||'',headerStamp:block.headerStamp||'',headerName:block.headerName||'',headerMatched:!!block.headerMatched,rawText:block.cardRawText||'',rowCount:detailRows.length,totalAmount:detailRows.reduce((s,r)=>s+Number(r.amount||0),0),warningCount:warnings.length,issueCount:issues.length,status:issues.length?'review':'ready',ownerRuleId:rule.id||''};
+  return {detailRows,warnings,issues,matchedHeader:block.headerMatched?1:0,card};
+}
+function mergeActiveParserRuleCaches(){
+  const map=new Map();
+  [...globalActiveParserRules,...workspaceActiveParserRules].forEach(r=>map.set(r.id,r));
+  activeParserRules=[...map.values()].sort((a,b)=>Number(a.priority||100)-Number(b.priority||100));
+}
+function ruleDocToObject(doc,collection){ return {id:doc.id,...(doc.data()||{}),__collection:collection}; }
+async function detectAppOwnerAccess(){
+  IS_APP_OWNER=false;
+  if(!db||!CURRENT_USER) return false;
+  try{
+    const snap=await db.collection('appOwners').doc(CURRENT_UID).get();
+    IS_APP_OWNER=!!snap.exists && snap.data()?.active===true;
+  }catch(err){ console.warn('Owner access check failed',err); }
+  const tab=document.getElementById('ownerParserTab'); if(tab) tab.style.display=IS_APP_OWNER?'':'none';
+  const status=document.getElementById('accountOwnerStatus'); if(status) status.textContent=IS_APP_OWNER?'App Owner':'User';
+  return IS_APP_OWNER;
+}
+async function loadActiveParserRulesOnce(){
+  if(!db||!CURRENT_USER) return;
+  try{
+    const globalSnap=await db.collection('parserRules').where('status','==','active').get();
+    globalActiveParserRules=globalSnap.docs.map(d=>ruleDocToObject(d,'parserRules')).filter(r=>r.scope==='global');
+  }catch(err){ console.warn('Global parser rules load failed',err); globalActiveParserRules=[]; }
+  try{
+    const ownSnap=await db.collection('workspaceParserRules').where('targetUserUid','==',CURRENT_UID).where('status','==','active').get();
+    workspaceActiveParserRules=ownSnap.docs.map(d=>ruleDocToObject(d,'workspaceParserRules')).filter(r=>r.scope==='workspace');
+  }catch(err){ console.warn('Workspace parser rules load failed',err); workspaceActiveParserRules=[]; }
+  mergeActiveParserRuleCaches();
+}
+function startActiveParserRuleRealtime(){
+  if(!db||!CURRENT_USER) return;
+  try{ parserRuleGlobalUnsub?.(); }catch(_e){}
+  try{ parserRuleWorkspaceUnsub?.(); }catch(_e){}
+  parserRuleGlobalUnsub=db.collection('parserRules').where('status','==','active').onSnapshot(snap=>{
+    globalActiveParserRules=snap.docs.map(d=>ruleDocToObject(d,'parserRules')).filter(r=>r.scope==='global'); mergeActiveParserRuleCaches();
+  },err=>console.warn('Global parser rules realtime failed',err));
+  parserRuleWorkspaceUnsub=db.collection('workspaceParserRules').where('targetUserUid','==',CURRENT_UID).where('status','==','active').onSnapshot(snap=>{
+    workspaceActiveParserRules=snap.docs.map(d=>ruleDocToObject(d,'workspaceParserRules')).filter(r=>r.scope==='workspace'); mergeActiveParserRuleCaches();
+  },err=>console.warn('Workspace parser rules realtime failed',err));
+}
+async function initializeParserRuleEngine(){
+  await detectAppOwnerAccess();
+  await loadActiveParserRulesOnce();
+  startActiveParserRuleRealtime();
+}
+
 const initialRegisteredShopName=localStorage.getItem(`v2d_user_${CURRENT_UID}__initial_shop_name`)||"";
 let topbarState = userGetItem('v2d_topbar_state') || 'open';
 
@@ -421,7 +584,7 @@ function saveRecords(){
   }
 }
 
-const CLOUD_SYNC_VERSION='4.3.0';
+const CLOUD_SYNC_VERSION='4.4.0';
 const CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=900;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -514,7 +677,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.3.0 Language + Theme',
+    version:'Stage 4.4.0 Owner Parser Control',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -1697,10 +1860,14 @@ function buildMessageBlocks(text, defaultName){
   return blocks;
 }
 function parseMessageBlock(block, writerProfile, blockIndex=0){
+  const exactRule=findExactCorrectionRule(block,writerProfile);
+  if(exactRule) return exactCorrectionResult(block,writerProfile,blockIndex,exactRule);
   const detailRows=[]; const warnings=[]; const issues=[];
+  const ruleCtx=runtimeRuleContext(block,writerProfile);
   const processed = block.lines.map(item=>{
-    const lineWriter = normalizeWriterProfile(writerProfile)==='AUTO' ? detectAutoWriter(item.raw) : normalizeWriterProfile(writerProfile);
-    const prepared = preprocessWriterLine(item.raw, lineWriter).trim();
+    const transformed=applyRuntimeLineRules(item.raw,ruleCtx);
+    const lineWriter = normalizeWriterProfile(writerProfile)==='AUTO' ? detectAutoWriter(transformed) : normalizeWriterProfile(writerProfile);
+    const prepared = preprocessWriterLine(transformed, lineWriter).trim();
     return {...item, lineWriter, prepared, explicit: explicitCarryMetaForLine(prepared)};
   });
   function nearestUpperExplicit(idx){
@@ -1987,8 +2154,8 @@ function buildParserIssueReportPayload(){
     rowCount:(preview?.detailRows||[]).length,
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'4.3.0',
-    parserVersion:'core-3.12.2-stage4.3',
+    appVersion:'4.4.0',
+    parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
   };
@@ -2943,7 +3110,8 @@ const I18N={
 };
 
 const UI_PHRASE_PAIRS=[
-  ['Dashboard','ပင်မ'],['Entry','စာရင်းသွင်း'],['Entry Records','စာရင်းမှတ်တမ်း'],['Limit Board','ကန့်သတ်ဘုတ်'],['Over','ကျော်နေသောစာရင်း'],['Reports','အစီရင်ခံစာ'],['Image','ပုံ / မျှဝေ'],['Settings','ဆက်တင်'],['History','မှတ်တမ်း / Undo'],['Tests','Parser စမ်းသပ်မှု'],['Diagnostics','Error / Version'],
+  ['App Owner Parser Control Center','App Owner Parser ထိန်းချုပ်စင်တာ'],['Parser Issue Reports','Parser ပြဿနာ Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule စီမံခန့်ခွဲမှု'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['This User Workspace','ဒီ User Workspace သာ'],['All App Users','App User အားလုံး'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (မဖြည့်လည်းရ)'],['Writer Filter','Writer Filter'],['All Writers','Writer အားလုံး'],['Exact Card Body to Match','တိတိကျကျကိုက်ညီရမည့် Card Body'],['Literal Replacements — one per line: find => replace','စာသားအစားထိုးမှု — တစ်ကြောင်းစီ find => replace'],['Trailing Note Delimiter (optional)','နောက်ဆက် Note ခွဲခြားသင်္ကေတ (မဖြည့်လည်းရ)'],['Exact Line','တိတိကျကျ Line'],['Rewrite As','အစားထိုးရေးသားရန်'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Rule','Rule အသစ်'],['1. Test Rule','၁။ Rule စမ်းသပ်မည်'],['2. Conflict Check','၂။ Conflict စစ်မည်'],['Save Draft','Draft သိမ်းမည်'],['3. Activate Rule','၃။ Rule အသုံးပြုမည်'],['Parser Rules','Parser Rules'],['Active / Draft / Disabled rules','Active / Draft / Disabled Rules'],['Mark In Review','စစ်ဆေးနေဆဲအဖြစ်မှတ်မည်'],['Resolve Report','Report ဖြေရှင်းပြီး'],['Dismiss','ပယ်မည်'],['Auto Suggest','Auto အကြံပြု'],['Disable','ပိတ်ထားမည်'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Owner access checking…','Owner Access စစ်နေသည်…'],['App Owner Verified','App Owner အတည်ပြုပြီး'],['Owner access required','Owner Access လိုအပ်သည်'],['No report','Report မရွေးရသေး'],['Report တစ်ခုရွေးပါ။','Report တစ်ခုရွေးပါ။'],
+    ['Dashboard','ပင်မ'],['Entry','စာရင်းသွင်း'],['Entry Records','စာရင်းမှတ်တမ်း'],['Limit Board','ကန့်သတ်ဘုတ်'],['Over','ကျော်နေသောစာရင်း'],['Reports','အစီရင်ခံစာ'],['Image','ပုံ / မျှဝေ'],['Settings','ဆက်တင်'],['History','မှတ်တမ်း / Undo'],['Tests','Parser စမ်းသပ်မှု'],['Diagnostics','Error / Version'],
   ['Language','ဘာသာ'],['Theme','Theme'],['System','System'],['Light','Light'],['Dark','Dark'],['Backup JSON','Backup JSON'],['Restore JSON','Restore JSON'],['Sync Now','ယခု Sync'],['Cloud Refresh','Cloud ပြန်ယူ'],['Clear All','အားလုံးဖျက်'],['Logout','ထွက်မည်'],['Minimize ▲','ချုံ့မည် ▲'],['Open ▼','ဖွင့်မည် ▼'],
   ['Global Date','ရက်စွဲအားလုံး'],['Global Session','Session အားလုံး'],['Today Total','ယနေ့ စုစုပေါင်း'],['AM Total','AM စုစုပေါင်း'],['PM Total','PM စုစုပေါင်း'],['Latest Records','နောက်ဆုံးစာရင်းများ'],['Date','ရက်စွဲ'],['Session','Session'],['Name','အမည်'],['Card','ကတ်'],['Writer','ရေးသားပုံ'],['Number','နံပါတ်'],['Amount','ငွေပမာဏ'],['Source','မူရင်း'],
   ['Entry စတင်မယ်','စာရင်းစတင်မည်'],['Limit Board ကြည့်မယ်','Limit Board ကြည့်မည်'],['Formula Engine ပါပြီးသော Key များ','Formula Engine Key များ'],
@@ -2951,7 +3119,7 @@ const UI_PHRASE_PAIRS=[
   ['Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်','Laptop Professional Workspace / ကတ်အလုပ်ခွင်'],['Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။','Saved Card List၊ Selected Card Editor နှင့် Live Summary ကို တစ်မျက်နှာတည်းတွင် မြင်နိုင်သည်။'],['+ New Paste / စာရင်းအသစ်','+ စာရင်းအသစ်'],['Entry Records ဖွင့်မယ်','Entry Records ဖွင့်မည်'],['Card List / ကတ်စာရင်း','ကတ်စာရင်း'],['Selected Card Editor','ရွေးထားသော ကတ်ပြင်ရန်'],['Live Summary','လက်ရှိအကျဉ်းချုပ်'],['Edit Card','ကတ်ပြင်မည်'],['Copy Raw','မူရင်း Copy'],['Selected Card Total','ရွေးထားသောကတ် စုစုပေါင်း'],['Selected Card Rows','ရွေးထားသောကတ် Rows'],['Viber Time','Viber အချိန်'],['Name Total','အမည် စုစုပေါင်း'],['Session Total','Session စုစုပေါင်း'],['P Number Amount','P Number ပမာဏ'],['Current Paste Preview Total','လက်ရှိ Paste Preview စုစုပေါင်း'],['Detected Cards','တွေ့ရှိသော ကတ်များ'],['Preview Rows','Preview Rows'],['Cloud Sync Status','Cloud Sync အခြေအနေ'],
   ['Paste & Parse Tools','Paste & Parse ကိရိယာများ'],['Hide Tools ▲','Tools ဖျောက်မည် ▲'],['Show Tools ▼','Tools ပြမည် ▼'],['Parse Preview','စစ်ကြည့်မည်'],['Confirm Save','အတည်ပြုသိမ်းမည်'],['Clear Text','စာသားရှင်းမည်'],['Preview Total','Preview စုစုပေါင်း'],['Warnings','သတိပေးချက်'],['Aggregated by Number','နံပါတ်အလိုက်ပေါင်း'],['Preview Detail','Preview အသေးစိတ်'],['Upload Image','ပုံတင်မည်'],['Camera','ကင်မရာ'],['Clear Image','ပုံရှင်းမည်'],
   ['Search','ရှာဖွေ'],['All Names','အမည်အားလုံး'],['Edit','ပြင်မည်'],['Delete','ဖျက်မည်'],['Remove','ဖယ်မည်'],['Save','သိမ်းမည်'],['Cancel','မလုပ်တော့'],['Close','ပိတ်မည်'],['Open','ဖွင့်မည်'],['Copy','Copy'],['Previous','ယခင်'],['Next','နောက်တစ်ခု'],['Apply','အတည်ပြုအသုံးပြု'],['Undo','ပြန်ဖျက်'],['Edited','ပြင်ထားသည်'],['No records','စာရင်းမရှိသေးပါ'],['No data','Data မရှိသေးပါ'],
-  ['Report','အစီရင်ခံစာ'],['Total Amount','စုစုပေါင်းငွေ'],['P Amount','P ပမာဏ'],['Card Total','ကတ်စုစုပေါင်း'],['Time','အချိန်'],['Status','အခြေအနေ'],['Open Card','ကတ်ဖွင့်မည်'],['Daily','နေ့စဉ်'],['AM','AM'],['PM','PM'],['DAILY','DAILY'],
+  ['App Owner Parser Control Center','App Owner Parser Control Center'],['Parser Issue Reports','Parser Issue Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule Studio'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (optional)'],['Writer Filter','Writer Filter'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Report','အစီရင်ခံစာ'],['Total Amount','စုစုပေါင်းငွေ'],['P Amount','P ပမာဏ'],['Card Total','ကတ်စုစုပေါင်း'],['Time','အချိန်'],['Status','အခြေအနေ'],['Open Card','ကတ်ဖွင့်မည်'],['Daily','နေ့စဉ်'],['AM','AM'],['PM','PM'],['DAILY','DAILY'],
   ['Login','ဝင်မည်'],['Register','အကောင့်ဖွင့်မည်'],['Forgot Password','Password မေ့နေသည်'],['Password','Password'],['Confirm Password','Password အတည်ပြု'],['Your Name / အမည်','အမည်'],['Shop / Workspace Name','Shop / Workspace အမည်'],['Create Account / Account ဖွင့်မယ်','အကောင့်ဖွင့်မည်'],['Send Reset Email','Reset Email ပို့မည်'],['Login / ဝင်မယ်','ဝင်မည်']
 ];
 const UI_EN_TO_MY=new Map(UI_PHRASE_PAIRS.map(([en,my])=>[en,my]));
@@ -3038,7 +3206,7 @@ function translateUiTree(root=document){
 }
 function renderLanguageTabs(){
   const lang=currentUiLang(); const labels={
-    dashboard:['Dashboard','ပင်မ'],entry:['Entry','စာရင်းသွင်း'],records:['Entry Records','စာရင်းမှတ်တမ်း'],limit:['Limit Board','ကန့်သတ်ဘုတ်'],over:['Over','ကျော်နေသောစာရင်း'],reports:['Reports','အစီရင်ခံစာ'],image:['Image','ပုံ / မျှဝေ'],settings:['Settings','ဆက်တင်'],audit:['History','မှတ်တမ်း / Undo'],tests:['Tests','Parser စမ်းသပ်မှု'],diagnostics:['Diagnostics','Error / Version']
+    dashboard:['Dashboard','ပင်မ'],entry:['Entry','စာရင်းသွင်း'],records:['Entry Records','စာရင်းမှတ်တမ်း'],limit:['Limit Board','ကန့်သတ်ဘုတ်'],over:['Over','ကျော်နေသောစာရင်း'],reports:['Reports','အစီရင်ခံစာ'],image:['Image','ပုံ / မျှဝေ'],settings:['Settings','ဆက်တင်'],ownerParser:['Owner Parser','Owner Parser Control'],audit:['History','မှတ်တမ်း / Undo'],tests:['Tests','Parser စမ်းသပ်မှု'],diagnostics:['Diagnostics','Error / Version']
   };
   document.querySelectorAll('#tabs .tab[data-id]').forEach(btn=>{const pair=labels[btn.dataset.id]; if(!pair)return; btn.innerHTML=lang==='en'?pair[0]:pair[1];});
 }
@@ -3472,8 +3640,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.3.0';
-const APP_VERSION_LABEL='Stage 4.3.0 Language + Theme';
+const APP_VERSION='4.4.0';
+const APP_VERSION_LABEL='Stage 4.4.0 Owner Parser Control';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -3786,10 +3954,171 @@ async function hardReloadApp(){
   location.replace(url.toString());
 }
 
-function renderAll(){renderDashboard();renderPreview();renderEntryLive();renderLimit();renderOver();renderReports();renderImageText();renderEntryRecords();renderAuditTrail();renderDiagnostics(); if(!window.__V2D_TRANSLATING_UI){window.__V2D_TRANSLATING_UI=true;try{translateUiTree(document);}finally{window.__V2D_TRANSLATING_UI=false;}}}
+
+
+// Stage 4.4.0 — App Owner Parser Control Center
+function ownerL(my,en){return currentUiLang()==='en'?en:my;}
+function ownerCurrentReport(){ return ownerParserReports.find(r=>r.id===ownerSelectedReportId)||null; }
+function ownerCurrentRule(){ return ownerParserRules.find(r=>r.id===ownerSelectedRuleId && r.__collection===ownerSelectedRuleCollection)||null; }
+function ownerTimestampValue(v){
+  try{ if(v?.toDate) return v.toDate().getTime(); }catch(_e){}
+  const n=Date.parse(v||''); return Number.isFinite(n)?n:0;
+}
+function ownerReportTime(r){ const ts=ownerTimestampValue(r.createdAt)||Date.parse(r.localCreatedAt||'')||0; return ts?new Date(ts).toLocaleString():'-'; }
+function ownerRuleCollectionForScope(scope){ return scope==='global'?'parserRules':'workspaceParserRules'; }
+function ownerSetResult(id,text,pass=null){ const el=document.getElementById(id); if(!el) return; el.textContent=text; el.className='ownerRuleResult '+(pass===true?'pass':pass===false?'fail':'muted'); }
+function ownerRefreshStats(){
+  setText('ownerNewReportCount',ownerParserReports.filter(x=>(x.status||'new')==='new').length);
+  setText('ownerReviewReportCount',ownerParserReports.filter(x=>x.status==='in_review').length);
+  setText('ownerActiveRuleCount',ownerParserRules.filter(x=>x.status==='active').length);
+  setText('ownerDraftRuleCount',ownerParserRules.filter(x=>x.status==='draft').length);
+}
+function renderOwnerParserReports(){
+  const box=document.getElementById('ownerParserReportList'); if(!box) return;
+  const status=val('ownerReportStatusFilter')||'ALL'; const q=String(val('ownerReportSearch')||'').trim().toLowerCase();
+  const rows=ownerParserReports.filter(r=>status==='ALL'||(r.status||'new')===status).filter(r=>!q||[r.userEmail,r.userDisplayName,r.workspaceName,r.entryName,r.originalMessage,r.userNote].some(v=>String(v||'').toLowerCase().includes(q)));
+  box.innerHTML=rows.length?rows.map(r=>`<div class="ownerReportItem ${r.id===ownerSelectedReportId?'selected':''}" onclick="ownerSelectReport('${escapeHtml(r.id)}')"><div class="ownerReportItemTop"><b>${escapeHtml(r.entryName||r.workspaceName||r.userEmail||'Report')}</b><span class="miniBadge">${escapeHtml(r.status||'new')}</span></div><div class="saveTiny">${escapeHtml(r.userEmail||r.userUid||'')} · ${escapeHtml(ownerReportTime(r))}</div><div class="ownerReportSnippet">${escapeHtml(String(r.originalMessage||'').slice(0,220))}</div></div>`).join(''):'<div class="muted ownerEmpty">Report မတွေ့ပါ။</div>';
+  ownerRefreshStats();
+}
+function ownerExtractFirstCardBody(report){
+  try{ const blocks=buildMessageBlocks(report?.originalMessage||'',report?.entryName||'Default'); if(blocks.length===1) return blocks[0].cardRawText||report.originalMessage||''; }catch(_e){}
+  return report?.originalMessage||'';
+}
+function ownerSelectReport(id){
+  ownerSelectedReportId=id; const r=ownerCurrentReport(); if(!r) return;
+  document.getElementById('ownerReportEmpty').style.display='none'; document.getElementById('ownerReportDetail').style.display='block';
+  setText('ownerSelectedReportStatus',r.status||'new');
+  const meta=document.getElementById('ownerReportMeta'); if(meta) meta.innerHTML=`<span>${escapeHtml(r.userEmail||r.userUid||'')}</span><span>${escapeHtml(r.workspaceName||'-')}</span><span>${escapeHtml(r.entryName||'Default')}</span><span>${escapeHtml(r.entryDate||'-')} ${escapeHtml(r.entrySession||'-')}</span><span>${escapeHtml(r.writerProfile||'AUTO')}</span><span>${Number(r.issueCount||0)} issues</span>`;
+  setVal('ownerReportOriginal',r.originalMessage||''); setVal('ownerReportCurrentOutput',r.parserOutput||''); setVal('ownerReportExpected',r.expectedCorrectRecords||''); setVal('ownerReportUserNote',r.userNote||'');
+  ownerResetRuleStudio(true); renderOwnerParserReports();
+}
+function ownerResetRuleStudio(keepReport=false){
+  const r=ownerCurrentReport(); ownerSelectedRuleId=''; ownerSelectedRuleCollection='';
+  setVal('ownerRuleSelectedId',''); setVal('ownerRuleSelectedStatus','draft'); setVal('ownerRuleName',r?`Report ${r.clientId||r.id||''}`:''); setVal('ownerRuleType','EXACT_CORRECTION'); setVal('ownerRuleScope',r?'workspace':'global'); setVal('ownerRuleTargetUser',r?.userUid||''); setVal('ownerRuleEntryName',''); setVal('ownerRuleWriter',''); setVal('ownerRuleMatchText',r?ownerExtractFirstCardBody(r):''); setVal('ownerRuleReplacements',''); setVal('ownerRuleNoteDelimiter',''); setVal('ownerRuleLiteralMatch',''); setVal('ownerRuleLiteralReplace',''); setVal('ownerRuleExpected',r?.expectedCorrectRecords||''); setVal('ownerRulePriority','100');
+  ownerRuleTypeChanged(); ownerRuleScopeChanged(); ownerSetResult('ownerRuleTestResult','Rule Test မလုပ်ရသေးပါ။'); ownerSetResult('ownerRuleConflictResult','Conflict Check မလုပ်ရသေးပါ။');
+}
+function ownerRuleTypeChanged(){
+  const type=val('ownerRuleType');
+  const exact=document.getElementById('ownerExactFields'), transform=document.getElementById('ownerTransformFields'), rewrite=document.getElementById('ownerRewriteFields');
+  if(exact) exact.style.display=type==='EXACT_CORRECTION'?'':'none'; if(transform) transform.style.display=type==='SAFE_TRANSFORM'?'':'none'; if(rewrite) rewrite.style.display=type==='LITERAL_REWRITE'?'':'none';
+}
+function ownerRuleScopeChanged(){ const scope=val('ownerRuleScope')||'workspace'; const target=document.getElementById('ownerRuleTargetUser'); if(target) target.readOnly=true; if(scope==='global') setVal('ownerRuleTargetUser',''); else if(!val('ownerRuleTargetUser')) setVal('ownerRuleTargetUser',ownerCurrentReport()?.userUid||''); }
+function ownerSuggestSafeTransform(){
+  const r=ownerCurrentReport(); if(!r){showToast(ownerL('Report တစ်ခုရွေးပါ','Select a report'));return;}
+  const raw=String(r.originalMessage||''); const pairs=[]; if(raw.includes('@')) pairs.push('@ => R'); if(raw.includes(')')) pairs.push(') => =');
+  setVal('ownerRuleType','SAFE_TRANSFORM'); setVal('ownerRuleScope','workspace'); setVal('ownerRuleTargetUser',r.userUid||''); setVal('ownerRuleName','Safe transform from report'); setVal('ownerRuleReplacements',pairs.join('\n')); if(raw.includes('===')) setVal('ownerRuleNoteDelimiter','==='); setVal('ownerRuleExpected',r.expectedCorrectRecords||''); ownerRuleTypeChanged(); ownerRuleScopeChanged();
+}
+function ownerRuleCandidate(){
+  const type=val('ownerRuleType')||'EXACT_CORRECTION'; const scope=val('ownerRuleScope')||'workspace';
+  const rule={id:ownerSelectedRuleId||`RULE-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,name:String(val('ownerRuleName')||'').trim()||'Untitled Rule',type,scope,targetUserUid:scope==='workspace'?String(val('ownerRuleTargetUser')||'').trim():'',targetEntryName:String(val('ownerRuleEntryName')||'').trim(),targetWriterProfile:String(val('ownerRuleWriter')||'').trim(),priority:Number(val('ownerRulePriority')||100),status:'active',sourceReportId:ownerSelectedReportId||'',expectedCorrectRecords:String(val('ownerRuleExpected')||''),expectedRows:parseExpectedRowsText(val('ownerRuleExpected')||'')};
+  if(type==='EXACT_CORRECTION') rule.matchText=String(val('ownerRuleMatchText')||'');
+  if(type==='SAFE_TRANSFORM'){ rule.replacements=parseReplacementPairsText(val('ownerRuleReplacements')||''); rule.noteDelimiter=String(val('ownerRuleNoteDelimiter')||'').trim(); }
+  if(type==='LITERAL_REWRITE'){ rule.matchText=String(val('ownerRuleLiteralMatch')||''); rule.replaceText=String(val('ownerRuleLiteralReplace')||''); }
+  return rule;
+}
+function ownerValidateRule(rule){
+  if(!rule.name) return 'Rule Name လိုပါသည်';
+  if(rule.scope==='workspace'&&!rule.targetUserUid) return 'Workspace Rule အတွက် Target User UID လိုပါသည်';
+  if(rule.type==='EXACT_CORRECTION'&&!String(rule.matchText||'').trim()) return 'Exact Card Body လိုပါသည်';
+  if(rule.type==='EXACT_CORRECTION'&&!(rule.expectedRows||[]).length) return 'Exact Correction အတွက် Expected Correct Records လိုပါသည်';
+  if(rule.type==='SAFE_TRANSFORM'&&!(rule.replacements||[]).length&&!rule.noteDelimiter) return 'Replacement သို့မဟုတ် Note Delimiter အနည်းဆုံးတစ်ခုလိုပါသည်';
+  if(rule.type==='LITERAL_REWRITE'&&(!String(rule.matchText||'').trim()||!String(rule.replaceText||'').trim())) return 'Exact Line နှင့် Rewrite As နှစ်ခုလုံးလိုပါသည်';
+  return '';
+}
+function ownerTestRule(silent=false){
+  const r=ownerCurrentReport(); if(!r){if(!silent)showToast(ownerL('Report တစ်ခုရွေးပါ','Select a report'));return {pass:false,error:'No report selected'};}
+  const rule=ownerRuleCandidate(); const err=ownerValidateRule(rule); if(err){ownerSetResult('ownerRuleTestResult',err,false);return {pass:false,error:err};}
+  const expected=parseExpectedRowsText(val('ownerRuleExpected')||r.expectedCorrectRecords||'');
+  const oldRule=window.__V2D_OWNER_TEST_RULE, oldUid=window.__V2D_RULE_CONTEXT_USER_UID; window.__V2D_OWNER_TEST_RULE=rule; window.__V2D_RULE_CONTEXT_USER_UID=r.userUid||CURRENT_UID;
+  let result; try{ result=parseMessage(r.originalMessage||'',r.entryName||'Default',r.writerProfile||'AUTO'); }finally{window.__V2D_OWNER_TEST_RULE=oldRule;window.__V2D_RULE_CONTEXT_USER_UID=oldUid;}
+  const actual=(result.detailRows||[]).map(x=>`${x.number}:${Number(x.amount||0)}`); const exp=expected.map(x=>`${x.number}:${Number(x.amount||0)}`); const pass=expected.length>0&&JSON.stringify(actual)===JSON.stringify(exp);
+  const text=`${pass?'PASS':'NOT MATCH'}\nExpected: ${exp.join(', ')||'(empty)'}\nActual:   ${actual.join(', ')||'(empty)'}\nWarnings: ${(result.warnings||[]).join(' | ')||'none'}`;
+  ownerSetResult('ownerRuleTestResult',text,pass); if(!silent) showToast(pass?'Rule Test PASS':'Rule Test မကိုက်သေးပါ',pass?'success':'warn',5000); return {pass,expected:exp,actual,result,rule};
+}
+function ownerCoreRegressionSuite(candidate){
+  const oldRule=window.__V2D_OWNER_TEST_RULE, oldUid=window.__V2D_RULE_CONTEXT_USER_UID; window.__V2D_OWNER_TEST_RULE=candidate; window.__V2D_RULE_CONTEXT_USER_UID=candidate.targetUserUid||CURRENT_UID;
+  const cases=[
+    ['47-35-1500',['35:1500','47:1500']],['11.22.77.00.5000',['00:5000','11:5000','22:5000','77:5000']],['54=1000R500',['45:500','54:1000']],['55/58=1000R500',['55:1000','55:500','58:1000','85:500']],['50/51/52=500R300',['05:300','15:300','25:300','50:500','51:500','52:500']],['63=500R200\n64\n65\n67\n97\n44=500',['36:200','44:500','46:200','56:200','63:500','64:500','65:500','67:500','76:200','79:200','97:500']],['67R1500',['67:1500','76:1500']],['40=3000R1000',['04:1000','40:3000']],['45@500',['45:500','54:500']]
+  ];
+  let passed=0; const failures=[];
+  try{
+    cases.forEach(([input,expected])=>{ const actual=normalizeTestRows(parseMessage(input,'Regression','AUTO').detailRows); if(sameTestArray(actual,expected)) passed++; else failures.push(`${input} => ${actual.join(', ')}`); });
+    const h1200=parseHeaderStampMeta('Tuesday, July 7, 2026 12:00 PM'),h1201=parseHeaderStampMeta('Tuesday, July 7, 2026 12:01 PM'),h0939=parseHeaderStampMeta('Tuesday, July 7, 2026 9:39 AM');
+    [['Header 12:00',h1200?.session,'AM'],['Header 12:01',h1201?.session,'PM'],['Header 9:39',h0939?.session,'AM']].forEach(([n,a,e])=>{if(a===e)passed++;else failures.push(`${n}: ${a}`);});
+    const noName=parseMessage('47=500','Default','AUTO'); if(noName.needsNameSelection===true)passed++;else failures.push('Name selection regression');
+    const a=makeMessageBlockKey('Tuesday, July 7, 2026 9:39 AM','Tester',[{raw:'47=500'}]),b=makeMessageBlockKey('Tuesday, July 7, 2026 9:39 AM','Tester',[{raw:'47=500'}]),c=makeMessageBlockKey('Tuesday, July 7, 2026 9:39 AM','Tester',[{raw:'48=500'}]); if(a===b)passed++;else failures.push('Duplicate key same regression'); if(a!==c)passed++;else failures.push('Duplicate key different regression');
+  }finally{window.__V2D_OWNER_TEST_RULE=oldRule;window.__V2D_RULE_CONTEXT_USER_UID=oldUid;}
+  return {pass:failures.length===0,passed,total:15,failures};
+}
+function ownerRuleSignatureConflict(candidate){
+  const conflicts=[];
+  ownerParserRules.filter(r=>r.status==='active' && r.id!==candidate.id).forEach(r=>{
+    if(r.scope!==candidate.scope) return;
+    if(r.scope==='workspace'&&r.targetUserUid!==candidate.targetUserUid) return;
+    if(r.type==='EXACT_CORRECTION'&&candidate.type==='EXACT_CORRECTION'&&normalizeRuntimeRuleText(r.matchText)===normalizeRuntimeRuleText(candidate.matchText)&&JSON.stringify(r.expectedRows||[])!==JSON.stringify(candidate.expectedRows||[])) conflicts.push(`Exact match conflict with ${r.name||r.id}`);
+    if(r.type==='LITERAL_REWRITE'&&candidate.type==='LITERAL_REWRITE'&&normalizeRuntimeRuleText(r.matchText)===normalizeRuntimeRuleText(candidate.matchText)&&String(r.replaceText)!==String(candidate.replaceText)) conflicts.push(`Line rewrite conflict with ${r.name||r.id}`);
+    if(r.type==='SAFE_TRANSFORM'&&candidate.type==='SAFE_TRANSFORM'){
+      (candidate.replacements||[]).forEach(cp=>(r.replacements||[]).forEach(rp=>{if(cp.find===rp.find&&cp.replace!==rp.replace)conflicts.push(`Replacement '${cp.find}' conflicts with ${r.name||r.id}`);}));
+    }
+  });
+  return conflicts;
+}
+function ownerConflictCheck(silent=false){
+  const candidate=ownerRuleCandidate(); const err=ownerValidateRule(candidate); if(err){ownerSetResult('ownerRuleConflictResult',err,false);return {pass:false,error:err};}
+  const signature=ownerRuleSignatureConflict(candidate); const regression=ownerCoreRegressionSuite(candidate); const pass=!signature.length&&regression.pass;
+  const text=`${pass?'PASS — Activate လုပ်နိုင်ပါပြီ':'BLOCKED'}\nRegression: ${regression.passed}/${regression.total} PASS\nRule conflicts: ${signature.length}\n${[...signature,...regression.failures].join('\n')||'No conflicts found.'}`;
+  ownerSetResult('ownerRuleConflictResult',text,pass); if(!silent)showToast(pass?ownerL('Conflict Check PASS','Conflict Check PASS'):ownerL('Conflict တွေ့ပါသည်','Conflict found'),pass?'success':'error',6000); return {pass,signature,regression,candidate};
+}
+async function ownerArchiveExistingRule(existing){
+  if(!existing||!db) return; const versionId=`${existing.id}-v${Number(existing.version||1)}-${Date.now()}`; const copy={...existing}; delete copy.__collection; copy.archivedAt=firebase.firestore.FieldValue.serverTimestamp(); copy.archivedBy=CURRENT_UID; await db.collection('parserRuleVersions').doc(versionId).set(copy);
+}
+async function ownerPersistRule(status){
+  if(!IS_APP_OWNER) throw new Error('App Owner access required'); const rule=ownerRuleCandidate(); const err=ownerValidateRule(rule); if(err) throw new Error(err);
+  const collection=ownerRuleCollectionForScope(rule.scope); const existing=ownerCurrentRule(); if(existing) await ownerArchiveExistingRule(existing); if(existing&&existing.__collection&&existing.__collection!==collection){await db.collection(existing.__collection).doc(existing.id).set({status:'disabled',updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:CURRENT_UID},{merge:true});}
+  const version=existing?Number(existing.version||1)+1:1; const payload={...rule,status,version,updatedBy:CURRENT_UID,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}; delete payload.__collection;
+  if(!existing) payload.createdAt=firebase.firestore.FieldValue.serverTimestamp();
+  await db.collection(collection).doc(rule.id).set(payload,{merge:true}); ownerSelectedRuleId=rule.id; ownerSelectedRuleCollection=collection; setVal('ownerRuleSelectedId',rule.id); setVal('ownerRuleSelectedStatus',status);
+  if(ownerSelectedReportId) await db.collection('parserReports').doc(ownerSelectedReportId).set({status:'in_review',linkedRuleIds:firebase.firestore.FieldValue.arrayUnion(rule.id),ownerUpdatedAt:firebase.firestore.FieldValue.serverTimestamp(),ownerUpdatedBy:CURRENT_UID},{merge:true});
+  return rule;
+}
+async function ownerSaveRuleDraft(){ try{await ownerPersistRule('draft');showToast(ownerL('Rule Draft သိမ်းပြီးပါပြီ','Rule draft saved'),'success');}catch(err){showToast('Draft မသိမ်းနိုင်ပါ: '+(err?.message||err),'error',7000);} }
+async function ownerActivateRule(){
+  try{
+    const test=ownerTestRule(true); if(!test.pass){showToast(ownerL('Activate မလုပ်ခင် Rule Test PASS ဖြစ်ရပါမယ်','Rule Test must PASS before activation'),'error',7000);return;}
+    const conflict=ownerConflictCheck(true); if(!conflict.pass){showToast(ownerL('Conflict Check မအောင်မြင်သေးပါ','Conflict Check has not passed yet'),'error',7000);return;}
+    await ownerPersistRule('active'); await loadActiveParserRulesOnce(); showToast(ownerL('Parser Rule Activate အောင်မြင်ပါပြီ','Parser rule activated successfully'),'success',7000);
+  }catch(err){showToast('Rule Activate မရပါ: '+(err?.message||err),'error',8000);}
+}
+async function ownerUpdateReportStatus(status){
+  if(!IS_APP_OWNER||!ownerSelectedReportId)return; try{await db.collection('parserReports').doc(ownerSelectedReportId).set({status,ownerUpdatedAt:firebase.firestore.FieldValue.serverTimestamp(),ownerUpdatedBy:CURRENT_UID},{merge:true});showToast(`Report ${status}`,'success');}catch(err){showToast('Report update မရပါ: '+(err?.message||err),'error');}
+}
+function ownerMarkReportInReview(){ownerUpdateReportStatus('in_review');} function ownerResolveReport(){ownerUpdateReportStatus('resolved');} function ownerDismissReport(){ownerUpdateReportStatus('dismissed');}
+function renderOwnerParserRules(){
+  const box=document.getElementById('ownerParserRuleList'); if(!box) return; const rows=[...ownerParserRules].sort((a,b)=>ownerTimestampValue(b.updatedAt)-ownerTimestampValue(a.updatedAt));
+  box.innerHTML=rows.length?rows.map(r=>`<div class="ownerRuleRow"><div><b>${escapeHtml(r.name||r.id)}</b><div class="saveTiny">${escapeHtml(r.id)} · v${Number(r.version||1)}</div></div><div>${escapeHtml(r.type||'-')}</div><div>${escapeHtml(r.scope||'-')}</div><div><span class="miniBadge">${escapeHtml(r.status||'draft')}</span></div><div class="btnrow ownerRuleActions"><button class="btn gray small" onclick="ownerSelectRule('${escapeHtml(r.__collection)}','${escapeHtml(r.id)}')">Edit</button>${r.status==='active'?`<button class="btn danger small" onclick="ownerDisableRule('${escapeHtml(r.__collection)}','${escapeHtml(r.id)}')">Disable</button>`:''}</div></div>`).join(''):'<div class="muted">Rule မရှိသေးပါ။</div>'; ownerRefreshStats();
+}
+function ownerSelectRule(collection,id){
+  const r=ownerParserRules.find(x=>x.__collection===collection&&x.id===id); if(!r)return; ownerSelectedRuleId=id; ownerSelectedRuleCollection=collection;
+  setVal('ownerRuleSelectedId',id);setVal('ownerRuleSelectedStatus',r.status||'draft');setVal('ownerRuleName',r.name||'');setVal('ownerRuleType',r.type||'EXACT_CORRECTION');setVal('ownerRuleScope',r.scope||'workspace');setVal('ownerRuleTargetUser',r.targetUserUid||'');setVal('ownerRuleEntryName',r.targetEntryName||'');setVal('ownerRuleWriter',r.targetWriterProfile||'');setVal('ownerRulePriority',r.priority??100);setVal('ownerRuleMatchText',r.matchText||'');setVal('ownerRuleReplacements',(r.replacements||[]).map(x=>`${x.find} => ${x.replace}`).join('\n'));setVal('ownerRuleNoteDelimiter',r.noteDelimiter||'');setVal('ownerRuleLiteralMatch',r.type==='LITERAL_REWRITE'?(r.matchText||''):'');setVal('ownerRuleLiteralReplace',r.replaceText||'');setVal('ownerRuleExpected',r.expectedCorrectRecords||(r.expectedRows||[]).map(x=>`${x.number} ${x.amount}`).join('\n'));ownerRuleTypeChanged();ownerRuleScopeChanged();ownerSetResult('ownerRuleTestResult','Rule Test မလုပ်ရသေးပါ။');ownerSetResult('ownerRuleConflictResult','Conflict Check မလုပ်ရသေးပါ။'); document.getElementById('ownerRuleStudio')?.scrollIntoView?.({behavior:'smooth'});
+}
+async function ownerDisableRule(collection,id){ if(!confirm('ဒီ Rule ကို Disable လုပ်မလား?'))return; try{const existing=ownerParserRules.find(x=>x.__collection===collection&&x.id===id);if(existing)await ownerArchiveExistingRule(existing);await db.collection(collection).doc(id).set({status:'disabled',updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:CURRENT_UID},{merge:true});showToast(ownerL('Rule ပိတ်ထားပြီးပါပြီ','Rule disabled'),'success');}catch(err){showToast('Disable မရပါ: '+(err?.message||err),'error');} }
+function mergeOwnerRuleLists(globalRows,workspaceRows){ const map=new Map();[...globalRows,...workspaceRows].forEach(r=>map.set(`${r.__collection}:${r.id}`,r));ownerParserRules=[...map.values()];renderOwnerParserRules(); }
+let ownerGlobalRuleRows=[],ownerWorkspaceRuleRows=[];
+function startOwnerParserControlCenter(){
+  const badge=document.getElementById('ownerAccessBadge'); if(badge)badge.textContent=IS_APP_OWNER?'App Owner Verified':'Owner access required'; if(!IS_APP_OWNER)return;
+  try{ownerReportsUnsub?.();ownerGlobalRulesUnsub?.();ownerWorkspaceRulesUnsub?.();}catch(_e){}
+  ownerReportsUnsub=db.collection('parserReports').orderBy('createdAt','desc').limit(200).onSnapshot(snap=>{ownerParserReports=snap.docs.map(d=>ruleDocToObject(d,'parserReports'));renderOwnerParserReports();if(ownerSelectedReportId){const r=ownerCurrentReport();if(r)setText('ownerSelectedReportStatus',r.status||'new');}},err=>ownerSetResult('ownerRuleTestResult','Owner reports load failed: '+(err?.message||err),false));
+  ownerGlobalRulesUnsub=db.collection('parserRules').onSnapshot(snap=>{ownerGlobalRuleRows=snap.docs.map(d=>ruleDocToObject(d,'parserRules'));mergeOwnerRuleLists(ownerGlobalRuleRows,ownerWorkspaceRuleRows);},err=>console.warn('Owner global rule list failed',err));
+  ownerWorkspaceRulesUnsub=db.collection('workspaceParserRules').onSnapshot(snap=>{ownerWorkspaceRuleRows=snap.docs.map(d=>ruleDocToObject(d,'workspaceParserRules'));mergeOwnerRuleLists(ownerGlobalRuleRows,ownerWorkspaceRuleRows);},err=>console.warn('Owner workspace rule list failed',err));
+}
+async function ownerRefreshControlCenter(){ if(!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;} startOwnerParserControlCenter(); await loadActiveParserRulesOnce(); }
+
+
+function renderAll(){renderDashboard();renderPreview();renderEntryLive();renderLimit();renderOver();renderReports();renderImageText();renderEntryRecords();renderAuditTrail();renderDiagnostics();if(IS_APP_OWNER){renderOwnerParserReports();renderOwnerParserRules();} if(!window.__V2D_TRANSLATING_UI){window.__V2D_TRANSLATING_UI=true;try{translateUiTree(document);}finally{window.__V2D_TRANSLATING_UI=false;}}}
 function setText(id,v){const el=document.getElementById(id); if(el) el.textContent=v;}
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function go(id){
+  if(id==='ownerParser'&&!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
@@ -3831,7 +4160,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.3.0 Language + Theme',
+    version:'Stage 4.4.0 Owner Parser Control',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,
@@ -3963,6 +4292,7 @@ function init(){
   const authEmail=document.getElementById('authUserEmail');
   if(authName) authName.textContent=CURRENT_USER.displayName||window.V2D_CURRENT_PROFILE?.displayName||'User';
   if(authEmail) authEmail.textContent=CURRENT_USER.email||'';
+  setVal('accountUidDisplay',CURRENT_UID); const ownerStatus=document.getElementById('accountOwnerStatus'); if(ownerStatus) ownerStatus.textContent=IS_APP_OWNER?'App Owner':'User'; const ownerTab=document.getElementById('ownerParserTab'); if(ownerTab) ownerTab.style.display=IS_APP_OWNER?'':'none';
   document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active', t.dataset.id==='dashboard'));
   ['entryDate','recordDate','limitDate','overDate','reportDate','imageDate'].forEach(id=>setVal(id,today()));
   settings={shopName:(initialRegisteredShopName||'Viber 2D Desk'),commissionRate:20,payoutRate:80,defaultLimit:10000,amClose:'12:00',pmClose:'16:30',names:['Default'],nameRates:{Default:20},lang:'my',...settings}; if(!Array.isArray(settings.names)||!settings.names.length) settings.names=['Default']; if(!settings.nameRates) settings.nameRates={}; settings.names.forEach(n=>{if(settings.nameRates[n]==null) settings.nameRates[n]=settings.commissionRate||20;});
@@ -3980,7 +4310,9 @@ function init(){
 }
 async function bootstrapCloudFirstApp(){
   await initializeCloudFirstSync();
+  await initializeParserRuleEngine();
   init();
+  if(IS_APP_OWNER) startOwnerParserControlCenter();
   cloudSyncState.uiReady=true;
   setTimeout(()=>flushParserReportQueue(),700);
   if(cloudSyncState.needsInitialUpload || cloudSyncState.dirty){

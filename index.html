@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.4.0 Owner Parser Control Center</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.4.0">
+  <title>Viber 2D Desk - Stage 4.4.1 Issue Card Report Filter</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.4.1">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.4.0 · Owner Parser Control Center · Safe Runtime Rules</div>
+        <div class="muted">Stage 4.4.1 · Owner Parser Control Center · Issue Card Report Filter</div>
       </div>
     </div>
 
@@ -77,8 +77,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.4.0 Owner Parser Control Center + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.4.0: App Owner Report Inbox + Rule Test + Conflict Check + Activate</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.4.1 Issue Card Report Filter + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.4.1: Parser Report တွင် Issue ဖြစ်သော Viber Cards များကိုသာ ပြမည်</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -154,7 +154,7 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.4.0 မှာ Owner Parser Control Center ထည့်ထားပြီး Entry Safety၊ User Report၊ Language/Theme၊ Card Workspace နှင့် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.4.1 မှာ Owner Parser Control Center နှင့် Issue-card-only Report ထည့်ထားပြီး Entry Safety၊ User Report၊ Language/Theme၊ Card Workspace နှင့် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
     <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
@@ -193,7 +193,7 @@
 
       <div class="workspaceSectionHead">
         <div>
-          <div class="workspaceEyebrow">STAGE 4.4.0 · OWNER PARSER CONTROL CENTER</div>
+          <div class="workspaceEyebrow">STAGE 4.4.1 · OWNER PARSER CONTROL CENTER</div>
           <h2>Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်</h2>
           <div class="muted">Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။</div>
         </div>
@@ -300,7 +300,7 @@
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.4.0</span></h3>
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.4.1</span></h3>
               <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
             </div>
             <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
@@ -379,7 +379,7 @@
             <div class="parserReportHead">
               <div>
                 <h3 data-i18n="parserReportTitle">Parser Issue Report</h3>
-                <div class="muted" data-i18n="parserReportHint">Original message နှင့် လက်ရှိ Parser Output ကို အလိုအလျောက်ထည့်ပေးထားသည်။ Correct Result နှင့် Note ကို ဖြည့်ပြီး App Owner ထံ ပို့ပါ။</div>
+                <div class="muted" data-i18n="parserReportHint">မဖတ်နိုင်/Issue ဖြစ်သော Viber Card များနှင့် သက်ဆိုင်ရာ Parser Output ကိုသာ အလိုအလျောက်ပြထားသည်။ Correct Result နှင့် Note ကို ဖြည့်ပြီး App Owner ထံ ပို့ပါ။</div>
               </div>
               <button class="btn gray small" onclick="closeParserIssueReport()" data-i18n="close">Close</button>
             </div>
@@ -913,7 +913,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.4.0"></script>
-<script src="js/auth.js?v=4.4.0"></script>
+<script src="js/firebase-config.js?v=4.4.1"></script>
+<script src="js/auth.js?v=4.4.1"></script>
 </body>
 </html>

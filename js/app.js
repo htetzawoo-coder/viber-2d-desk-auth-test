@@ -82,7 +82,7 @@ let groupEditPreviewTimer = null;
 let currentIssueIndex = 0;
 
 
-// Stage 4.4.1 — Runtime Parser Rule Engine + Issue-card-only Reports
+// Stage 4.4.2 — Runtime Parser Rule Engine + Issue-card-only Reports
 let activeParserRules=[];
 let globalActiveParserRules=[];
 let workspaceActiveParserRules=[];
@@ -584,7 +584,7 @@ function saveRecords(){
   }
 }
 
-const CLOUD_SYNC_VERSION='4.4.1';
+const CLOUD_SYNC_VERSION='4.4.2';
 const CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=900;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -677,7 +677,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.4.1 Issue Card Report Filter',
+    version:'Stage 4.4.2 Compact Minimized Navigation',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -2195,7 +2195,7 @@ function buildParserIssueReportPayload(){
     reportScope:ctx.filtered?'issue-cards-only':'current-preview',
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'4.4.1',
+    appVersion:'4.4.2',
     parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
@@ -3250,6 +3250,7 @@ function renderLanguageTabs(){
     dashboard:['Dashboard','ပင်မ'],entry:['Entry','စာရင်းသွင်း'],records:['Entry Records','စာရင်းမှတ်တမ်း'],limit:['Limit Board','ကန့်သတ်ဘုတ်'],over:['Over','ကျော်နေသောစာရင်း'],reports:['Reports','အစီရင်ခံစာ'],image:['Image','ပုံ / မျှဝေ'],settings:['Settings','ဆက်တင်'],ownerParser:['Owner Parser','Owner Parser Control'],audit:['History','မှတ်တမ်း / Undo'],tests:['Tests','Parser စမ်းသပ်မှု'],diagnostics:['Diagnostics','Error / Version']
   };
   document.querySelectorAll('#tabs .tab[data-id]').forEach(btn=>{const pair=labels[btn.dataset.id]; if(!pair)return; btn.innerHTML=lang==='en'?pair[0]:pair[1];});
+  document.querySelectorAll('.compactNavBtn[data-id]').forEach(btn=>{const pair=labels[btn.dataset.id]; if(!pair)return; btn.textContent=lang==='en'?pair[0]:pair[1];});
 }
 let uiTranslateObserver=null;
 function startUiTranslationObserver(){
@@ -3681,8 +3682,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.4.1';
-const APP_VERSION_LABEL='Stage 4.4.1 Issue Card Report Filter';
+const APP_VERSION='4.4.2';
+const APP_VERSION_LABEL='Stage 4.4.2 Compact Minimized Navigation';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -3997,7 +3998,7 @@ async function hardReloadApp(){
 
 
 
-// Stage 4.4.1 — App Owner Parser Control Center
+// Stage 4.4.2 — App Owner Parser Control Center
 function ownerL(my,en){return currentUiLang()==='en'?en:my;}
 function ownerCurrentReport(){ return ownerParserReports.find(r=>r.id===ownerSelectedReportId)||null; }
 function ownerCurrentRule(){ return ownerParserRules.find(r=>r.id===ownerSelectedRuleId && r.__collection===ownerSelectedRuleCollection)||null; }
@@ -4163,6 +4164,7 @@ function go(id){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
+  document.querySelectorAll('.compactNavBtn').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
   document.body.classList.toggle('entry-sticky', id==='entry');
   if(id==='entry' && topbarState==='collapsed'){
     const box=document.getElementById('imgToolBox');
@@ -4201,7 +4203,7 @@ function saveOverImage(){
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.4.1 Issue Card Report Filter',
+    version:'Stage 4.4.2 Compact Minimized Navigation',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

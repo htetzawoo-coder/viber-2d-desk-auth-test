@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.4.2 Issue Card Report Filter</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.4.2">
+  <title>Viber 2D Desk - Stage 4.5.0 Owner User & License Management</title>
+  <link rel="stylesheet" href="css/styles.css?v=4.5.0">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
       <div class="authLogo">V2D</div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.4.2 · Owner Parser Control Center · Issue Card Report Filter</div>
+        <div class="muted">Stage 4.5.0 · Owner User & License Management</div>
       </div>
     </div>
 
@@ -35,6 +35,14 @@
       <button id="authTabLogin" class="authTab active" type="button" onclick="showAuthPanel('login')">Login</button>
       <button id="authTabRegister" class="authTab" type="button" onclick="showAuthPanel('register')">Register</button>
       <button id="authTabForgot" class="authTab" type="button" onclick="showAuthPanel('forgot')">Forgot Password</button>
+    </div>
+
+    <div id="licenseBlockedPanel" class="licenseBlockedPanel" hidden>
+      <div class="licenseBlockedIcon">!</div>
+      <h2 id="licenseBlockedTitle">Account Access Notice</h2>
+      <div id="licenseBlockedMessage" class="licenseBlockedMessage"></div>
+      <div id="licenseBlockedMeta" class="licenseBlockedMeta"></div>
+      <button class="btn danger" type="button" onclick="logoutUser()">Logout</button>
     </div>
 
     <form id="authLoginPanel" class="authPanel" onsubmit="loginWithEmail(event)">
@@ -77,8 +85,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.4.2 Compact Minimized Navigation + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.4.2: Minimize လုပ်ထားချိန် Open button ဘေးတွင် Main Page Quick Navigation များပြမည်</div></div>
+        <h1>Viber 2D Desk <span class="badge good">Stage 4.5.0 Owner User & License Management + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.5.0: App Owner User List · Active/Disabled · Plan · Expiry Date/Time · Custom Notice</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -135,6 +143,7 @@
       <button class="tab" data-id="image" onclick="go('image')">Image<small>ပုံ / မျှဝေ</small></button>
       <button class="tab" data-id="settings" onclick="go('settings')">Settings<small>ဆက်တင်</small></button>
       <button id="ownerParserTab" class="tab ownerOnlyTab" data-id="ownerParser" onclick="go('ownerParser')" style="display:none">Owner Parser<small>Owner Rule Control</small></button>
+      <button id="ownerUsersTab" class="tab ownerOnlyTab" data-id="ownerUsers" onclick="go('ownerUsers')" style="display:none">Owner Users<small>User / License Control</small></button>
       <button class="tab" data-id="audit" onclick="go('audit')">History<small>မှတ်တမ်း / Undo</small></button>
       <button class="tab" data-id="tests" onclick="go('tests')">Tests<small>Parser စမ်းသပ်မှု</small></button>
       <button class="tab" data-id="diagnostics" onclick="go('diagnostics')">Diagnostics<small>Error / Version</small></button>
@@ -163,7 +172,7 @@
       <div class="stat"><div class="k">PM Total</div><div class="v warnText" id="dashPM">0</div></div>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.4.2 မှာ Compact Minimized Navigation၊ Owner Parser Control Center နှင့် Issue-card-only Report ထည့်ထားပြီး Entry Safety၊ User Report၊ Language/Theme၊ Card Workspace နှင့် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
+      <div class="card"><h2>လုပ်ထားပြီးသော Stage 1</h2><div class="muted">ဒီ Stage 4.5.0 မှာ Compact Minimized Navigation၊ Owner Parser Control Center နှင့် Issue-card-only Report ထည့်ထားပြီး Entry Safety၊ User Report၊ Language/Theme၊ Card Workspace နှင့် အရင် OK လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိပါတယ်။</div><div class="btnrow"><button class="btn" onclick="go('entry')">Entry စတင်မယ်</button><button class="btn secondary" onclick="go('limit')">Limit Board ကြည့်မယ်</button></div></div>
       <div class="card"><h2>Formula Engine ပါပြီးသော Key များ</h2><div class="chips" id="formulaChips"></div></div>
     </div>
     <div class="card" style="margin-top:12px"><h2>Latest Records</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Session</th><th>Name</th><th>Card</th><th>Writer</th><th>Number</th><th class="right">Amount</th><th>Source</th></tr></thead><tbody id="latestRows"></tbody></table></div></div>
@@ -202,7 +211,7 @@
 
       <div class="workspaceSectionHead">
         <div>
-          <div class="workspaceEyebrow">STAGE 4.4.2 · OWNER PARSER CONTROL CENTER</div>
+          <div class="workspaceEyebrow">STAGE 4.5.0 · OWNER PARSER CONTROL CENTER</div>
           <h2>Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်</h2>
           <div class="muted">Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။</div>
         </div>
@@ -309,7 +318,7 @@
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.4.2</span></h3>
+              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.5.0</span></h3>
               <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
             </div>
             <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
@@ -813,6 +822,71 @@
     </div>
   </section>
 
+  <section id="ownerUsers" class="page">
+    <div class="card ownerControlShell">
+      <div class="ownerControlHeader">
+        <div>
+          <h2>App Owner User & License Management</h2>
+          <div class="muted">Registered User Account များ၏ Access / Plan / Expiry ကို စီမံရန်။ User ၏ Entry Records နှင့် Business Data ကို ဒီနေရာမှ မဖတ်ပါ။</div>
+        </div>
+        <div class="ownerBadge" id="ownerUsersAccessBadge">Owner access checking…</div>
+      </div>
+
+      <div class="grid4 ownerStats" style="margin-top:12px">
+        <div class="stat"><div class="k">Registered Users</div><div class="v" id="ownerUserTotalCount">0</div></div>
+        <div class="stat"><div class="k">Active</div><div class="v good" id="ownerUserActiveCount">0</div></div>
+        <div class="stat"><div class="k">Disabled</div><div class="v bad" id="ownerUserDisabledCount">0</div></div>
+        <div class="stat"><div class="k">Expired</div><div class="v warnText" id="ownerUserExpiredCount">0</div></div>
+      </div>
+
+      <div class="ownerUserControlGrid" style="margin-top:12px">
+        <div class="ownerPane">
+          <div class="ownerPaneTitle"><h3>Registered User List</h3><button class="btn gray small" onclick="ownerRefreshUsers()">Refresh</button></div>
+          <div class="grid2 ownerFilters">
+            <div><label>Status</label><select id="ownerUserStatusFilter" onchange="renderOwnerUsers()"><option value="ALL">All</option><option value="active">Active</option><option value="disabled">Disabled</option><option value="expired">Expired</option></select></div>
+            <div><label>Search</label><input id="ownerUserSearch" placeholder="Email / Name / Shop" oninput="renderOwnerUsers()"></div>
+          </div>
+          <div id="ownerUserList" class="ownerUserList"></div>
+        </div>
+
+        <div class="ownerPane">
+          <div class="ownerPaneTitle"><h3>User Detail & License</h3><span class="miniBadge" id="ownerSelectedUserBadge">No user</span></div>
+          <div id="ownerUserEmpty" class="muted ownerEmpty">User တစ်ယောက်ရွေးပါ။</div>
+          <div id="ownerUserDetail" style="display:none">
+            <div class="ownerUserIdentity">
+              <div><span>Email</span><b id="ownerUserEmail">-</b></div>
+              <div><span>Name</span><b id="ownerUserName">-</b></div>
+              <div><span>Shop / Workspace</span><b id="ownerUserShop">-</b></div>
+              <div><span>User UID</span><code id="ownerUserUid">-</code></div>
+              <div><span>Created</span><b id="ownerUserCreated">-</b></div>
+              <div><span>Last Login</span><b id="ownerUserLastLogin">-</b></div>
+            </div>
+
+            <div class="grid3" style="margin-top:12px">
+              <div><label>Account Access</label><select id="ownerLicenseStatus"><option value="active">Active</option><option value="disabled">Disabled</option></select></div>
+              <div><label>Plan</label><select id="ownerLicensePlan"><option value="trial">Trial</option><option value="basic">Basic</option><option value="standard">Standard</option><option value="pro">Pro</option><option value="custom">Custom</option></select></div>
+              <div><label>Expiry Date & Time</label><input id="ownerLicenseExpiry" type="datetime-local"></div>
+            </div>
+            <div class="parserReportGrid" style="margin-top:10px">
+              <div><label>Custom Expiry Notice</label><textarea id="ownerExpiryNotice" class="parserReportText shortText" placeholder="သင့်အကောင့် သက်တမ်းကုန်ဆုံးသွားပါပြီ…"></textarea></div>
+              <div><label>Custom Disabled Notice</label><textarea id="ownerDisabledNotice" class="parserReportText shortText" placeholder="သင့်အကောင့် အသုံးပြုခွင့်ကို App Owner မှ ခေတ္တပိတ်ထားပါသည်…"></textarea></div>
+            </div>
+            <div class="btnrow" style="margin-top:10px">
+              <button class="btn" onclick="ownerSaveUserLicense()">Save Access Settings</button>
+              <button class="btn secondary" onclick="ownerExtendUserDays(30)">+30 Days</button>
+              <button class="btn secondary" onclick="ownerExtendUserDays(90)">+90 Days</button>
+              <button class="btn gray" onclick="ownerClearUserExpiry()">No Expiry</button>
+              <button class="btn goodBtn" onclick="ownerSetUserActive(true)">Activate</button>
+              <button class="btn danger" onclick="ownerSetUserActive(false)">Disable</button>
+            </div>
+            <div id="ownerUserLicenseResult" class="ownerRuleResult muted">Changes မသိမ်းရသေးပါ။</div>
+            <div class="authSafetyNote" style="margin-top:10px">Privacy: Owner User Control က Account Profile / License metadata ကိုသာ ဖတ်နိုင်သည်။ User ၏ <code>users/{uid}/snapshots</code> Business Data ကို Owner ဖတ်ခွင့်မရှိပါ။</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="audit" class="page">
     <div class="card">
       <h2>History / Audit Trail / Undo</h2>
@@ -922,7 +996,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.4.2"></script>
-<script src="js/auth.js?v=4.4.2"></script>
+<script src="js/firebase-config.js?v=4.5.0"></script>
+<script src="js/auth.js?v=4.5.0"></script>
 </body>
 </html>

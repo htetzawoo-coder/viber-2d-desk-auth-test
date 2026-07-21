@@ -50,6 +50,7 @@ const pages = [
   ['image',{en:'Image',my:'ပုံ / မျှဝေ'}],
   ['settings',{en:'Settings',my:'ဆက်တင်'}],
   ['ownerParser',{en:'Owner Parser',my:'Owner Parser Control'}],
+  ['ownerUsers',{en:'Owner Users',my:'Owner User Control'}],
   ['audit',{en:'History',my:'မှတ်တမ်း / Undo'}]
 ];
 const N2 = Array.from({length:100},(_,i)=>String(i).padStart(2,'0'));
@@ -82,7 +83,7 @@ let groupEditPreviewTimer = null;
 let currentIssueIndex = 0;
 
 
-// Stage 4.4.2 — Runtime Parser Rule Engine + Issue-card-only Reports
+// Stage 4.5.0 — Runtime Parser Rule Engine + Issue-card-only Reports
 let activeParserRules=[];
 let globalActiveParserRules=[];
 let workspaceActiveParserRules=[];
@@ -97,6 +98,9 @@ let ownerSelectedRuleCollection='';
 let ownerReportsUnsub=null;
 let ownerGlobalRulesUnsub=null;
 let ownerWorkspaceRulesUnsub=null;
+let ownerUsers=[];
+let ownerSelectedUserUid='';
+let ownerUsersUnsub=null;
 
 function normalizeRuntimeRuleText(value){
   return String(value||'')
@@ -210,6 +214,7 @@ async function detectAppOwnerAccess(){
     IS_APP_OWNER=!!snap.exists && snap.data()?.active===true;
   }catch(err){ console.warn('Owner access check failed',err); }
   const tab=document.getElementById('ownerParserTab'); if(tab) tab.style.display=IS_APP_OWNER?'':'none';
+  const usersTab=document.getElementById('ownerUsersTab'); if(usersTab) usersTab.style.display=IS_APP_OWNER?'':'none';
   const status=document.getElementById('accountOwnerStatus'); if(status) status.textContent=IS_APP_OWNER?'App Owner':'User';
   return IS_APP_OWNER;
 }
@@ -584,7 +589,7 @@ function saveRecords(){
   }
 }
 
-const CLOUD_SYNC_VERSION='4.4.2';
+const CLOUD_SYNC_VERSION='4.5.0';
 const CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=900;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -677,7 +682,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.4.2 Compact Minimized Navigation',
+    version:'Stage 4.5.0 Compact Minimized Navigation',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -2195,7 +2200,7 @@ function buildParserIssueReportPayload(){
     reportScope:ctx.filtered?'issue-cards-only':'current-preview',
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'4.4.2',
+    appVersion:'4.5.0',
     parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
@@ -3151,6 +3156,7 @@ const I18N={
 };
 
 const UI_PHRASE_PAIRS=[
+  ['App Owner User & License Management','App Owner User နှင့် License စီမံခန့်ခွဲမှု'],['Registered User List','Register လုပ်ထားသော User စာရင်း'],['User Detail & License','User အသေးစိတ်နှင့် License'],['Registered Users','Register လုပ်ထားသော Users'],['Active','အသုံးပြုနိုင်'],['Disabled','ပိတ်ထား'],['Expired','သက်တမ်းကုန်'],['Account Access','အကောင့်အသုံးပြုခွင့်'],['Plan','Plan'],['Expiry Date & Time','သက်တမ်းကုန်ရက်နှင့်အချိန်'],['Custom Expiry Notice','သက်တမ်းကုန် Notice စာသား'],['Custom Disabled Notice','ပိတ်ထားသည့် Notice စာသား'],['Save Access Settings','Access Settings သိမ်းမည်'],['No Expiry','သက်တမ်းမကန့်သတ်'],['Activate','အသုံးပြုခွင့်ဖွင့်မည်'],['Disable','အသုံးပြုခွင့်ပိတ်မည်'],['Created','ဖွင့်ထားသည့်ရက်'],['Last Login','နောက်ဆုံး Login'],['User UID','User UID'],['Shop / Workspace','Shop / Workspace'],['No user','User မရွေးရသေး'],['User တစ်ယောက်ရွေးပါ။','User တစ်ယောက်ရွေးပါ။'],
   ['App Owner Parser Control Center','App Owner Parser ထိန်းချုပ်စင်တာ'],['Parser Issue Reports','Parser ပြဿနာ Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule စီမံခန့်ခွဲမှု'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['This User Workspace','ဒီ User Workspace သာ'],['All App Users','App User အားလုံး'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (မဖြည့်လည်းရ)'],['Writer Filter','Writer Filter'],['All Writers','Writer အားလုံး'],['Exact Card Body to Match','တိတိကျကျကိုက်ညီရမည့် Card Body'],['Literal Replacements — one per line: find => replace','စာသားအစားထိုးမှု — တစ်ကြောင်းစီ find => replace'],['Trailing Note Delimiter (optional)','နောက်ဆက် Note ခွဲခြားသင်္ကေတ (မဖြည့်လည်းရ)'],['Exact Line','တိတိကျကျ Line'],['Rewrite As','အစားထိုးရေးသားရန်'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Rule','Rule အသစ်'],['1. Test Rule','၁။ Rule စမ်းသပ်မည်'],['2. Conflict Check','၂။ Conflict စစ်မည်'],['Save Draft','Draft သိမ်းမည်'],['3. Activate Rule','၃။ Rule အသုံးပြုမည်'],['Parser Rules','Parser Rules'],['Active / Draft / Disabled rules','Active / Draft / Disabled Rules'],['Mark In Review','စစ်ဆေးနေဆဲအဖြစ်မှတ်မည်'],['Resolve Report','Report ဖြေရှင်းပြီး'],['Dismiss','ပယ်မည်'],['Auto Suggest','Auto အကြံပြု'],['Disable','ပိတ်ထားမည်'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Owner access checking…','Owner Access စစ်နေသည်…'],['App Owner Verified','App Owner အတည်ပြုပြီး'],['Owner access required','Owner Access လိုအပ်သည်'],['No report','Report မရွေးရသေး'],['Report တစ်ခုရွေးပါ။','Report တစ်ခုရွေးပါ။'],
     ['Dashboard','ပင်မ'],['Entry','စာရင်းသွင်း'],['Entry Records','စာရင်းမှတ်တမ်း'],['Limit Board','ကန့်သတ်ဘုတ်'],['Over','ကျော်နေသောစာရင်း'],['Reports','အစီရင်ခံစာ'],['Image','ပုံ / မျှဝေ'],['Settings','ဆက်တင်'],['History','မှတ်တမ်း / Undo'],['Tests','Parser စမ်းသပ်မှု'],['Diagnostics','Error / Version'],
   ['Language','ဘာသာ'],['Theme','Theme'],['System','System'],['Light','Light'],['Dark','Dark'],['Backup JSON','Backup JSON'],['Restore JSON','Restore JSON'],['Sync Now','ယခု Sync'],['Cloud Refresh','Cloud ပြန်ယူ'],['Clear All','အားလုံးဖျက်'],['Logout','ထွက်မည်'],['Minimize ▲','ချုံ့မည် ▲'],['Open ▼','ဖွင့်မည် ▼'],
@@ -3247,7 +3253,7 @@ function translateUiTree(root=document){
 }
 function renderLanguageTabs(){
   const lang=currentUiLang(); const labels={
-    dashboard:['Dashboard','ပင်မ'],entry:['Entry','စာရင်းသွင်း'],records:['Entry Records','စာရင်းမှတ်တမ်း'],limit:['Limit Board','ကန့်သတ်ဘုတ်'],over:['Over','ကျော်နေသောစာရင်း'],reports:['Reports','အစီရင်ခံစာ'],image:['Image','ပုံ / မျှဝေ'],settings:['Settings','ဆက်တင်'],ownerParser:['Owner Parser','Owner Parser Control'],audit:['History','မှတ်တမ်း / Undo'],tests:['Tests','Parser စမ်းသပ်မှု'],diagnostics:['Diagnostics','Error / Version']
+    dashboard:['Dashboard','ပင်မ'],entry:['Entry','စာရင်းသွင်း'],records:['Entry Records','စာရင်းမှတ်တမ်း'],limit:['Limit Board','ကန့်သတ်ဘုတ်'],over:['Over','ကျော်နေသောစာရင်း'],reports:['Reports','အစီရင်ခံစာ'],image:['Image','ပုံ / မျှဝေ'],settings:['Settings','ဆက်တင်'],ownerParser:['Owner Parser','Owner Parser Control'],ownerUsers:['Owner Users','Owner User Control'],audit:['History','မှတ်တမ်း / Undo'],tests:['Tests','Parser စမ်းသပ်မှု'],diagnostics:['Diagnostics','Error / Version']
   };
   document.querySelectorAll('#tabs .tab[data-id]').forEach(btn=>{const pair=labels[btn.dataset.id]; if(!pair)return; btn.innerHTML=lang==='en'?pair[0]:pair[1];});
   document.querySelectorAll('.compactNavBtn[data-id]').forEach(btn=>{const pair=labels[btn.dataset.id]; if(!pair)return; btn.textContent=lang==='en'?pair[0]:pair[1];});
@@ -3682,8 +3688,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.4.2';
-const APP_VERSION_LABEL='Stage 4.4.2 Compact Minimized Navigation';
+const APP_VERSION='4.5.0';
+const APP_VERSION_LABEL='Stage 4.5.0 Compact Minimized Navigation';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -3998,7 +4004,7 @@ async function hardReloadApp(){
 
 
 
-// Stage 4.4.2 — App Owner Parser Control Center
+// Stage 4.5.0 — App Owner Parser Control Center
 function ownerL(my,en){return currentUiLang()==='en'?en:my;}
 function ownerCurrentReport(){ return ownerParserReports.find(r=>r.id===ownerSelectedReportId)||null; }
 function ownerCurrentRule(){ return ownerParserRules.find(r=>r.id===ownerSelectedRuleId && r.__collection===ownerSelectedRuleCollection)||null; }
@@ -4200,10 +4206,83 @@ function saveOverImage(){
   const a=document.createElement('a'); a.href=canvas.toDataURL('image/png'); a.download=`over-${date}-${session}-${name}.png`; a.click();
   applyOverDeduction(date,session,name,rows,'saveImage');
 }
+
+// Stage 4.5.0 — App Owner User & License Management
+function ownerUserTimestamp(v){
+  try{ if(v?.toDate) return v.toDate().getTime(); }catch(_e){}
+  const n=Date.parse(v||''); return Number.isFinite(n)?n:0;
+}
+function ownerUserEffectiveStatus(u){
+  if(String(u?.licenseStatus||'active').toLowerCase()==='disabled') return 'disabled';
+  const exp=ownerUserTimestamp(u?.expiresAt);
+  if(exp && Date.now()>=exp) return 'expired';
+  return 'active';
+}
+function ownerUserDateText(v){ const ms=ownerUserTimestamp(v); return ms?new Date(ms).toLocaleString():'-'; }
+function ownerDateTimeLocalValue(v){
+  const ms=ownerUserTimestamp(v); if(!ms)return '';
+  const d=new Date(ms), pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function ownerSelectedUser(){ return ownerUsers.find(u=>u.uid===ownerSelectedUserUid)||null; }
+function ownerSetUserResult(text,pass=null){ const el=document.getElementById('ownerUserLicenseResult');if(!el)return;el.textContent=text;el.className='ownerRuleResult '+(pass===true?'pass':pass===false?'fail':'muted'); }
+function ownerRefreshUserStats(){
+  setText('ownerUserTotalCount',ownerUsers.length);
+  setText('ownerUserActiveCount',ownerUsers.filter(u=>ownerUserEffectiveStatus(u)==='active').length);
+  setText('ownerUserDisabledCount',ownerUsers.filter(u=>ownerUserEffectiveStatus(u)==='disabled').length);
+  setText('ownerUserExpiredCount',ownerUsers.filter(u=>ownerUserEffectiveStatus(u)==='expired').length);
+}
+function renderOwnerUsers(){
+  const box=document.getElementById('ownerUserList'); if(!box)return;
+  const filter=val('ownerUserStatusFilter')||'ALL'; const q=String(val('ownerUserSearch')||'').trim().toLowerCase();
+  const rows=ownerUsers.filter(u=>filter==='ALL'||ownerUserEffectiveStatus(u)===filter).filter(u=>!q||[u.email,u.displayName,u.shopName,u.uid,u.plan].some(v=>String(v||'').toLowerCase().includes(q)));
+  box.innerHTML=rows.length?rows.map(u=>{const st=ownerUserEffectiveStatus(u);return `<button class="ownerUserItem ${u.uid===ownerSelectedUserUid?'selected':''}" onclick="ownerSelectUser('${jsArg(u.uid)}')"><span class="ownerUserItemTop"><b>${escapeHtml(u.displayName||u.email||'User')}</b><span class="licenseStatusBadge ${st}">${st}</span></span><span class="ownerUserItemSub">${escapeHtml(u.email||'')}</span><span class="ownerUserItemSub">${escapeHtml(u.shopName||'-')} · ${escapeHtml(u.plan||'standard')}</span></button>`;}).join(''):'<div class="muted ownerEmpty">User မတွေ့ပါ။</div>';
+  ownerRefreshUserStats();
+}
+function ownerSelectUser(uid){
+  ownerSelectedUserUid=String(uid||''); const u=ownerSelectedUser(); if(!u)return;
+  document.getElementById('ownerUserEmpty').style.display='none'; document.getElementById('ownerUserDetail').style.display='block';
+  setText('ownerSelectedUserBadge',ownerUserEffectiveStatus(u)); setText('ownerUserEmail',u.email||'-');setText('ownerUserName',u.displayName||'-');setText('ownerUserShop',u.shopName||'-');setText('ownerUserUid',u.uid||'-');setText('ownerUserCreated',ownerUserDateText(u.createdAt));setText('ownerUserLastLogin',ownerUserDateText(u.lastLoginAt));
+  setVal('ownerLicenseStatus',String(u.licenseStatus||'active').toLowerCase()==='disabled'?'disabled':'active');
+  setVal('ownerLicensePlan',u.plan||'standard'); setVal('ownerLicenseExpiry',ownerDateTimeLocalValue(u.expiresAt));setVal('ownerExpiryNotice',u.expiryNotice||'');setVal('ownerDisabledNotice',u.disabledNotice||'');
+  ownerSetUserResult('Changes မသိမ်းရသေးပါ။'); renderOwnerUsers();
+}
+async function ownerSaveUserLicense(){
+  if(!IS_APP_OWNER){showToast('Owner access required');return;}
+  const u=ownerSelectedUser();if(!u){showToast('User တစ်ယောက်ရွေးပါ');return;}
+  const rawExpiry=String(val('ownerLicenseExpiry')||'').trim(); let expiresAt='';
+  if(rawExpiry){const d=new Date(rawExpiry);if(Number.isNaN(d.getTime())){ownerSetUserResult('Expiry Date/Time မမှန်ပါ။',false);return;}expiresAt=d.toISOString();}
+  const patch={
+    licenseStatus:val('ownerLicenseStatus')==='disabled'?'disabled':'active', plan:String(val('ownerLicensePlan')||'standard'), expiresAt:expiresAt?firebase.firestore.Timestamp.fromDate(new Date(expiresAt)):null,
+    expiryNotice:String(val('ownerExpiryNotice')||'').trim(), disabledNotice:String(val('ownerDisabledNotice')||'').trim(),
+    licenseUpdatedAt:firebase.firestore.FieldValue.serverTimestamp(), licenseUpdatedBy:CURRENT_UID
+  };
+  ownerSetUserResult('Saving…');
+  try{await db.collection('users').doc(u.uid).update(patch);ownerSetUserResult('Access settings saved. User app က realtime update ရပါမယ်။',true);showToast('User access settings saved');}
+  catch(err){console.error(err);ownerSetUserResult('Save မအောင်မြင်ပါ။ '+(err?.message||err),false);}
+}
+function ownerExtendUserDays(days){
+  const current=String(val('ownerLicenseExpiry')||'').trim(); let base=current?new Date(current):new Date();if(Number.isNaN(base.getTime())||base.getTime()<Date.now())base=new Date();base.setDate(base.getDate()+Number(days||0));setVal('ownerLicenseExpiry',ownerDateTimeLocalValue(base.toISOString()));setVal('ownerLicenseStatus','active');ownerSetUserResult(`Expiry +${days} days ပြင်ထားသည်။ Save Access Settings နှိပ်ပါ။`);
+}
+function ownerClearUserExpiry(){setVal('ownerLicenseExpiry','');ownerSetUserResult('No Expiry ပြင်ထားသည်။ Save Access Settings နှိပ်ပါ။');}
+function ownerSetUserActive(active){setVal('ownerLicenseStatus',active?'active':'disabled');ownerSaveUserLicense();}
+function stopOwnerUserControlCenter(){try{ownerUsersUnsub?.();}catch(_e){}ownerUsersUnsub=null;ownerUsers=[];ownerSelectedUserUid='';}
+function startOwnerUserControlCenter(){
+  if(!IS_APP_OWNER||!db)return;
+  const badge=document.getElementById('ownerUsersAccessBadge');if(badge)badge.textContent='App Owner Verified';
+  stopOwnerUserControlCenter();
+  ownerUsersUnsub=db.collection('users').onSnapshot(snap=>{
+    ownerUsers=snap.docs.map(d=>({uid:d.id,...(d.data()||{})})).sort((a,b)=>ownerUserTimestamp(b.createdAt)-ownerUserTimestamp(a.createdAt));
+    if(ownerSelectedUserUid&&!ownerUsers.some(u=>u.uid===ownerSelectedUserUid))ownerSelectedUserUid='';
+    renderOwnerUsers(); if(ownerSelectedUserUid)ownerSelectUser(ownerSelectedUserUid);
+  },err=>{console.error('Owner users realtime failed',err);const b=document.getElementById('ownerUsersAccessBadge');if(b)b.textContent='Permission Error';});
+}
+function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCenter(); }
+
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.4.2 Compact Minimized Navigation',
+    version:'Stage 4.5.0 Compact Minimized Navigation',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,
@@ -4335,7 +4414,7 @@ function init(){
   const authEmail=document.getElementById('authUserEmail');
   if(authName) authName.textContent=CURRENT_USER.displayName||window.V2D_CURRENT_PROFILE?.displayName||'User';
   if(authEmail) authEmail.textContent=CURRENT_USER.email||'';
-  setVal('accountUidDisplay',CURRENT_UID); const ownerStatus=document.getElementById('accountOwnerStatus'); if(ownerStatus) ownerStatus.textContent=IS_APP_OWNER?'App Owner':'User'; const ownerTab=document.getElementById('ownerParserTab'); if(ownerTab) ownerTab.style.display=IS_APP_OWNER?'':'none';
+  setVal('accountUidDisplay',CURRENT_UID); const ownerStatus=document.getElementById('accountOwnerStatus'); if(ownerStatus) ownerStatus.textContent=IS_APP_OWNER?'App Owner':'User'; const ownerTab=document.getElementById('ownerParserTab'); if(ownerTab) ownerTab.style.display=IS_APP_OWNER?'':'none'; const ownerUsersTab=document.getElementById('ownerUsersTab'); if(ownerUsersTab) ownerUsersTab.style.display=IS_APP_OWNER?'':'none';
   document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active', t.dataset.id==='dashboard'));
   ['entryDate','recordDate','limitDate','overDate','reportDate','imageDate'].forEach(id=>setVal(id,today()));
   settings={shopName:(initialRegisteredShopName||'Viber 2D Desk'),commissionRate:20,payoutRate:80,defaultLimit:10000,amClose:'12:00',pmClose:'16:30',names:['Default'],nameRates:{Default:20},lang:'my',...settings}; if(!Array.isArray(settings.names)||!settings.names.length) settings.names=['Default']; if(!settings.nameRates) settings.nameRates={}; settings.names.forEach(n=>{if(settings.nameRates[n]==null) settings.nameRates[n]=settings.commissionRate||20;});
@@ -4355,7 +4434,7 @@ async function bootstrapCloudFirstApp(){
   await initializeCloudFirstSync();
   await initializeParserRuleEngine();
   init();
-  if(IS_APP_OWNER) startOwnerParserControlCenter();
+  if(IS_APP_OWNER){ startOwnerParserControlCenter(); startOwnerUserControlCenter(); }
   cloudSyncState.uiReady=true;
   setTimeout(()=>flushParserReportQueue(),700);
   if(cloudSyncState.needsInitialUpload || cloudSyncState.dirty){

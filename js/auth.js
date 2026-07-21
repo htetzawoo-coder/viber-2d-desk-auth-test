@@ -20,7 +20,7 @@ function applyAuthLanguage(lang){
 function setAuthLanguage(lang){applyAuthLanguage(lang);}
 function authMsg(my,en){return authLanguage()==='en'?en:my;}
 
-const AUTH_STAGE_VERSION = "4.4.2";
+const AUTH_STAGE_VERSION = "4.5.0";
 let v2dAppScriptLoaded = false;
 
 function authEl(id){ return document.getElementById(id); }
@@ -81,14 +81,13 @@ function friendlyAuthError(error){
 }
 
 async function ensureUserProfile(user, extra={}){
-  const profile={
+  const coreProfile={
     uid:user.uid,
     email:user.email||"",
     displayName:extra.displayName||user.displayName||"",
     shopName:extra.shopName||"",
     role:"user",
-    status:"active",
-    updatedAt:new Date().toISOString()
+    status:"active"
   };
 
   try{
@@ -99,14 +98,24 @@ async function ensureUserProfile(user, extra={}){
 
     if(existing.exists){
       const previous=existing.data()||{};
-      await ref.set({
+      const patch={
         email:user.email||previous.email||"",
-        displayName:user.displayName||previous.displayName||"",
+        displayName:extra.displayName||user.displayName||previous.displayName||"",
         lastLoginAt:firebase.firestore.FieldValue.serverTimestamp(),
         updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-      },{merge:true});
-      window.V2D_CURRENT_PROFILE={...previous,...profile};
+      };
+      if(extra.shopName) patch.shopName=extra.shopName;
+      await ref.set(patch,{merge:true});
+      window.V2D_CURRENT_PROFILE={...coreProfile,...previous,...patch};
     }else{
+      const profile={
+        ...coreProfile,
+        plan:"standard",
+        licenseStatus:"active",
+        expiresAt:null,
+        expiryNotice:"",
+        disabledNotice:""
+      };
       await ref.set({
         ...profile,
         createdAt:firebase.firestore.FieldValue.serverTimestamp(),
@@ -117,7 +126,7 @@ async function ensureUserProfile(user, extra={}){
     }
   }catch(error){
     console.warn("User profile cloud write skipped",error);
-    window.V2D_CURRENT_PROFILE=profile;
+    window.V2D_CURRENT_PROFILE={...coreProfile,plan:"standard",licenseStatus:"active",expiresAt:null};
   }
   return window.V2D_CURRENT_PROFILE;
 }
@@ -235,6 +244,83 @@ async function logoutUser(){
   }
 }
 
+
+let v2dLicenseProfileUnsub=null;
+let v2dAuthOwnerBypass=false;
+let v2dLastLicenseState='';
+
+async function checkAuthOwnerBypass(user){
+  try{
+    const snap=await window.v2dDb.collection('appOwners').doc(user.uid).get();
+    return !!snap.exists && snap.data()?.active===true;
+  }catch(_e){ return false; }
+}
+function licenseExpiryMs(profile){
+  const raw=profile?.expiresAt;
+  if(!raw) return 0;
+  try{ if(raw?.toDate) return raw.toDate().getTime(); }catch(_e){}
+  const ms=Date.parse(String(raw));
+  return Number.isFinite(ms)?ms:0;
+}
+function userLicenseState(profile){
+  if(v2dAuthOwnerBypass) return {state:'active',reason:'owner'};
+  const status=String(profile?.licenseStatus||'active').toLowerCase();
+  if(status==='disabled') return {state:'disabled',reason:'disabled'};
+  const exp=licenseExpiryMs(profile);
+  if(exp && Date.now()>=exp) return {state:'expired',reason:'expired',expiresAt:exp};
+  return {state:'active',reason:'active',expiresAt:exp};
+}
+function showLicenseBlocked(user,profile,state){
+  const gate=authEl('authGate'), app=authEl('mainApp'), panel=authEl('licenseBlockedPanel');
+  if(app) app.hidden=true;
+  if(gate) gate.hidden=false;
+  document.querySelector('.authTabs')?.setAttribute('hidden','');
+  ['authLoginPanel','authRegisterPanel','authForgotPanel'].forEach(id=>{const el=authEl(id);if(el)el.style.display='none';});
+  if(panel) panel.hidden=false;
+  const isExpired=state.state==='expired';
+  const fallback=isExpired
+    ? authMsg('သင့်အကောင့် အသုံးပြုခွင့် သက်တမ်းကုန်ဆုံးသွားပါပြီ။ ဆက်လက်အသုံးပြုရန် App Owner ထံ ဆက်သွယ်ပါ။','Your account access has expired. Please contact the App Owner to continue using the app.')
+    : authMsg('သင့်အကောင့် အသုံးပြုခွင့်ကို App Owner မှ ခေတ္တပိတ်ထားပါသည်။ App Owner ထံ ဆက်သွယ်ပါ။','Your account access has been disabled by the App Owner. Please contact the App Owner.');
+  const custom=isExpired?String(profile?.expiryNotice||'').trim():String(profile?.disabledNotice||'').trim();
+  if(authEl('licenseBlockedTitle')) authEl('licenseBlockedTitle').textContent=isExpired?authMsg('အကောင့်သက်တမ်းကုန်ဆုံး','Account Expired'):authMsg('အကောင့်အသုံးပြုခွင့်ပိတ်ထားသည်','Account Disabled');
+  if(authEl('licenseBlockedMessage')) authEl('licenseBlockedMessage').textContent=custom||fallback;
+  const exp=licenseExpiryMs(profile);
+  if(authEl('licenseBlockedMeta')) authEl('licenseBlockedMeta').textContent=[user.email||'',isExpired&&exp?new Date(exp).toLocaleString():''].filter(Boolean).join(' · ');
+  setAuthMessage(custom||fallback,'bad');
+}
+function hideLicenseBlocked(){
+  const panel=authEl('licenseBlockedPanel'); if(panel)panel.hidden=true;
+  document.querySelector('.authTabs')?.removeAttribute('hidden');
+}
+async function applyLicenseProfile(user,profile){
+  window.V2D_CURRENT_PROFILE={...(window.V2D_CURRENT_PROFILE||{}),...(profile||{})};
+  updateSignedInHeader(user,window.V2D_CURRENT_PROFILE);
+  const state=userLicenseState(profile||{});
+  if(state.state!=='active'){
+    const changed=v2dLastLicenseState && v2dLastLicenseState!==state.state;
+    v2dLastLicenseState=state.state;
+    showLicenseBlocked(user,profile||{},state);
+    if(changed && v2dAppScriptLoaded) setTimeout(()=>location.reload(),250);
+    return false;
+  }
+  const wasBlocked=v2dLastLicenseState && v2dLastLicenseState!=='active';
+  v2dLastLicenseState='active';
+  hideLicenseBlocked();
+  if(wasBlocked && v2dAppScriptLoaded){ location.reload(); return true; }
+  loadAuthenticatedApp();
+  return true;
+}
+function startLicenseProfileWatch(user){
+  try{ v2dLicenseProfileUnsub?.(); }catch(_e){}
+  v2dLicenseProfileUnsub=window.v2dDb.collection('users').doc(user.uid).onSnapshot(snap=>{
+    if(!snap.exists) return;
+    applyLicenseProfile(user,snap.data()||{});
+  },error=>{
+    console.warn('License profile realtime failed',error);
+    applyLicenseProfile(user,window.V2D_CURRENT_PROFILE||{});
+  });
+}
+
 function initializeAuthFoundation(){
   if(window.v2dFirebaseInitError){
     setAuthMessage("Firebase initialization မအောင်မြင်ပါ။ "+window.v2dFirebaseInitError.message,"bad");
@@ -264,7 +350,8 @@ function initializeAuthFoundation(){
     const profile=await ensureUserProfile(user);
     window.V2D_CURRENT_USER=user;
     updateSignedInHeader(user,profile);
-    loadAuthenticatedApp();
+    v2dAuthOwnerBypass=await checkAuthOwnerBypass(user);
+    startLicenseProfileWatch(user);
   },error=>{
     setAuthMessage(friendlyAuthError(error),"bad");
   });

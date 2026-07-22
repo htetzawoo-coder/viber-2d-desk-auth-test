@@ -515,3 +515,14 @@ html[data-resolved-theme="light"] .parserReportPanel{background:#eff6ff;border-c
 .licenseBlockedPanel[hidden]{display:none!important}.licenseBlockedIcon{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;margin:0 auto 12px;background:#ef4444;color:#fff;font-weight:900;font-size:30px}.licenseBlockedMessage{font-size:18px;font-weight:700;line-height:1.7;white-space:pre-wrap;margin:12px auto;max-width:720px}.licenseBlockedMeta{font-size:12px;opacity:.75;margin:8px 0 16px}.authTabs[hidden]{display:none!important}
 .ownerUserControlGrid{display:grid;grid-template-columns:minmax(320px,.85fr) minmax(520px,1.45fr);gap:12px}.ownerUserList{max-height:650px;overflow:auto;display:grid;gap:8px;margin-top:10px}.ownerUserItem{width:100%;text-align:left;border:1px solid var(--line,#334155);border-radius:13px;padding:11px 12px;background:var(--card,#0f172a);color:inherit;cursor:pointer}.ownerUserItem:hover,.ownerUserItem.selected{border-color:#38bdf8;box-shadow:0 0 0 1px rgba(56,189,248,.28)}.ownerUserItemTop{display:flex;align-items:center;justify-content:space-between;gap:8px}.ownerUserItemSub{display:block;font-size:12px;opacity:.72;margin-top:4px}.licenseStatusBadge{font-size:11px;font-weight:800;text-transform:uppercase;padding:4px 8px;border-radius:999px}.licenseStatusBadge.active{background:rgba(34,197,94,.18);color:#4ade80}.licenseStatusBadge.disabled{background:rgba(239,68,68,.18);color:#f87171}.licenseStatusBadge.expired{background:rgba(245,158,11,.18);color:#fbbf24}.ownerUserIdentity{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ownerUserIdentity>div{border:1px solid var(--line,#334155);border-radius:11px;padding:9px 10px}.ownerUserIdentity span{display:block;font-size:11px;opacity:.65;margin-bottom:3px}.ownerUserIdentity b,.ownerUserIdentity code{overflow-wrap:anywhere}
 @media(max-width:1050px){.ownerUserControlGrid{grid-template-columns:1fr}.ownerUserIdentity{grid-template-columns:1fr}}
+
+
+/* Stage 4.6.0 — Installable PWA + App Logo */
+.pwaBrandLogo{padding:0!important;overflow:hidden;background:transparent!important;box-shadow:0 10px 30px rgba(20,184,166,.22)!important}
+.pwaBrandLogo img{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.pwaAuthActions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px}
+.appTitleWithIcon{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.titleAppIcon{width:38px;height:38px;border-radius:10px;box-shadow:0 6px 16px rgba(20,184,166,.22);flex:0 0 auto}
+button[data-pwa-install],button[data-pwa-share]{white-space:nowrap}
+@media (max-width:700px){.titleAppIcon{width:32px;height:32px;border-radius:8px}.pwaAuthActions .btn{flex:1 1 150px}}
+@media (display-mode:standalone){body{overscroll-behavior-y:none}.authSafetyNote::after{content:" · Installed App";color:#22c55e;font-weight:800}}

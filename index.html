@@ -3,18 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.5.0 Owner User & License Management</title>
-  <link rel="stylesheet" href="css/styles.css?v=4.5.0">
+  <title>Viber 2D Desk - Stage 4.6.0 Installable PWA + App Logo</title>
+  <meta name="theme-color" content="#0b1f3a" id="themeColorMeta" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="V2D Desk" />
+  <meta name="application-name" content="V2D Desk" />
+  <link rel="manifest" href="manifest.webmanifest?v=4.6.0" />
+  <link rel="icon" href="icons/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="css/styles.css?v=4.6.0">
 </head>
 <body>
 
 <div id="authGate" class="authGate">
   <div class="authCard">
     <div class="authBrand">
-      <div class="authLogo">V2D</div>
+      <div class="authLogo pwaBrandLogo"><img src="icons/icon-192.png" alt="Viber 2D Desk logo"></div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.5.0 · Owner User & License Management</div>
+        <div class="muted">Stage 4.6.0 · Installable PWA + App Logo</div>
       </div>
     </div>
 
@@ -29,6 +39,10 @@
           <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
         </select>
       </label>
+    </div>
+    <div class="pwaAuthActions">
+      <button class="btn secondary small" type="button" data-pwa-install onclick="installV2DApp()">App ထည့်မည်</button>
+      <button class="btn gray small" type="button" data-pwa-share onclick="shareV2DApp()">App Link မျှဝေမည်</button>
     </div>
 
     <div class="authTabs">
@@ -85,13 +99,15 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1>Viber 2D Desk <span class="badge good">Stage 4.5.0 Owner User & License Management + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.5.0: App Owner User List · Active/Disabled · Plan · Expiry Date/Time · Custom Notice</div></div>
+        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 4.6.0 Installable PWA + App Logo + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.6.0: Install App · Home Screen Logo · Share Link · PWA Cache</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
         <div class="btnrow" style="margin-top:0;align-items:center">
           <div class="langbox"><span data-i18n="langLabel">Language</span><select id="langSelect" onchange="setLang(this.value)"><option value="my">မြန်မာ</option><option value="en">English</option></select></div><div class="langbox"><span data-i18n="themeLabel">Theme</span><select id="themeSelect" onchange="setTheme(this.value)"><option value="system" data-i18n-option="themeSystem">System</option><option value="light" data-i18n-option="themeLight">Light</option><option value="dark" data-i18n-option="themeDark">Dark</option></select></div>
+          <button class="btn secondary small" type="button" data-pwa-install onclick="installV2DApp()">App ထည့်မည်</button>
+          <button class="btn gray small" type="button" data-pwa-share onclick="shareV2DApp()">App Link မျှဝေမည်</button>
           <button class="btn gray small" onclick="exportJSON()" data-i18n="backup">Backup JSON</button>
           <button class="btn gray small" onclick="document.getElementById('restoreJsonFile').click()">Restore JSON</button>
           <input id="restoreJsonFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreJSONBackup(event)">
@@ -992,11 +1008,12 @@
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 
+<script src="js/pwa.js?v=4.6.0"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.5.0"></script>
-<script src="js/auth.js?v=4.5.0"></script>
+<script src="js/firebase-config.js?v=4.6.0"></script>
+<script src="js/auth.js?v=4.6.0"></script>
 </body>
 </html>

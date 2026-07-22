@@ -682,7 +682,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.5.0 Compact Minimized Navigation',
+    version:'Stage 4.6.0 Installable PWA + App Logo',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -3273,7 +3273,7 @@ function setLang(lang){
   document.documentElement.lang=lang==='en'?'en':'my';
   const sel=document.getElementById('langSelect'); if(sel) sel.value=lang;
   translateUiTree(document); startUiTranslationObserver();
-  renderAll(); translateUiTree(document);
+  renderAll(); translateUiTree(document); window.v2dRefreshPwaUi?.();
 }
 function resolvedTheme(theme){ if(theme==='system') return window.matchMedia?.('(prefers-color-scheme: light)').matches?'light':'dark'; return theme==='light'?'light':'dark'; }
 function applyTheme(theme){
@@ -3688,8 +3688,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.5.0';
-const APP_VERSION_LABEL='Stage 4.5.0 Compact Minimized Navigation';
+const APP_VERSION='4.6.0';
+const APP_VERSION_LABEL='Stage 4.6.0 Installable PWA + App Logo';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -4282,7 +4282,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.5.0 Compact Minimized Navigation',
+    version:'Stage 4.6.0 Installable PWA + App Logo',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

@@ -15,12 +15,13 @@ function applyAuthLanguage(lang){
   set('loginSubmitBtn',d.loginButton);set('registerSubmitBtn',d.registerButton);set('forgotSubmitBtn',d.resetButton);
   const ls=document.getElementById('authLangSelect');if(ls)ls.value=lang;
   const ts=document.getElementById('authThemeSelect');if(ts){ts.options[0].textContent=d.system;ts.options[1].textContent=d.light;ts.options[2].textContent=d.dark;}
+  window.v2dRefreshPwaUi?.();
   const active=document.querySelector('.authTab.active')?.id||'authTabLogin';showAuthPanel(active==='authTabRegister'?'register':active==='authTabForgot'?'forgot':'login');
 }
-function setAuthLanguage(lang){applyAuthLanguage(lang);}
+function setAuthLanguage(lang){applyAuthLanguage(lang);window.v2dRefreshPwaUi?.();}
 function authMsg(my,en){return authLanguage()==='en'?en:my;}
 
-const AUTH_STAGE_VERSION = "4.5.0";
+const AUTH_STAGE_VERSION = "4.6.0";
 let v2dAppScriptLoaded = false;
 
 function authEl(id){ return document.getElementById(id); }

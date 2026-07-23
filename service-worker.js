@@ -1,5 +1,5 @@
-const V2D_CACHE = "v2d-desk-shell-v4.6.0";
-const V2D_RUNTIME = "v2d-desk-runtime-v4.6.0";
+const V2D_CACHE = "v2d-desk-shell-v4.7A.1";
+const V2D_RUNTIME = "v2d-desk-runtime-v4.7A.1";
 const APP_SHELL = [
   "./",
   "./index.html",

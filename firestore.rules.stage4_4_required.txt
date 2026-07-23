@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isSelf(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAppOwner() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/appOwners/$(request.auth.uid))
+        && get(/databases/$(database)/documents/appOwners/$(request.auth.uid)).data.active == true;
+    }
+
+    // App Owner membership is created manually from Firebase Console/Admin SDK.
+    // Clients can only read their own owner membership document and cannot self-promote.
+    match /appOwners/{ownerUid} {
+      allow read: if isSignedIn() && request.auth.uid == ownerUid;
+      allow create, update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow create: if isSelf(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.role == 'user'
+        && request.resource.data.status == 'active';
+      allow read: if isSelf(userId);
+      allow update: if isSelf(userId)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status;
+      allow delete: if false;
+
+      match /snapshots/{snapshotId} {
+        allow create: if isSelf(userId) && request.resource.data.ownerUid == userId;
+        allow read: if isSelf(userId);
+        allow update: if isSelf(userId)
+          && resource.data.ownerUid == userId
+          && request.resource.data.ownerUid == userId;
+        allow delete: if isSelf(userId) && resource.data.ownerUid == userId;
+      }
+    }
+
+    // Users submit reports and may read only their own. App Owner can review/update all reports.
+    match /parserReports/{reportId} {
+      allow create: if isSignedIn()
+        && request.resource.data.userUid == request.auth.uid
+        && request.resource.data.status == 'new';
+      allow read: if isAppOwner() || (isSignedIn() && resource.data.userUid == request.auth.uid);
+      allow update: if isAppOwner();
+      allow delete: if isAppOwner();
+    }
+
+    // Global runtime parser rules. Only ACTIVE global rules are readable by normal users.
+    match /parserRules/{ruleId} {
+      allow read: if isAppOwner()
+        || (isSignedIn() && resource.data.status == 'active');
+      allow create, update, delete: if isAppOwner();
+    }
+
+    // Private workspace rules. A user can read only ACTIVE rules targeted to that UID.
+    match /workspaceParserRules/{ruleId} {
+      allow read: if isAppOwner()
+        || (isSignedIn()
+          && resource.data.status == 'active'
+          && resource.data.targetUserUid == request.auth.uid);
+      allow create, update, delete: if isAppOwner();
+    }
+
+    // Immutable-ish rule version archive, owner managed.
+    match /parserRuleVersions/{versionId} {
+      allow read, create: if isAppOwner();
+      allow update, delete: if false;
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.6.0 Installable PWA + App Logo</title>
+  <title>Viber 2D Desk - Stage 4.7A.1 Report JPG Export + PWA</title>
   <meta name="theme-color" content="#0b1f3a" id="themeColorMeta" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="V2D Desk" />
   <meta name="application-name" content="V2D Desk" />
-  <link rel="manifest" href="manifest.webmanifest?v=4.6.0" />
+  <link rel="manifest" href="manifest.webmanifest?v=4.7A.1" />
   <link rel="icon" href="icons/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/styles.css?v=4.6.0">
+  <link rel="stylesheet" href="css/styles.css?v=4.7A.1">
 </head>
 <body>
 
@@ -24,7 +24,7 @@
       <div class="authLogo pwaBrandLogo"><img src="icons/icon-192.png" alt="Viber 2D Desk logo"></div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.6.0 · Installable PWA + App Logo</div>
+        <div class="muted">Stage 4.7A.1 · Name Summary Card Breakdown JPG</div>
       </div>
     </div>
 
@@ -99,8 +99,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 4.6.0 Installable PWA + App Logo + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.6.0: Install App · Home Screen Logo · Share Link · PWA Cache</div></div>
+        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 4.7A.1 Report JPG Export + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.7A.1: Name Summary · Card Breakdown · Fixed Professional JPG · PWA</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -630,9 +630,9 @@
       </div>
       <div id="reportTotalBreakdown" class="reportDrillPanel" hidden></div>
       <div id="reportPBreakdown" class="reportDrillPanel" hidden></div>
-      <div class="muted reportDrillHint">Total Amount ▼ သို့မဟုတ် P Amount ▼ ကိုနှိပ်ပြီး Card # / Time / Amount အလိုက် စစ်နိုင်ပါတယ်။ Name Summary ထဲက Total / P Amount ကိုလည်း တစ်ဦးချင်း ▼ ဖြန့်ကြည့်နိုင်ပါတယ်။</div>
+      <div class="muted reportDrillHint">Total Amount ▼ သို့မဟုတ် P Amount ▼ ကိုနှိပ်ပြီး Card # / Time / Amount အလိုက် စစ်နိုင်ပါတယ်။ Name Summary ထဲက Total / P Amount ကို တစ်ဦးချင်း ▼ ဖြန့်ကြည့်နိုင်ပြီး JPG ကိုနှိပ်၍ Card Total Breakdown ကို ပုံဖိုင်အဖြစ် သိမ်းနိုင်ပါတယ်။</div>
       <h3 style="margin-top:14px">Name Summary / နာမည်အလိုက်</h3>
-      <div class="scroll"><table id="reportNameRowsTable"><thead><tr><th>Name</th><th class="right">Total</th><th class="right">P Amount</th><th class="right">Payout</th><th class="right">Cor %</th><th class="right">Cor</th><th class="right">Final</th></tr></thead><tbody id="reportNameRows"></tbody></table></div>
+      <div class="scroll"><table id="reportNameRowsTable"><thead><tr><th>Name</th><th class="right">Total</th><th class="right">P Amount</th><th class="right">Payout</th><th class="right">Cor %</th><th class="right">Cor</th><th class="right">Final</th><th class="center">JPG</th></tr></thead><tbody id="reportNameRows"></tbody></table></div>
       <h3 style="margin-top:14px">Number Summary / နံပါတ်အလိုက်</h3>
       <div class="scroll"><table><thead><tr><th>Number</th><th class="right">Amount</th></tr></thead><tbody id="reportRows"></tbody></table></div>
       <div class="reportActions">
@@ -1008,12 +1008,12 @@
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 
-<script src="js/pwa.js?v=4.6.0"></script>
+<script src="js/pwa.js?v=4.7A.1"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 
-<script src="js/firebase-config.js?v=4.6.0"></script>
-<script src="js/auth.js?v=4.6.0"></script>
+<script src="js/firebase-config.js?v=4.7A.1"></script>
+<script src="js/auth.js?v=4.7A.1"></script>
 </body>
 </html>

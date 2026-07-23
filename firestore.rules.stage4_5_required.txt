@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isSelf(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAppOwner() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/appOwners/$(request.auth.uid))
+        && get(/databases/$(database)/documents/appOwners/$(request.auth.uid)).data.active == true;
+    }
+    function hasActiveLicense(userId) {
+      let p = get(/databases/$(database)/documents/users/$(userId)).data;
+      return (!("licenseStatus" in p) || p.licenseStatus == 'active')
+        && (!("expiresAt" in p) || p.expiresAt == null || request.time < p.expiresAt);
+    }
+
+    match /appOwners/{ownerUid} {
+      allow read: if isSignedIn() && request.auth.uid == ownerUid;
+      allow create, update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow create: if isSelf(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.role == 'user'
+        && request.resource.data.status == 'active'
+        && request.resource.data.licenseStatus == 'active'
+        && request.resource.data.plan == 'standard'
+        && request.resource.data.expiresAt == null;
+
+      // User sees their own profile/notice. Owner sees account + license metadata only.
+      allow read: if isSelf(userId) || isAppOwner();
+
+      // User may update normal profile/login metadata, never license/role/status fields.
+      allow update: if (isSelf(userId)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'email','displayName','shopName','lastLoginAt','updatedAt'
+        ]))
+        // Owner may update license fields only, not identity/profile fields.
+        || (isAppOwner()
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'licenseStatus','plan','expiresAt','expiryNotice','disabledNotice',
+            'licenseUpdatedAt','licenseUpdatedBy'
+          ]));
+      allow delete: if false;
+
+      // Business workspace remains private to the user and is unavailable when disabled/expired.
+      match /snapshots/{snapshotId} {
+        allow create: if isSelf(userId) && hasActiveLicense(userId) && request.resource.data.ownerUid == userId;
+        allow read: if isSelf(userId) && hasActiveLicense(userId);
+        allow update: if isSelf(userId) && hasActiveLicense(userId)
+          && resource.data.ownerUid == userId
+          && request.resource.data.ownerUid == userId;
+        allow delete: if isSelf(userId) && hasActiveLicense(userId) && resource.data.ownerUid == userId;
+      }
+    }
+
+    match /parserReports/{reportId} {
+      allow create: if isSignedIn()
+        && request.resource.data.userUid == request.auth.uid
+        && request.resource.data.status == 'new';
+      allow read: if isAppOwner() || (isSignedIn() && resource.data.userUid == request.auth.uid);
+      allow update, delete: if isAppOwner();
+    }
+
+    match /parserRules/{ruleId} {
+      allow read: if isAppOwner() || (isSignedIn() && resource.data.status == 'active');
+      allow create, update, delete: if isAppOwner();
+    }
+
+    match /workspaceParserRules/{ruleId} {
+      allow read: if isAppOwner()
+        || (isSignedIn() && resource.data.status == 'active' && resource.data.targetUserUid == request.auth.uid);
+      allow create, update, delete: if isAppOwner();
+    }
+
+    match /parserRuleVersions/{versionId} {
+      allow read, create: if isAppOwner();
+      allow update, delete: if false;
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

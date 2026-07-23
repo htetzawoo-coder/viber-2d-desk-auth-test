@@ -526,3 +526,6 @@ html[data-resolved-theme="light"] .parserReportPanel{background:#eff6ff;border-c
 button[data-pwa-install],button[data-pwa-share]{white-space:nowrap}
 @media (max-width:700px){.titleAppIcon{width:32px;height:32px;border-radius:8px}.pwaAuthActions .btn{flex:1 1 150px}}
 @media (display-mode:standalone){body{overscroll-behavior-y:none}.authSafetyNote::after{content:" · Installed App";color:#22c55e;font-weight:800}}
+
+/* Stage 4.7A.1 — Name Summary Card Breakdown JPG */
+.reportJpgBtn{border:1px solid #38bdf8;background:linear-gradient(180deg,#0ea5e9,#0284c7);color:#fff;border-radius:9px;padding:7px 11px;font-weight:900;cursor:pointer;box-shadow:0 2px 0 rgba(3,105,161,.7);white-space:nowrap}.reportJpgBtn:hover{filter:brightness(1.08);transform:translateY(-1px)}.reportJpgBtn:active{transform:translateY(1px);box-shadow:none}.reportJpgBtn:disabled{opacity:.38;cursor:not-allowed;filter:none;transform:none;box-shadow:none}.center{text-align:center}

@@ -682,7 +682,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.6.0 Installable PWA + App Logo',
+    version:'Stage 4.7A.1 Report JPG Export + PWA',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -2951,6 +2951,144 @@ function reportPBreakdownHTML(cards,{showName=false,showSession=false}={}){
   return `<div class="reportDrillHead"><b>P Number Card Breakdown</b><span>${cards.length} cards · P Amount ${money(total)}</span></div>
     <div class="scroll"><table class="reportDrillTable"><thead><tr>${showName?'<th>Name</th>':''}<th>P No.</th><th>Card</th><th>Time</th>${showSession?'<th>Session</th>':''}<th class="right">Hits</th><th class="right">P Amount</th><th>Source</th><th></th></tr></thead><tbody>${cards.map(card=>`<tr>${showName?`<td><b>${escapeHtml(card.name)}</b></td>`:''}<td><b>${escapeHtml(card.pNumber||'-')}</b></td><td><span class="cardNoBadge">${reportCardLabel(card)}</span></td><td>${escapeHtml(card.time||'-')}</td>${showSession?`<td>${escapeHtml(card.session||'-')}</td>`:''}<td class="right">${card.hits}</td><td class="right warnText"><b>${money(card.amount)}</b></td><td class="reportSourceCell">${escapeHtml(card.sources.join(' | ')||'-')}</td><td>${reportOpenButton(card)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="${(showName?1:0)+(showSession?1:0)+4}">Total P Amount</th><th class="right">${money(total)}</th><th colspan="2"></th></tr></tfoot></table></div>`;
 }
+// Stage 4.7A.1 — Fixed Professional JPG export for Name Summary Card Total Breakdown
+function reportExportSafeFilePart(value){
+  const cleaned=String(value||'report').normalize('NFKC').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,'_').replace(/_+/g,'_').replace(/^[_\-.]+|[_\-.]+$/g,'');
+  return (cleaned||'report').slice(0,80);
+}
+function reportExportText(ctx,text,x,y,maxWidth,lineHeight,maxLines=2){
+  const raw=String(text??'');
+  const words=raw.split(/\s+/).filter(Boolean);
+  const lines=[];
+  let line='';
+  if(!words.length) return 0;
+  for(const word of words){
+    const test=line?`${line} ${word}`:word;
+    if(ctx.measureText(test).width<=maxWidth || !line){
+      line=test;
+    }else{
+      lines.push(line); line=word;
+      if(lines.length>=maxLines) break;
+    }
+  }
+  if(lines.length<maxLines && line) lines.push(line);
+  if(lines.length>maxLines) lines.length=maxLines;
+  if(lines.length===maxLines && words.length && ctx.measureText(lines[lines.length-1]).width>maxWidth){
+    let last=lines[lines.length-1];
+    while(last.length>1 && ctx.measureText(last+'…').width>maxWidth) last=last.slice(0,-1);
+    lines[lines.length-1]=last+'…';
+  }
+  lines.forEach((ln,i)=>ctx.fillText(ln,x,y+(i*lineHeight)));
+  return lines.length;
+}
+function reportExportDownloadCanvas(canvas,filename){
+  return new Promise((resolve,reject)=>{
+    canvas.toBlob(blob=>{
+      if(!blob){ reject(new Error('JPG ဖိုင်ဖန်တီးမရပါ')); return; }
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url; a.download=filename; a.style.display='none';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1500);
+      resolve();
+    },'image/jpeg',0.94);
+  });
+}
+async function saveNameCardBreakdownJpg(name){
+  try{
+    const date=val('reportDate')||today();
+    const session=val('reportSession')||'AM';
+    const cards=reportCardBreakdown(date,session,name);
+    if(!cards.length){ showToast('ဒီ Name အတွက် Card Breakdown data မရှိပါ'); return; }
+    const summary=commissionSummary(name,date,session);
+    const pageSize=80;
+    const pages=[];
+    for(let i=0;i<cards.length;i+=pageSize) pages.push(cards.slice(i,i+pageSize));
+    const exportStamp=new Date();
+    for(let pageIndex=0;pageIndex<pages.length;pageIndex++){
+      const pageCards=pages[pageIndex];
+      const showSession=session==='DAILY';
+      const W=1480, margin=70, headerH=330, rowH=58, tableHeadH=58, footerH=110;
+      const H=headerH+tableHeadH+(pageCards.length*rowH)+footerH;
+      const canvas=document.createElement('canvas');
+      canvas.width=W; canvas.height=H;
+      const ctx=canvas.getContext('2d');
+      ctx.textBaseline='middle';
+      const fontFamily='"Noto Sans Myanmar","Myanmar Text","Pyidaungsu","Segoe UI",Arial,sans-serif';
+      // Fixed professional white export style
+      ctx.fillStyle='#f8fafc'; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,W,92);
+      ctx.font=`800 34px ${fontFamily}`; ctx.fillStyle='#ffffff'; ctx.fillText('Viber 2D Desk',margin,47);
+      ctx.font=`700 22px ${fontFamily}`; ctx.fillStyle='#93c5fd'; ctx.textAlign='right'; ctx.fillText('CARD TOTAL BREAKDOWN',W-margin,47); ctx.textAlign='left';
+
+      ctx.fillStyle='#ffffff'; ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=2;
+      ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(margin,120,W-(margin*2),170,20); else ctx.rect(margin,120,W-(margin*2),170); ctx.fill(); ctx.stroke();
+      ctx.font=`800 32px ${fontFamily}`; ctx.fillStyle='#0f172a'; ctx.fillText(String(name||'Default'),margin+28,157);
+      ctx.font=`600 18px ${fontFamily}`; ctx.fillStyle='#475569';
+      ctx.fillText(`Date: ${date}`,margin+28,205);
+      ctx.fillText(`Session: ${session}`,margin+300,205);
+      ctx.fillText(`Cards: ${cards.length}`,margin+565,205);
+      if(pages.length>1) ctx.fillText(`Page: ${pageIndex+1}/${pages.length}`,margin+790,205);
+      ctx.font=`800 24px ${fontFamily}`; ctx.fillStyle='#0369a1';
+      ctx.fillText(`Total Amount: ${money(summary.total)}`,margin+28,252);
+      ctx.font=`700 18px ${fontFamily}`; ctx.fillStyle='#64748b';
+      ctx.textAlign='right'; ctx.fillText(`Exported: ${exportStamp.toLocaleString()}`,W-margin-28,252); ctx.textAlign='left';
+
+      const tableX=margin, tableY=330, tableW=W-(margin*2);
+      const columns=showSession
+        ? [{k:'card',w:125},{k:'time',w:175},{k:'session',w:120},{k:'rows',w:115},{k:'amount',w:205},{k:'source',w:tableW-740}]
+        : [{k:'card',w:140},{k:'time',w:190},{k:'rows',w:130},{k:'amount',w:220},{k:'source',w:tableW-680}];
+      const headers=showSession?['Card','Time','Session','Rows','Amount','Source']:['Card','Time','Rows','Amount','Source'];
+      ctx.fillStyle='#e2e8f0'; ctx.fillRect(tableX,tableY,tableW,tableHeadH);
+      ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1; ctx.strokeRect(tableX,tableY,tableW,tableHeadH+(pageCards.length*rowH));
+      ctx.font=`800 18px ${fontFamily}`; ctx.fillStyle='#0f172a';
+      let x=tableX;
+      columns.forEach((col,i)=>{ ctx.fillText(headers[i],x+14,tableY+(tableHeadH/2)); x+=col.w; });
+      let y=tableY+tableHeadH;
+      pageCards.forEach((card,idx)=>{
+        ctx.fillStyle=idx%2===0?'#ffffff':'#f1f5f9'; ctx.fillRect(tableX,y,tableW,rowH);
+        ctx.strokeStyle='#e2e8f0'; ctx.beginPath(); ctx.moveTo(tableX,y+rowH); ctx.lineTo(tableX+tableW,y+rowH); ctx.stroke();
+        const vals=showSession
+          ? [reportCardLabel(card),card.time||'-',card.session||'-',String(card.rows||0),money(card.total),card.sources.join(' | ')||'-']
+          : [reportCardLabel(card),card.time||'-',String(card.rows||0),money(card.total),card.sources.join(' | ')||'-'];
+        x=tableX;
+        vals.forEach((v,i)=>{
+          const col=columns[i];
+          const isAmount=(showSession?i===4:i===3);
+          ctx.font=`${isAmount?'800':'600'} 17px ${fontFamily}`;
+          ctx.fillStyle=isAmount?'#0f766e':'#1e293b';
+          if(i===vals.length-1){
+            reportExportText(ctx,v,x+14,y+19,col.w-28,19,2);
+          }else if(isAmount || (showSession?i===3:i===2)){
+            ctx.textAlign='right'; ctx.fillText(v,x+col.w-14,y+(rowH/2)); ctx.textAlign='left';
+          }else{
+            ctx.fillText(v,x+14,y+(rowH/2));
+          }
+          x+=col.w;
+        });
+        y+=rowH;
+      });
+      // column dividers
+      x=tableX;
+      ctx.strokeStyle='#cbd5e1';
+      columns.slice(0,-1).forEach(col=>{ x+=col.w; ctx.beginPath(); ctx.moveTo(x,tableY); ctx.lineTo(x,y); ctx.stroke(); });
+      const visibleTotal=pageCards.reduce((sum,c)=>sum+Number(c.total||0),0);
+      ctx.fillStyle='#0f172a'; ctx.fillRect(tableX,y,tableW,64);
+      ctx.font=`800 20px ${fontFamily}`; ctx.fillStyle='#ffffff'; ctx.fillText(pages.length>1?'Page Total':'TOTAL',tableX+18,y+32);
+      ctx.textAlign='right'; ctx.fillStyle='#7dd3fc'; ctx.fillText(money(visibleTotal),tableX+tableW-18,y+32); ctx.textAlign='left';
+      ctx.font=`600 15px ${fontFamily}`; ctx.fillStyle='#64748b';
+      ctx.fillText('Generated by Viber 2D Desk · Fixed Professional Export',margin,H-28);
+      const part=pages.length>1?`_part-${pageIndex+1}`:'';
+      const filename=`${reportExportSafeFilePart(date)}_${reportExportSafeFilePart(session)}_${reportExportSafeFilePart(name)}_card-breakdown${part}.jpg`;
+      await reportExportDownloadCanvas(canvas,filename);
+    }
+    showToast(pages.length>1?`JPG ${pages.length} ဖိုင် သိမ်းပြီးပါပြီ`:'Card Breakdown JPG သိမ်းပြီးပါပြီ');
+  }catch(error){
+    console.error('Name Card Breakdown JPG export failed',error);
+    showToast(`JPG Export မအောင်မြင်ပါ: ${error?.message||error}`);
+  }
+}
+
 function toggleReportTotalBreakdown(){ reportTotalBreakdownOpen=!reportTotalBreakdownOpen; renderReports(); }
 function toggleReportPBreakdown(){ reportPBreakdownOpen=!reportPBreakdownOpen; renderReports(); }
 function toggleReportNameBreakdown(name,type){
@@ -3000,15 +3138,17 @@ function renderReports(){
   document.getElementById('reportNameRows').innerHTML=names.map(n=>{
     const s=commissionSummary(n,r.date,r.session); const cls=s.final<0?'resultNegative':'resultPositive'; const f=s.final<0?'('+money(Math.abs(Math.round(s.final)))+')':money(Math.round(s.final));
     const totalOpen=reportExpandedNames.has(n), pOpen=reportExpandedPNames.has(n);
-    let html=`<tr><td><b>${escapeHtml(n)}</b></td><td class="right"><button class="reportCellDrill" onclick="toggleReportNameBreakdown('${jsArg(n)}','total')">${money(s.total)} <span>${totalOpen?'▲':'▼'}</span></button></td><td class="right"><button class="reportCellDrill warnText" onclick="toggleReportNameBreakdown('${jsArg(n)}','p')">${money(s.pamt)} <span>${pOpen?'▲':'▼'}</span></button></td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td></tr>`;
+    const nameCards=reportCardBreakdown(r.date,r.session,n);
+    const jpgDisabled=nameCards.length?'':' disabled';
+    let html=`<tr><td><b>${escapeHtml(n)}</b></td><td class="right"><button class="reportCellDrill" onclick="toggleReportNameBreakdown('${jsArg(n)}','total')">${money(s.total)} <span>${totalOpen?'▲':'▼'}</span></button></td><td class="right"><button class="reportCellDrill warnText" onclick="toggleReportNameBreakdown('${jsArg(n)}','p')">${money(s.pamt)} <span>${pOpen?'▲':'▼'}</span></button></td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td><td class="center"><button class="reportJpgBtn" type="button" onclick="saveNameCardBreakdownJpg('${jsArg(n)}')"${jpgDisabled} title="Card Total Breakdown JPG">JPG</button></td></tr>`;
     if(totalOpen || pOpen){
       const parts=[];
-      if(totalOpen) parts.push(reportTotalBreakdownHTML(reportCardBreakdown(r.date,r.session,n),{showName:false,showSession:r.session==='DAILY'}));
+      if(totalOpen) parts.push(reportTotalBreakdownHTML(nameCards,{showName:false,showSession:r.session==='DAILY'}));
       if(pOpen) parts.push(reportPBreakdownHTML(reportPCardBreakdown(r.date,r.session,n),{showName:false,showSession:r.session==='DAILY'}));
-      html+=`<tr class="reportInlineDetailRow"><td colspan="7"><div class="reportInlineDetail">${parts.join('')}</div></td></tr>`;
+      html+=`<tr class="reportInlineDetailRow"><td colspan="8"><div class="reportInlineDetail">${parts.join('')}</div></td></tr>`;
     }
     return html;
-  }).join('') || '<tr><td colspan="7" class="muted">No data</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="muted">No data</td></tr>';
   document.getElementById('reportRows').innerHTML=Object.entries(r.totals).map(([n,a])=>`<tr><td><b>${n}</b></td><td class="right">${money(a)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">No data</td></tr>';
   renderDealerSummary(r);
 }
@@ -3688,8 +3828,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.6.0';
-const APP_VERSION_LABEL='Stage 4.6.0 Installable PWA + App Logo';
+const APP_VERSION='4.7A.1';
+const APP_VERSION_LABEL='Stage 4.7A.1 Report JPG Export + PWA';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -4282,7 +4422,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.6.0 Installable PWA + App Logo',
+    version:'Stage 4.7A.1 Report JPG Export + PWA',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

@@ -1,6 +1,7 @@
 (() => {
   "use strict";
   let deferredInstallPrompt = null;
+  const SW_VERSION = "4.7A.4";
   const isStandalone = () => window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
   const lang = () => localStorage.getItem("v2d_ui_language") === "en" ? "en" : "my";
   const copy = (my,en) => lang() === "en" ? en : my;
@@ -97,13 +98,19 @@
     notify(copy("Viber 2D Desk App တင်ပြီးပါပြီ။","Viber 2D Desk installed."));
   });
 
+  window.V2D_SW_READY = Promise.resolve(false);
   if("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost","127.0.0.1"].includes(location.hostname))){
-    window.addEventListener("load", async () => {
+    window.V2D_SW_READY = (async () => {
       try{
-        const reg = await navigator.serviceWorker.register("service-worker.js?v=4.7A.2",{scope:"./"});
-        reg.update().catch(()=>{});
-      }catch(error){ console.warn("PWA service worker registration failed",error); }
-    });
+        const reg = await navigator.serviceWorker.register(`service-worker.js?v=${SW_VERSION}`,{scope:"./"});
+        try{ await reg.update(); }catch(_){ }
+        if(reg.waiting) reg.waiting.postMessage("SKIP_WAITING");
+        return true;
+      }catch(error){
+        console.warn("PWA service worker registration failed",error);
+        return false;
+      }
+    })();
   }
 
   document.addEventListener("DOMContentLoaded",updateButtons);

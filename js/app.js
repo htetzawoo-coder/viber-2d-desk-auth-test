@@ -682,7 +682,7 @@ function buildCloudWorkspace(reason='auto'){
     type:'cloud_first_workspace',
     schemaVersion:2,
     app:'Viber 2D Desk',
-    version:'Stage 4.7A.2 Full Source + P Highlight + PWA',
+    version:'Stage 4.7A.4 Full Source + P Highlight + PWA',
     syncVersion:CLOUD_SYNC_VERSION,
     ownerUid:CURRENT_UID,
     ownerEmail:CURRENT_USER?.email||'',
@@ -2962,7 +2962,7 @@ function reportPBreakdownHTML(cards,{showName=false,showSession=false}={}){
   return `<div class="reportDrillHead"><b>P Number Card Breakdown</b><span>${cards.length} cards · P Amount ${money(total)}</span></div>
     <div class="scroll"><table class="reportDrillTable"><thead><tr>${showName?'<th>Name</th>':''}<th>P No.</th><th>Card</th><th>Time</th>${showSession?'<th>Session</th>':''}<th class="right">Hits</th><th class="right">P Amount</th><th>Source</th><th></th></tr></thead><tbody>${cards.map(card=>`<tr>${showName?`<td><b>${escapeHtml(card.name)}</b></td>`:''}<td><b>${escapeHtml(card.pNumber||'-')}</b></td><td><span class="cardNoBadge">${reportCardLabel(card)}</span></td><td>${escapeHtml(card.time||'-')}</td>${showSession?`<td>${escapeHtml(card.session||'-')}</td>`:''}<td class="right">${card.hits}</td><td class="right warnText"><b>${money(card.amount)}</b></td><td class="reportSourceCell">${escapeHtml(card.sources.join(' | ')||'-')}</td><td>${reportOpenButton(card)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="${(showName?1:0)+(showSession?1:0)+4}">Total P Amount</th><th class="right">${money(total)}</th><th colspan="2"></th></tr></tfoot></table></div>`;
 }
-// Stage 4.7A.2 — Fixed Professional JPG export: full Card Source + P Number row highlight
+// Stage 4.7A.4 — Fixed Professional JPG export: full Card Source + P Number row highlight
 function reportExportSafeFilePart(value){
   const cleaned=String(value||'report').normalize('NFKC').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,'_').replace(/_+/g,'_').replace(/^[_\-.]+|[_\-.]+$/g,'');
   return (cleaned||'report').slice(0,80);
@@ -3886,8 +3886,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.7A.2';
-const APP_VERSION_LABEL='Stage 4.7A.2 Full Source + P Highlight + PWA';
+const APP_VERSION='4.7A.4';
+const APP_VERSION_LABEL='Stage 4.7A.4 Full Source + P Highlight + PWA';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -4480,7 +4480,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.7A.2 Full Source + P Highlight + PWA',
+    version:'Stage 4.7A.4 Full Source + P Highlight + PWA',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

@@ -100,7 +100,7 @@
   if("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost","127.0.0.1"].includes(location.hostname))){
     window.addEventListener("load", async () => {
       try{
-        const reg = await navigator.serviceWorker.register("service-worker.js?v=4.7A.1",{scope:"./"});
+        const reg = await navigator.serviceWorker.register("service-worker.js?v=4.7A.2",{scope:"./"});
         reg.update().catch(()=>{});
       }catch(error){ console.warn("PWA service worker registration failed",error); }
     });

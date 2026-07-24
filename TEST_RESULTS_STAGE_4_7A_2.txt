@@ -1,0 +1,14 @@
+STAGE 4.7A.2 STATIC CHECKS
+
+PASS - project/js/app.js JavaScript syntax
+PASS - project/js/auth.js JavaScript syntax
+PASS - project and online app.js match
+PASS - project and online styles.css match
+PASS - complete cardRawText/fullSource aggregation present
+PASS - Source export preserves explicit line breaks and wraps without intentional truncation
+PASS - P Number membership is resolved per card/session
+PASS - P-containing card row uses amber highlight and P badge
+PASS - dynamic row height and dynamic pagination present
+PASS - Firestore Rules unchanged
+
+Live browser JPG visual/data verification: required on user's actual Report data.

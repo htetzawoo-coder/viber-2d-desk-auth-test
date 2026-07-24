@@ -1,10 +1,11 @@
-const V2D_CACHE = "v2d-desk-shell-v4.7A.2";
-const V2D_RUNTIME = "v2d-desk-runtime-v4.7A.2";
+const V2D_CACHE = "v2d-desk-shell-v4.7A.4";
+const V2D_RUNTIME = "v2d-desk-runtime-v4.7A.4";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
   "./css/styles.css",
+  "./js/firebase-bootstrap.js",
   "./js/firebase-config.js",
   "./js/auth.js",
   "./js/app.js",
@@ -33,21 +34,11 @@ async function networkFirst(request){
   const cache = await caches.open(V2D_RUNTIME);
   try{
     const response = await fetch(request);
-    if(response && (response.ok || response.type === "opaque")) cache.put(request,response.clone());
+    if(response && response.ok) cache.put(request,response.clone());
     return response;
   }catch(error){
     return (await cache.match(request,{ignoreSearch:true})) || (await caches.match(request,{ignoreSearch:true})) || Promise.reject(error);
   }
-}
-
-async function staleWhileRevalidate(request){
-  const cache = await caches.open(V2D_RUNTIME);
-  const cached = await cache.match(request,{ignoreSearch:true});
-  const network = fetch(request).then(response => {
-    if(response && (response.ok || response.type === "opaque")) cache.put(request,response.clone());
-    return response;
-  }).catch(() => null);
-  return cached || network || new Response("Offline",{status:503,statusText:"Offline"});
 }
 
 self.addEventListener("fetch", event => {
@@ -55,19 +46,16 @@ self.addEventListener("fetch", event => {
   if(request.method !== "GET") return;
   const url = new URL(request.url);
 
+  // IMPORTANT: Do not intercept Firebase/other cross-origin SDK requests.
+  // Let the browser fetch them directly so a stale PWA cache cannot block Authentication.
+  if(url.origin !== self.location.origin) return;
+
   if(request.mode === "navigate"){
     event.respondWith(networkFirst(request).catch(() => caches.match("./index.html")));
     return;
   }
 
-  if(url.origin === self.location.origin){
-    event.respondWith(networkFirst(request));
-    return;
-  }
-
-  if(url.hostname === "www.gstatic.com" && url.pathname.includes("/firebasejs/")){
-    event.respondWith(staleWhileRevalidate(request));
-  }
+  event.respondWith(networkFirst(request));
 });
 
 self.addEventListener("message", event => {

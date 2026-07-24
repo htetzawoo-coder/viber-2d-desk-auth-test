@@ -1,4 +1,4 @@
-STAGE 4.7A.2 STATIC CHECKS
+STAGE 4.7A.3 STATIC CHECKS
 
 PASS - project/js/app.js JavaScript syntax
 PASS - project/js/auth.js JavaScript syntax

@@ -1,4 +1,4 @@
-STAGE 4.7A.2 — FULL CARD SOURCE + P NUMBER HIGHLIGHT JPG
+STAGE 4.7A.3 — FULL CARD SOURCE + P NUMBER HIGHLIGHT JPG
 
 Changes
 1. Name Summary > JPG keeps the complete raw Viber body for each Card in Source.

@@ -592,7 +592,7 @@ function saveRecords(){
   userSetItem('v2d_records',JSON.stringify(records));
 }
 
-const CLOUD_SYNC_VERSION='4.7C.0';
+const CLOUD_SYNC_VERSION='4.8A.0';
 const CLOUD_STATE_DOC_ID='state';
 const LEGACY_CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=650;
@@ -938,7 +938,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 4.7C.0 Cloud Sync Safety',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 4.8A.0 P Number Breakdown JPG',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -970,25 +970,62 @@ function analyzeCloudConflict(found){
   const remoteRowsById=new Map();
   (found?.rows||[]).forEach((row,index)=>remoteRowsById.set(cloudRecordDocId(row,index),row));
   const localHashMirror=new Map([...localMap.entries()].map(([id,v])=>[id,v.hash]));
-  const localChanged=changedRecordIds(cloudRecordMirror,localHashMirror);
-  const remoteChanged=changedRecordIds(cloudRecordMirror,remoteMirror);
-  const remoteSet=new Set(remoteChanged); const directOverlap=localChanged.filter(id=>remoteSet.has(id));
+
+  // Compare each side to the last confirmed cloud baseline, then remove records
+  // where both devices already converged to the exact same business content.
+  // Stage 4.7C.0 counted those rows as conflicts simply because both sides had
+  // changed since the baseline, which could create hundreds of false conflicts.
+  const rawLocalChanged=changedRecordIds(cloudRecordMirror,localHashMirror);
+  const rawRemoteChanged=changedRecordIds(cloudRecordMirror,remoteMirror);
+  const rawLocalSet=new Set(rawLocalChanged); const rawRemoteSet=new Set(rawRemoteChanged);
+  const convergedRecordIds=new Set(
+    rawLocalChanged.filter(id=>rawRemoteSet.has(id) && (localHashMirror.get(id)||'')===(remoteMirror.get(id)||''))
+  );
+  const localChanged=rawLocalChanged.filter(id=>!convergedRecordIds.has(id));
+  const remoteChanged=rawRemoteChanged.filter(id=>!convergedRecordIds.has(id));
+  const remoteSet=new Set(remoteChanged);
+  const directOverlap=localChanged.filter(id=>remoteSet.has(id) && (localHashMirror.get(id)||'')!==(remoteMirror.get(id)||''));
+
   const cardKey=(row,id)=>String(row?.cardId||row?.groupId||row?.batchId||id||'');
-  const localCards=new Set(localChanged.map(id=>cardKey(localMap.get(id)?.row,id)));
-  const remoteCards=new Set(remoteChanged.map(id=>cardKey(remoteRowsById.get(id),id)));
-  const overlappingCards=new Set([...localCards].filter(k=>k&&remoteCards.has(k)));
+  const effectiveCardKey=(id)=>cardKey(localMap.get(id)?.row||remoteRowsById.get(id),id);
+  const localCards=new Set(localChanged.map(effectiveCardKey).filter(Boolean));
+  const remoteCards=new Set(remoteChanged.map(effectiveCardKey).filter(Boolean));
+
+  // Same-card conflicts are real only when the resulting card contents differ.
+  // Two devices reaching the same final card are convergence, not a conflict.
+  const cardSignature=(ids,hashes,key)=>simpleHash(ids.filter(id=>effectiveCardKey(id)===key).sort().map(id=>`${id}:${hashes.get(id)||''}`).join('|'));
+  const allIds=[...new Set([...localHashMirror.keys(),...remoteMirror.keys()])];
+  const overlappingCards=new Set([...localCards].filter(key=>{
+    if(!key||!remoteCards.has(key)) return false;
+    return cardSignature(allIds,localHashMirror,key)!==cardSignature(allIds,remoteMirror,key);
+  }));
+
   const overlapSet=new Set(directOverlap);
   if(overlappingCards.size){
-    localChanged.forEach(id=>{if(overlappingCards.has(cardKey(localMap.get(id)?.row,id)))overlapSet.add(id);});
-    remoteChanged.forEach(id=>{if(overlappingCards.has(cardKey(remoteRowsById.get(id),id)))overlapSet.add(id);});
+    [...new Set([...localChanged,...remoteChanged])].forEach(id=>{
+      if(overlappingCards.has(effectiveCardKey(id)) && (localHashMirror.get(id)||'')!==(remoteMirror.get(id)||'')) overlapSet.add(id);
+    });
   }
   const overlap=[...overlapSet];
+
   const localStateHash=workspaceStateHash();
   const baseStateHash=cloudSyncState.stateHash||workspaceStateHash(cloudSyncState.baseStateSnapshot||{});
   const remoteStateHash=found?.state?.stateHash||'';
-  const localStateChanged=!!baseStateHash && localStateHash!==baseStateHash;
-  const remoteStateChanged=!!baseStateHash && !!remoteStateHash && remoteStateHash!==baseStateHash;
-  return {found,localMap,remoteRowsById,localChanged,remoteChanged,overlap,overlappingCards:[...overlappingCards],localStateChanged,remoteStateChanged};
+  const rawLocalStateChanged=!!baseStateHash && localStateHash!==baseStateHash;
+  const rawRemoteStateChanged=!!baseStateHash && !!remoteStateHash && remoteStateHash!==baseStateHash;
+  const stateConverged=rawLocalStateChanged&&rawRemoteStateChanged&&!!remoteStateHash&&localStateHash===remoteStateHash;
+  const localStateChanged=rawLocalStateChanged&&!stateConverged;
+  const remoteStateChanged=rawRemoteStateChanged&&!stateConverged;
+
+  const localContentHash=structuredContentHash(localStateHash,localMap);
+  const remoteContentHash=found?.state?.contentHash||structuredContentHash(remoteStateHash||workspaceStateHash(found?.state||{}),new Map([...remoteMirror.entries()].map(([id,hash])=>[id,{hash}])));
+  const contentConverged=!!remoteContentHash&&localContentHash===remoteContentHash;
+
+  return {
+    found,localMap,remoteRowsById,localChanged,remoteChanged,overlap,overlappingCards:[...overlappingCards],localStateChanged,remoteStateChanged,
+    convergedRecordCount:convergedRecordIds.size,stateConverged,contentConverged,
+    rawLocalChangedCount:rawLocalChanged.length,rawRemoteChangedCount:rawRemoteChanged.length
+  };
 }
 function applyStateOnlyFromCloud(state){
   const st=state&&typeof state==='object'?state:{};
@@ -1031,6 +1068,17 @@ async function prepareCloudConflict(){
     const found=await fetchStructuredCloud({serverFirst:true});
     if(!found) return false;
     const analysis=analyzeCloudConflict(found); cloudSyncState.conflictAnalysis=analysis;
+    if(analysis.contentConverged){
+      // Local and Cloud already contain the same business data. Treat this as
+      // synchronization convergence and refresh the baseline instead of asking
+      // the user to choose between two identical versions.
+      applyStructuredCloud(found.state,found.rows,{initial:false,fromCache:false});
+      cloudRecordRevisionMirror=new Map(found.revisionMirror||[]);
+      cloudSyncState.conflictData=null; cloudSyncState.conflictAnalysis=null;
+      clearPendingJournal(); setCloudSyncStatus('synced');
+      if(cloudSyncState.uiReady) showToast('Local နှင့် Cloud Data တူညီပြီးသားဖြစ်၍ Conflict ကို Auto Resolve လုပ်ပြီးပါပြီ','success',5000);
+      return true;
+    }
     if(await autoMergeNonOverlappingConflict(analysis)) return true;
     cloudSyncState.conflictData=found.state||cloudSyncState.conflictData||{};
     setCloudSyncStatus('conflict');
@@ -1044,7 +1092,8 @@ function renderCloudConflictModal(){
   put('conflictLocalPending',pendingSyncCount()); put('conflictLocalChanged',a.localChanged.length); put('conflictCloudChanged',a.remoteChanged.length); put('conflictOverlapCount',a.overlap.length+(a.localStateChanged&&a.remoteStateChanged?1:0));
   const summary=document.getElementById('cloudConflictSummary'); if(summary){
     const stateText=a.localStateChanged&&a.remoteStateChanged?'Settings/State ကို စက်နှစ်လုံးစလုံးက ပြင်ထားသည်။':(a.localStateChanged?'ဒီစက်မှာ Settings/State ပြင်ထားသည်။':(a.remoteStateChanged?'Cloud မှာ Settings/State ပြင်ထားသည်။':'Settings conflict မရှိပါ။'));
-    summary.innerHTML=`<b>Data ကို Auto overwrite မလုပ်ထားပါ။</b><br>Local changed: ${a.localChanged.length} · Cloud changed: ${a.remoteChanged.length} · Same Card/Record conflict: ${a.overlap.length}${a.overlappingCards?.length?` · Cards: ${a.overlappingCards.length}`:''}<br>${escapeHtml(stateText)}`;
+    const ignored=a.convergedRecordCount?` · Identical auto-ignored: ${a.convergedRecordCount}`:'';
+    summary.innerHTML=`<b>Data ကို Auto overwrite မလုပ်ထားပါ။</b><br>True local changes: ${a.localChanged.length} · True cloud changes: ${a.remoteChanged.length} · Same Card/Record conflict: ${a.overlap.length}${a.overlappingCards?.length?` · Cards: ${a.overlappingCards.length}`:''}${ignored}<br>${escapeHtml(stateText)}`;
   }
   const body=document.getElementById('cloudConflictRows'); if(body){
     const ids=a.overlap.slice(0,40);
@@ -3210,14 +3259,19 @@ function reportPCardBreakdown(date,session,name='ALL'){
         ts:Number(row.ts||0)||0,
         hits:0,
         amount:0,
-        sources:[]
+        sources:[],
+        rawText:''
       });
     }
     const card=map.get(key);
     card.hits+=1;
     card.amount+=Number(row.amount||0);
     const src=String(row.source||'').trim();
-    if(src && !card.sources.includes(src) && card.sources.length<3) card.sources.push(src);
+    if(src && !card.sources.includes(src)) card.sources.push(src);
+    if(!card.rawText && String(row.cardRawText||'').trim()) card.rawText=String(row.cardRawText||'').trim();
+  });
+  map.forEach(card=>{
+    card.fullSource=String(card.rawText||'').trim() || card.sources.join('\n') || '-';
   });
   return [...map.values()].sort((a,b)=>{
     const nc=(a.name||'').localeCompare(b.name||''); if(nc) return nc;
@@ -3428,6 +3482,138 @@ async function saveNameCardBreakdownJpg(name){
   }
 }
 
+
+// Stage 4.8A.0 — Fixed Professional P Number Breakdown JPG export.
+async function saveNamePBreakdownJpg(name){
+  try{
+    const date=val('reportDate')||today();
+    const session=val('reportSession')||'AM';
+    const cards=reportPCardBreakdown(date,session,name);
+    if(!cards.length){ showToast('ဒီ Name အတွက် P Number Breakdown data မရှိပါ'); return; }
+
+    const totalP=cards.reduce((sum,c)=>sum+Number(c.amount||0),0);
+    const totalHits=cards.reduce((sum,c)=>sum+Number(c.hits||0),0);
+    const exportStamp=new Date();
+    const showSession=session==='DAILY';
+    const pLabels=[...new Set(cards.map(c=>`${showSession?(c.session||'-')+': ':''}${c.pNumber||'-'}`))];
+    const pLabel=pLabels.join('  ·  ');
+    const W=1600, margin=70, headerH=390, tableHeadH=58, footerH=120, minRowH=62, sourceLineH=21;
+    const tableW=W-(margin*2);
+    const columns=showSession
+      ? [{k:'p',w:115},{k:'card',w:125},{k:'time',w:160},{k:'session',w:110},{k:'hits',w:105},{k:'amount',w:190},{k:'source',w:tableW-805}]
+      : [{k:'p',w:125},{k:'card',w:140},{k:'time',w:175},{k:'hits',w:115},{k:'amount',w:210},{k:'source',w:tableW-765}];
+    const sourceCol=columns[columns.length-1];
+    const fontFamily='"Noto Sans Myanmar","Myanmar Text","Pyidaungsu","Segoe UI",Arial,sans-serif';
+
+    const measureCanvas=document.createElement('canvas');
+    const mctx=measureCanvas.getContext('2d');
+    mctx.font=`600 17px ${fontFamily}`;
+    const measured=cards.map(card=>{
+      const fullSource=String(card.fullSource||card.rawText||card.sources?.join('\n')||'-').trim()||'-';
+      const sourceLines=reportExportWrappedLines(mctx,fullSource,sourceCol.w-28);
+      const rowH=Math.max(minRowH,24+(sourceLines.length*sourceLineH));
+      return {...card,fullSource,sourceLines,exportRowH:rowH};
+    });
+
+    const maxPageBodyH=11200;
+    const pages=[]; let page=[]; let used=0;
+    measured.forEach(card=>{
+      if(page.length && used+card.exportRowH>maxPageBodyH){ pages.push(page); page=[]; used=0; }
+      page.push(card); used+=card.exportRowH;
+    });
+    if(page.length) pages.push(page);
+
+    for(let pageIndex=0;pageIndex<pages.length;pageIndex++){
+      const pageCards=pages[pageIndex];
+      const rowsH=pageCards.reduce((sum,c)=>sum+c.exportRowH,0);
+      const H=headerH+tableHeadH+rowsH+footerH;
+      const canvas=document.createElement('canvas');
+      canvas.width=W; canvas.height=H;
+      const ctx=canvas.getContext('2d');
+      ctx.textBaseline='middle';
+
+      ctx.fillStyle='#f8fafc'; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,W,92);
+      ctx.font=`800 34px ${fontFamily}`; ctx.fillStyle='#ffffff'; ctx.fillText('Viber 2D Desk',margin,47);
+      ctx.textAlign='right'; ctx.font=`800 23px ${fontFamily}`; ctx.fillStyle='#fbbf24'; ctx.fillText('P NUMBER BREAKDOWN',W-margin,47); ctx.textAlign='left';
+
+      const cardY=122, cardH=205;
+      ctx.fillStyle='#ffffff'; ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=2;
+      ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(margin,cardY,W-(margin*2),cardH,22); else ctx.rect(margin,cardY,W-(margin*2),cardH); ctx.fill(); ctx.stroke();
+      ctx.font=`800 30px ${fontFamily}`; ctx.fillStyle='#0f172a'; ctx.fillText(String(name||'-'),margin+28,cardY+42);
+      ctx.font=`600 17px ${fontFamily}`; ctx.fillStyle='#475569';
+      ctx.fillText(`Date: ${date}`,margin+28,cardY+88);
+      ctx.fillText(`Session: ${session}`,margin+360,cardY+88);
+      ctx.fillText(`Cards: ${cards.length}`,margin+665,cardY+88);
+      ctx.fillText(`Hits: ${totalHits}`,margin+900,cardY+88);
+      ctx.font=`800 18px ${fontFamily}`; ctx.fillStyle='#92400e'; ctx.fillText(`P Number: ${pLabel}`,margin+28,cardY+132);
+      ctx.font=`800 27px ${fontFamily}`; ctx.fillStyle='#b45309'; ctx.fillText(`Total P Amount: ${money(totalP)}`,margin+28,cardY+174);
+      ctx.textAlign='right'; ctx.font=`500 15px ${fontFamily}`; ctx.fillStyle='#64748b';
+      ctx.fillText(`Exported: ${exportStamp.toLocaleString()}`,W-margin-28,cardY+174); ctx.textAlign='left';
+
+      ctx.fillStyle='#fef3c7'; ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1; ctx.fillRect(margin,342,42,22); ctx.strokeRect(margin,342,42,22);
+      ctx.font=`700 15px ${fontFamily}`; ctx.fillStyle='#92400e'; ctx.fillText('P Number ပါဝင်သော Card',margin+58,353);
+
+      const tableX=margin, tableY=headerH;
+      ctx.fillStyle='#e2e8f0'; ctx.fillRect(tableX,tableY,tableW,tableHeadH);
+      ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1; ctx.strokeRect(tableX,tableY,tableW,tableHeadH+rowsH);
+      const headers=showSession?['P No.','Card','Time','Session','Hits','P Amount','Full Original Card Source']:['P No.','Card','Time','Hits','P Amount','Full Original Card Source'];
+      ctx.font=`800 18px ${fontFamily}`; ctx.fillStyle='#0f172a';
+      let x=tableX;
+      columns.forEach((col,i)=>{ ctx.fillText(headers[i],x+14,tableY+(tableHeadH/2)); x+=col.w; });
+
+      let y=tableY+tableHeadH;
+      pageCards.forEach((card,idx)=>{
+        const rowH=card.exportRowH;
+        ctx.fillStyle=idx%2===0?'#fef3c7':'#fffbeb';
+        ctx.fillRect(tableX,y,tableW,rowH);
+        ctx.strokeStyle='#f59e0b'; ctx.beginPath(); ctx.moveTo(tableX,y+rowH); ctx.lineTo(tableX+tableW,y+rowH); ctx.stroke();
+
+        const vals=showSession
+          ? [card.pNumber||'-',reportCardLabel(card),card.time||'-',card.session||'-',String(card.hits||0),money(card.amount)]
+          : [card.pNumber||'-',reportCardLabel(card),card.time||'-',String(card.hits||0),money(card.amount)];
+        x=tableX;
+        vals.forEach((v,i)=>{
+          const col=columns[i];
+          const isAmount=(showSession?i===5:i===4);
+          const isNumeric=(showSession?[4,5]:[3,4]).includes(i);
+          ctx.font=`${isAmount||i===0?'800':'600'} 17px ${fontFamily}`;
+          ctx.fillStyle=isAmount?'#b45309':(i===0?'#92400e':'#1e293b');
+          if(isNumeric){ ctx.textAlign='right'; ctx.fillText(v,x+col.w-14,y+(rowH/2)); ctx.textAlign='left'; }
+          else ctx.fillText(v,x+14,y+(rowH/2));
+          x+=col.w;
+        });
+
+        const sourceX=tableX+columns.slice(0,-1).reduce((sum,c)=>sum+c.w,0);
+        ctx.font=`600 17px ${fontFamily}`; ctx.fillStyle='#1e293b'; ctx.textBaseline='top';
+        card.sourceLines.forEach((line,lineIndex)=>ctx.fillText(line,sourceX+14,y+11+(lineIndex*sourceLineH)));
+        ctx.textBaseline='middle';
+        y+=rowH;
+      });
+
+      x=tableX; ctx.strokeStyle='#cbd5e1';
+      columns.slice(0,-1).forEach(col=>{ x+=col.w; ctx.beginPath(); ctx.moveTo(x,tableY); ctx.lineTo(x,y); ctx.stroke(); });
+
+      const pageTotal=pageCards.reduce((sum,c)=>sum+Number(c.amount||0),0);
+      const pageHits=pageCards.reduce((sum,c)=>sum+Number(c.hits||0),0);
+      ctx.fillStyle='#0f172a'; ctx.fillRect(tableX,y,tableW,66);
+      ctx.font=`800 20px ${fontFamily}`; ctx.fillStyle='#ffffff';
+      ctx.fillText(pages.length>1?`Page P Total · Hits ${pageHits}`:`TOTAL P AMOUNT · Hits ${totalHits}`,tableX+18,y+33);
+      ctx.textAlign='right'; ctx.fillStyle='#fbbf24'; ctx.fillText(money(pageTotal),tableX+tableW-18,y+33); ctx.textAlign='left';
+      ctx.font=`600 15px ${fontFamily}`; ctx.fillStyle='#64748b';
+      ctx.fillText('Generated by Viber 2D Desk · P Number Breakdown · Full Original Card Source',margin,H-30);
+
+      const part=pages.length>1?`_part-${pageIndex+1}`:'';
+      const filename=`${reportExportSafeFilePart(date)}_${reportExportSafeFilePart(session)}_${reportExportSafeFilePart(name)}_p-breakdown${part}.jpg`;
+      await reportExportDownloadCanvas(canvas,filename);
+    }
+    showToast(pages.length>1?`P Breakdown JPG ${pages.length} ဖိုင် သိမ်းပြီးပါပြီ`:'P Number Breakdown JPG သိမ်းပြီးပါပြီ');
+  }catch(error){
+    console.error('Name P Breakdown JPG export failed',error);
+    showToast(`P JPG Export မအောင်မြင်ပါ: ${error?.message||error}`);
+  }
+}
+
 function toggleReportTotalBreakdown(){ reportTotalBreakdownOpen=!reportTotalBreakdownOpen; renderReports(); }
 function toggleReportPBreakdown(){ reportPBreakdownOpen=!reportPBreakdownOpen; renderReports(); }
 function toggleReportNameBreakdown(name,type){
@@ -3478,8 +3664,10 @@ function renderReports(){
     const s=commissionSummary(n,r.date,r.session); const cls=s.final<0?'resultNegative':'resultPositive'; const f=s.final<0?'('+money(Math.abs(Math.round(s.final)))+')':money(Math.round(s.final));
     const totalOpen=reportExpandedNames.has(n), pOpen=reportExpandedPNames.has(n);
     const nameCards=reportCardBreakdown(r.date,r.session,n);
+    const pCards=reportPCardBreakdown(r.date,r.session,n);
     const jpgDisabled=nameCards.length?'':' disabled';
-    let html=`<tr><td><b>${escapeHtml(n)}</b></td><td class="right"><button class="reportCellDrill" onclick="toggleReportNameBreakdown('${jsArg(n)}','total')">${money(s.total)} <span>${totalOpen?'▲':'▼'}</span></button></td><td class="right"><button class="reportCellDrill warnText" onclick="toggleReportNameBreakdown('${jsArg(n)}','p')">${money(s.pamt)} <span>${pOpen?'▲':'▼'}</span></button></td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td><td class="center"><button class="reportJpgBtn" type="button" onclick="saveNameCardBreakdownJpg('${jsArg(n)}')"${jpgDisabled} title="Card Total Breakdown JPG">JPG</button></td></tr>`;
+    const pJpgDisabled=pCards.length?'':' disabled';
+    let html=`<tr><td><b>${escapeHtml(n)}</b></td><td class="right"><button class="reportCellDrill" onclick="toggleReportNameBreakdown('${jsArg(n)}','total')">${money(s.total)} <span>${totalOpen?'▲':'▼'}</span></button></td><td class="right"><button class="reportCellDrill warnText" onclick="toggleReportNameBreakdown('${jsArg(n)}','p')">${money(s.pamt)} <span>${pOpen?'▲':'▼'}</span></button></td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td><td class="center"><div class="reportJpgGroup"><button class="reportJpgBtn" type="button" onclick="saveNameCardBreakdownJpg('${jsArg(n)}')"${jpgDisabled} title="Card Total Breakdown JPG">Card JPG</button><button class="reportPjpgBtn" type="button" onclick="saveNamePBreakdownJpg('${jsArg(n)}')"${pJpgDisabled} title="P Number Breakdown JPG">P JPG</button></div></td></tr>`;
     if(totalOpen || pOpen){
       const parts=[];
       if(totalOpen) parts.push(reportTotalBreakdownHTML(nameCards,{showName:false,showSession:r.session==='DAILY'}));
@@ -3645,7 +3833,7 @@ const UI_PHRASE_PAIRS=[
   ['Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်','Laptop Professional Workspace / ကတ်အလုပ်ခွင်'],['Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။','Saved Card List၊ Selected Card Editor နှင့် Live Summary ကို တစ်မျက်နှာတည်းတွင် မြင်နိုင်သည်။'],['+ New Paste / စာရင်းအသစ်','+ စာရင်းအသစ်'],['Entry Records ဖွင့်မယ်','Entry Records ဖွင့်မည်'],['Card List / ကတ်စာရင်း','ကတ်စာရင်း'],['Selected Card Editor','ရွေးထားသော ကတ်ပြင်ရန်'],['Live Summary','လက်ရှိအကျဉ်းချုပ်'],['Edit Card','ကတ်ပြင်မည်'],['Copy Raw','မူရင်း Copy'],['Selected Card Total','ရွေးထားသောကတ် စုစုပေါင်း'],['Selected Card Rows','ရွေးထားသောကတ် Rows'],['Viber Time','Viber အချိန်'],['Name Total','အမည် စုစုပေါင်း'],['Session Total','Session စုစုပေါင်း'],['P Number Amount','P Number ပမာဏ'],['Current Paste Preview Total','လက်ရှိ Paste Preview စုစုပေါင်း'],['Detected Cards','တွေ့ရှိသော ကတ်များ'],['Preview Rows','Preview Rows'],['Cloud Sync Status','Cloud Sync အခြေအနေ'],
   ['Paste & Parse Tools','Paste & Parse ကိရိယာများ'],['Hide Tools ▲','Tools ဖျောက်မည် ▲'],['Show Tools ▼','Tools ပြမည် ▼'],['Parse Preview','စစ်ကြည့်မည်'],['Confirm Save','အတည်ပြုသိမ်းမည်'],['Clear Text','စာသားရှင်းမည်'],['Preview Total','Preview စုစုပေါင်း'],['Warnings','သတိပေးချက်'],['Aggregated by Number','နံပါတ်အလိုက်ပေါင်း'],['Preview Detail','Preview အသေးစိတ်'],['Upload Image','ပုံတင်မည်'],['Camera','ကင်မရာ'],['Clear Image','ပုံရှင်းမည်'],
   ['Search','ရှာဖွေ'],['All Names','အမည်အားလုံး'],['Edit','ပြင်မည်'],['Delete','ဖျက်မည်'],['Remove','ဖယ်မည်'],['Save','သိမ်းမည်'],['Cancel','မလုပ်တော့'],['Close','ပိတ်မည်'],['Open','ဖွင့်မည်'],['Copy','Copy'],['Previous','ယခင်'],['Next','နောက်တစ်ခု'],['Apply','အတည်ပြုအသုံးပြု'],['Undo','ပြန်ဖျက်'],['Edited','ပြင်ထားသည်'],['No records','စာရင်းမရှိသေးပါ'],['No data','Data မရှိသေးပါ'],
-  ['App Owner Parser Control Center','App Owner Parser Control Center'],['Parser Issue Reports','Parser Issue Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule Studio'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (optional)'],['Writer Filter','Writer Filter'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Report','အစီရင်ခံစာ'],['Total Amount','စုစုပေါင်းငွေ'],['P Amount','P ပမာဏ'],['Card Total','ကတ်စုစုပေါင်း'],['Time','အချိန်'],['Status','အခြေအနေ'],['Open Card','ကတ်ဖွင့်မည်'],['Daily','နေ့စဉ်'],['AM','AM'],['PM','PM'],['DAILY','DAILY'],
+  ['App Owner Parser Control Center','App Owner Parser Control Center'],['Parser Issue Reports','Parser Issue Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule Studio'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (optional)'],['Writer Filter','Writer Filter'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Report','အစီရင်ခံစာ'],['Card JPG','Card JPG'],['P JPG','P JPG'],['JPG Export','JPG Export'],['Total Amount','စုစုပေါင်းငွေ'],['P Amount','P ပမာဏ'],['Card Total','ကတ်စုစုပေါင်း'],['Time','အချိန်'],['Status','အခြေအနေ'],['Open Card','ကတ်ဖွင့်မည်'],['Daily','နေ့စဉ်'],['AM','AM'],['PM','PM'],['DAILY','DAILY'],
   ['Login','ဝင်မည်'],['Register','အကောင့်ဖွင့်မည်'],['Forgot Password','Password မေ့နေသည်'],['Password','Password'],['Confirm Password','Password အတည်ပြု'],['Your Name / အမည်','အမည်'],['Shop / Workspace Name','Shop / Workspace အမည်'],['Create Account / Account ဖွင့်မယ်','အကောင့်ဖွင့်မည်'],['Send Reset Email','Reset Email ပို့မည်'],['Login / ဝင်မယ်','ဝင်မည်']
 ];
 const UI_EN_TO_MY=new Map(UI_PHRASE_PAIRS.map(([en,my])=>[en,my]));
@@ -4167,8 +4355,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.7C.0';
-const APP_VERSION_LABEL='Stage 4.7C.0 Cloud Sync Safety & Conflict Protection';
+const APP_VERSION='4.8A.0';
+const APP_VERSION_LABEL='Stage 4.8A.0 P Number Breakdown JPG';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -4761,7 +4949,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.7C.0 Cloud Sync Safety',
+    version:'Stage 4.8A.0 P Number Breakdown JPG',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

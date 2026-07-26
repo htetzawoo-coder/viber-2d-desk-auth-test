@@ -1,0 +1,31 @@
+Viber 2D Desk — Stage 4.7B.0 Static/Logic Test Results
+=======================================================
+
+PASS — js/app.js syntax (node --check)
+PASS — js/auth.js syntax
+PASS — js/firebase-bootstrap.js syntax
+PASS — js/firebase-config.js syntax
+PASS — js/pwa.js syntax
+PASS — service-worker.js syntax
+PASS — app.js browserless top-level evaluation with mocks
+PASS — Parser regression: 14 / 14
+PASS — 20-card Viber sample header segmentation: 20 / 20 cards
+PASS — Structured record diff: create/update/delete detection
+PASS — Structured state/content hash generation
+PASS — Project/Online JS + CSS + manifest + service-worker files match
+PASS — HTML local asset references exist
+PASS — Firestore rules static brace/path check
+PASS — New Cloud paths present: users/{uid}/workspace/state + users/{uid}/records/{recordId}
+PASS — Legacy snapshots are read-only migration source in new sync engine (new saves use structured Cloud paths)
+PASS — LocalStorage write failure path is non-blocking for Cloud scheduling
+
+LIVE TEST REQUIRED BY USER
+--------------------------
+The container cannot authenticate to the user's live Firebase project or publish Firestore Rules.
+After publishing firestore.rules.stage4_7B_required.txt, verify:
+1. automatic migration from snapshots/current_workspace,
+2. Laptop A add/edit/delete -> green Cloud Synced,
+3. Laptop B same login receives the data,
+4. cross-device edit refresh,
+5. offline pending -> reconnect auto sync,
+6. Firestore Data shows workspace/state and records documents.

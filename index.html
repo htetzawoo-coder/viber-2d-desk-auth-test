@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.7A.4 Full Source + P Highlight + PWA</title>
+  <title>Viber 2D Desk - Stage 4.7C.0 Cloud Sync Safety</title>
   <meta name="theme-color" content="#0b1f3a" id="themeColorMeta" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="V2D Desk" />
   <meta name="application-name" content="V2D Desk" />
-  <link rel="manifest" href="manifest.webmanifest?v=4.7A.4" />
+  <link rel="manifest" href="manifest.webmanifest?v=4.7C.0" />
   <link rel="icon" href="icons/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/styles.css?v=4.7A.4">
+  <link rel="stylesheet" href="css/styles.css?v=4.7C.0">
 </head>
 <body>
 
@@ -24,7 +24,7 @@
       <div class="authLogo pwaBrandLogo"><img src="icons/icon-192.png" alt="Viber 2D Desk logo"></div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.7A.4 · Full Card Source + P Highlight JPG</div>
+        <div class="muted">Stage 4.7C.0 · Sync Safety & Conflict Protection</div>
       </div>
     </div>
 
@@ -99,8 +99,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 4.7A.4 Multi-CDN Firebase Fix + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.7A.4: Full Card Source · P Number Highlight · Professional JPG · PWA</div></div>
+        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 4.7C.0 Sync Safety + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.7C.0: Cloud Main · Pending Queue · Auto Retry · Conflict Compare/Resolve</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -115,10 +115,12 @@
           <button class="btn warn small" onclick="loadLatestCloudSnapshot()">Cloud Refresh</button>
           <button class="btn danger small" onclick="clearAllData()" data-i18n="clearAll">Clear All</button>
 
-          <div id="cloudSyncPill" class="cloudSyncPill loading" title="Cloud sync status">
+          <div id="cloudSyncPill" class="cloudSyncPill loading" title="Cloud sync status" onclick="cloudSyncPillAction()" role="button" tabindex="0">
             <span class="cloudSyncDot"></span>
             <span class="cloudSyncCopy"><b id="cloudSyncText">Cloud ဖွင့်နေသည်…</b><small id="cloudSyncDetail">Account data စစ်နေသည်</small></span>
+            <span id="cloudPendingBadge" class="cloudPendingBadge" hidden>Pending 0</span>
           </div>
+          <button id="cloudResolveBtn" class="btn danger small cloudResolveBtn" type="button" onclick="openCloudConflictModal()" hidden>Resolve Conflict</button>
 
           <div class="userSessionBox">
             <span class="userOnlineDot"></span>
@@ -964,6 +966,39 @@
 
 </div>
 
+<div class="modalBack" id="cloudConflictModal">
+  <div class="modalCard cloudConflictCard">
+    <div class="cloudConflictHead">
+      <div>
+        <h2 style="margin:0">Cloud Sync Conflict</h2>
+        <div class="muted">တူညီသော Account ကို စက်နှစ်လုံးမှ ပြင်ထားသော Data ကို မဖျက်ဘဲ နှိုင်းယှဉ်ပြီး ဆုံးဖြတ်ပါ။</div>
+      </div>
+      <button class="btn gray small" type="button" onclick="closeCloudConflictModal()">Close</button>
+    </div>
+    <div class="cloudConflictStats">
+      <div class="stat"><div class="k">Local Pending</div><div class="v warnText" id="conflictLocalPending">0</div></div>
+      <div class="stat"><div class="k">Local Changed</div><div class="v" id="conflictLocalChanged">0</div></div>
+      <div class="stat"><div class="k">Cloud Changed</div><div class="v blue" id="conflictCloudChanged">0</div></div>
+      <div class="stat"><div class="k">Same Record Conflict</div><div class="v bad" id="conflictOverlapCount">0</div></div>
+    </div>
+    <div id="cloudConflictSummary" class="cloudConflictSummary">Conflict detail ဖတ်နေသည်…</div>
+    <div id="cloudConflictCompare" class="cloudConflictCompare" hidden>
+      <div class="scroll" style="max-height:330px">
+        <table>
+          <thead><tr><th>Record</th><th>Your Version</th><th>Cloud Version</th></tr></thead>
+          <tbody id="cloudConflictRows"><tr><td colspan="3" class="muted">No detail</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="cloudConflictActions">
+      <button class="btn secondary" type="button" onclick="toggleCloudConflictCompare()">Compare</button>
+      <button class="btn warn" type="button" onclick="resolveConflictUseCloud()">Use Cloud</button>
+      <button class="btn danger" type="button" onclick="resolveConflictKeepMine()">Keep Mine</button>
+    </div>
+    <div class="muted" style="margin-top:10px">Use Cloud = Cloud version ကိုယူမည်။ Keep Mine = ဒီစက် version ဖြင့် Cloud ကို အစားထိုးမည်။ ဆုံးဖြတ်မီ Backup JSON ထုတ်ထားရန် အကြံပြုပါသည်။</div>
+  </div>
+</div>
+
 <div class="modalBack" id="groupEditModal">
   <div class="modalCard">
     <h2 id="groupEditTitle" style="margin:0 0 8px">Group Edit / Batch Edit</h2>
@@ -1008,7 +1043,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 
-<script src="js/pwa.js?v=4.7A.4"></script>
-<script src="js/firebase-bootstrap.js?v=4.7A.4"></script>
+<script src="js/pwa.js?v=4.7C.0"></script>
+<script src="js/firebase-bootstrap.js?v=4.7C.0"></script>
 </body>
 </html>

@@ -1,0 +1,30 @@
+Viber 2D Desk — Stage 4.7C.0 Cloud Sync Safety & Conflict Protection
+
+Static / focused logic checks:
+PASS JavaScript syntax: app.js
+PASS JavaScript syntax: auth.js
+PASS JavaScript syntax: pwa.js
+PASS JavaScript syntax: firebase-bootstrap.js
+PASS JavaScript syntax: service-worker.js
+PASS Required conflict/pending UI IDs in dev.html + index.html
+PASS Project/Online assets match
+PASS Pending sync journal hooks
+PASS Offline startup preserves unsynced local cache
+PASS Auto retry backoff hooks (2s / 5s / 15s / 30s / 60s)
+PASS Record revision/device metadata hooks
+PASS Cloud metadata fields excluded from business record hash
+PASS Non-overlapping record changes classified as auto-merge-safe
+PASS Different rows in the same Card classified as conflict
+PASS Same record edit classified as conflict
+PASS Compare / Use Cloud / Keep Mine handlers
+PASS Browser close warning for unsynced data
+PASS Logout warning for unsynced data
+PASS Existing Firestore paths retained (no new collection required)
+
+Focused algorithm output:
+nonoverlap => overlap=[]
+samecard => overlap includes both changed rows, card C1
+samerecord => overlap includes same record
+metadata hash stable => PASS
+
+Live Firebase / multi-device behavior must be verified in the user's project.

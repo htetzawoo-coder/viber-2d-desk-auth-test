@@ -592,7 +592,7 @@ function saveRecords(){
   userSetItem('v2d_records',JSON.stringify(records));
 }
 
-const CLOUD_SYNC_VERSION='4.8A.0';
+const CLOUD_SYNC_VERSION='4.8C.0';
 const CLOUD_STATE_DOC_ID='state';
 const LEGACY_CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=650;
@@ -938,7 +938,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 4.8A.0 P Number Breakdown JPG',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 4.8D.0 Name Final Report JPG',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -3345,143 +3345,209 @@ function reportExportDownloadCanvas(canvas,filename){
     },'image/jpeg',0.94);
   });
 }
-async function saveNameCardBreakdownJpg(name){
-  try{
-    const date=val('reportDate')||today();
-    const session=val('reportSession')||'AM';
-    const cards=reportCardBreakdown(date,session,name);
-    if(!cards.length){ showToast('ဒီ Name အတွက် Card Breakdown data မရှိပါ'); return; }
-    const summary=commissionSummary(name,date,session);
-    const exportStamp=new Date();
-    const showSession=session==='DAILY';
-    const W=1600, margin=70, headerH=360, tableHeadH=58, footerH=115, minRowH=58, sourceLineH=21;
-    const tableW=W-(margin*2);
-    const columns=showSession
-      ? [{k:'card',w:135},{k:'time',w:165},{k:'session',w:115},{k:'rows',w:105},{k:'amount',w:195},{k:'source',w:tableW-715}]
-      : [{k:'card',w:150},{k:'time',w:180},{k:'rows',w:115},{k:'amount',w:210},{k:'source',w:tableW-655}];
-    const sourceCol=columns[columns.length-1];
-    const fontFamily='"Noto Sans Myanmar","Myanmar Text","Pyidaungsu","Segoe UI",Arial,sans-serif';
+// Stage 4.8C.0 — reusable Card Breakdown image builder for Download / Share / Download All.
+function buildNameCardBreakdownJpgCanvases(name){
+  const date=val('reportDate')||today();
+  const session=val('reportSession')||'AM';
+  const cards=reportCardBreakdown(date,session,name);
+  if(!cards.length) return null;
+  const summary=commissionSummary(name,date,session);
+  const exportStamp=new Date();
+  const showSession=session==='DAILY';
+  const W=1600, margin=70, headerH=360, tableHeadH=58, footerH=115, minRowH=58, sourceLineH=21;
+  const tableW=W-(margin*2);
+  const columns=showSession
+    ? [{k:'card',w:135},{k:'time',w:165},{k:'session',w:115},{k:'rows',w:105},{k:'amount',w:195},{k:'source',w:tableW-715}]
+    : [{k:'card',w:150},{k:'time',w:180},{k:'rows',w:115},{k:'amount',w:210},{k:'source',w:tableW-655}];
+  const sourceCol=columns[columns.length-1];
+  const fontFamily='"Noto Sans Myanmar","Myanmar Text","Pyidaungsu","Segoe UI",Arial,sans-serif';
 
-    // Measure every full Source first so no Card detail is truncated.
-    const measureCanvas=document.createElement('canvas');
-    const mctx=measureCanvas.getContext('2d');
-    mctx.font=`600 17px ${fontFamily}`;
-    const measured=cards.map(card=>{
-      const fullSource=String(card.fullSource||card.rawText||card.sources?.join('\n')||'-').trim()||'-';
-      const sourceLines=reportExportWrappedLines(mctx,fullSource,sourceCol.w-28);
-      const rowH=Math.max(minRowH,22+(sourceLines.length*sourceLineH));
-      return {...card,fullSource,sourceLines,exportRowH:rowH};
-    });
+  const measureCanvas=document.createElement('canvas');
+  const mctx=measureCanvas.getContext('2d');
+  mctx.font=`600 17px ${fontFamily}`;
+  const measured=cards.map(card=>{
+    const fullSource=String(card.fullSource||card.rawText||card.sources?.join('\n')||'-').trim()||'-';
+    const sourceLines=reportExportWrappedLines(mctx,fullSource,sourceCol.w-28);
+    const rowH=Math.max(minRowH,22+(sourceLines.length*sourceLineH));
+    return {...card,fullSource,sourceLines,exportRowH:rowH};
+  });
 
-    // Dynamic pagination protects browser canvas limits while preserving full details.
-    const maxPageBodyH=11200;
-    const pages=[]; let page=[]; let used=0;
-    measured.forEach(card=>{
-      if(page.length && used+card.exportRowH>maxPageBodyH){ pages.push(page); page=[]; used=0; }
-      page.push(card); used+=card.exportRowH;
-    });
-    if(page.length) pages.push(page);
+  const maxPageBodyH=11200;
+  const pages=[]; let page=[]; let used=0;
+  measured.forEach(card=>{
+    if(page.length && used+card.exportRowH>maxPageBodyH){ pages.push(page); page=[]; used=0; }
+    page.push(card); used+=card.exportRowH;
+  });
+  if(page.length) pages.push(page);
 
-    for(let pageIndex=0;pageIndex<pages.length;pageIndex++){
-      const pageCards=pages[pageIndex];
-      const rowsH=pageCards.reduce((sum,c)=>sum+c.exportRowH,0);
-      const H=headerH+tableHeadH+rowsH+footerH;
-      const canvas=document.createElement('canvas');
-      canvas.width=W; canvas.height=H;
-      const ctx=canvas.getContext('2d');
-      ctx.textBaseline='middle';
+  const outputs=[];
+  for(let pageIndex=0;pageIndex<pages.length;pageIndex++){
+    const pageCards=pages[pageIndex];
+    const rowsH=pageCards.reduce((sum,c)=>sum+c.exportRowH,0);
+    const H=headerH+tableHeadH+rowsH+footerH;
+    const canvas=document.createElement('canvas');
+    canvas.width=W; canvas.height=H;
+    const ctx=canvas.getContext('2d');
+    ctx.textBaseline='middle';
 
-      ctx.fillStyle='#f8fafc'; ctx.fillRect(0,0,W,H);
-      ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,W,92);
-      ctx.font=`800 34px ${fontFamily}`; ctx.fillStyle='#ffffff'; ctx.fillText('Viber 2D Desk',margin,47);
-      ctx.font=`700 22px ${fontFamily}`; ctx.fillStyle='#93c5fd'; ctx.textAlign='right'; ctx.fillText('CARD TOTAL BREAKDOWN',W-margin,47); ctx.textAlign='left';
+    ctx.fillStyle='#f8fafc'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,W,92);
+    ctx.font=`800 34px ${fontFamily}`; ctx.fillStyle='#ffffff'; ctx.fillText('Viber 2D Desk',margin,47);
+    ctx.font=`700 22px ${fontFamily}`; ctx.fillStyle='#93c5fd'; ctx.textAlign='right'; ctx.fillText('CARD TOTAL BREAKDOWN',W-margin,47); ctx.textAlign='left';
 
-      ctx.fillStyle='#ffffff'; ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=2;
-      ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(margin,120,W-(margin*2),190,20); else ctx.rect(margin,120,W-(margin*2),190); ctx.fill(); ctx.stroke();
-      ctx.font=`800 32px ${fontFamily}`; ctx.fillStyle='#0f172a'; ctx.fillText(String(name||'Default'),margin+28,157);
-      ctx.font=`600 18px ${fontFamily}`; ctx.fillStyle='#475569';
-      ctx.fillText(`Date: ${date}`,margin+28,205);
-      ctx.fillText(`Session: ${session}`,margin+300,205);
-      ctx.fillText(`Cards: ${cards.length}`,margin+565,205);
-      if(pages.length>1) ctx.fillText(`Page: ${pageIndex+1}/${pages.length}`,margin+790,205);
-      ctx.font=`800 24px ${fontFamily}`; ctx.fillStyle='#0369a1';
-      ctx.fillText(`Total Amount: ${money(summary.total)}`,margin+28,252);
-      ctx.font=`700 17px ${fontFamily}`; ctx.fillStyle='#92400e';
-      ctx.fillStyle='#fef3c7'; ctx.fillRect(margin+28,278,26,18);
-      ctx.strokeStyle='#f59e0b'; ctx.strokeRect(margin+28,278,26,18);
-      ctx.fillStyle='#92400e'; ctx.fillText('P Number ပါဝင်သော Card',margin+66,287);
-      ctx.font=`700 18px ${fontFamily}`; ctx.fillStyle='#64748b';
-      ctx.textAlign='right'; ctx.fillText(`Exported: ${exportStamp.toLocaleString()}`,W-margin-28,252); ctx.textAlign='left';
+    ctx.fillStyle='#ffffff'; ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=2;
+    ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(margin,120,W-(margin*2),190,20); else ctx.rect(margin,120,W-(margin*2),190); ctx.fill(); ctx.stroke();
+    ctx.font=`800 32px ${fontFamily}`; ctx.fillStyle='#0f172a'; ctx.fillText(String(name||'Default'),margin+28,157);
+    ctx.font=`600 18px ${fontFamily}`; ctx.fillStyle='#475569';
+    ctx.fillText(`Date: ${date}`,margin+28,205);
+    ctx.fillText(`Session: ${session}`,margin+300,205);
+    ctx.fillText(`Cards: ${cards.length}`,margin+565,205);
+    if(pages.length>1) ctx.fillText(`Page: ${pageIndex+1}/${pages.length}`,margin+790,205);
+    ctx.font=`800 24px ${fontFamily}`; ctx.fillStyle='#0369a1';
+    ctx.fillText(`Total Amount: ${money(summary.total)}`,margin+28,252);
+    ctx.font=`700 17px ${fontFamily}`; ctx.fillStyle='#92400e';
+    ctx.fillStyle='#fef3c7'; ctx.fillRect(margin+28,278,26,18);
+    ctx.strokeStyle='#f59e0b'; ctx.strokeRect(margin+28,278,26,18);
+    ctx.fillStyle='#92400e'; ctx.fillText('P Number ပါဝင်သော Card',margin+66,287);
+    ctx.font=`700 18px ${fontFamily}`; ctx.fillStyle='#64748b';
+    ctx.textAlign='right'; ctx.fillText(`Exported: ${exportStamp.toLocaleString()}`,W-margin-28,252); ctx.textAlign='left';
 
-      const tableX=margin, tableY=headerH;
-      const headers=showSession?['Card','Time','Session','Rows','Amount','Source — Full Card Detail']:['Card','Time','Rows','Amount','Source — Full Card Detail'];
-      ctx.fillStyle='#e2e8f0'; ctx.fillRect(tableX,tableY,tableW,tableHeadH);
-      ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1; ctx.strokeRect(tableX,tableY,tableW,tableHeadH+rowsH);
-      ctx.font=`800 18px ${fontFamily}`; ctx.fillStyle='#0f172a';
-      let x=tableX;
-      columns.forEach((col,i)=>{ ctx.fillText(headers[i],x+14,tableY+(tableHeadH/2)); x+=col.w; });
+    const tableX=margin, tableY=headerH;
+    const headers=showSession?['Card','Time','Session','Rows','Amount','Source — Full Card Detail']:['Card','Time','Rows','Amount','Source — Full Card Detail'];
+    ctx.fillStyle='#e2e8f0'; ctx.fillRect(tableX,tableY,tableW,tableHeadH);
+    ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1; ctx.strokeRect(tableX,tableY,tableW,tableHeadH+rowsH);
+    ctx.font=`800 18px ${fontFamily}`; ctx.fillStyle='#0f172a';
+    let x=tableX;
+    columns.forEach((col,i)=>{ ctx.fillText(headers[i],x+14,tableY+(tableHeadH/2)); x+=col.w; });
 
-      let y=tableY+tableHeadH;
-      pageCards.forEach((card,idx)=>{
-        const rowH=card.exportRowH;
-        // P Number-containing Card gets a dedicated amber highlight.
-        if(card.hasP) ctx.fillStyle='#fef3c7';
-        else ctx.fillStyle=idx%2===0?'#ffffff':'#f1f5f9';
-        ctx.fillRect(tableX,y,tableW,rowH);
-        ctx.strokeStyle=card.hasP?'#f59e0b':'#e2e8f0';
-        ctx.beginPath(); ctx.moveTo(tableX,y+rowH); ctx.lineTo(tableX+tableW,y+rowH); ctx.stroke();
+    let y=tableY+tableHeadH;
+    pageCards.forEach((card,idx)=>{
+      const rowH=card.exportRowH;
+      if(card.hasP) ctx.fillStyle='#fef3c7';
+      else ctx.fillStyle=idx%2===0?'#ffffff':'#f1f5f9';
+      ctx.fillRect(tableX,y,tableW,rowH);
+      ctx.strokeStyle=card.hasP?'#f59e0b':'#e2e8f0';
+      ctx.beginPath(); ctx.moveTo(tableX,y+rowH); ctx.lineTo(tableX+tableW,y+rowH); ctx.stroke();
 
-        const vals=showSession
-          ? [reportCardLabel(card),card.time||'-',card.session||'-',String(card.rows||0),money(card.total)]
-          : [reportCardLabel(card),card.time||'-',String(card.rows||0),money(card.total)];
-        x=tableX;
-        vals.forEach((v,i)=>{
-          const col=columns[i];
-          const isAmount=(showSession?i===4:i===3);
-          ctx.font=`${isAmount?'800':'600'} 17px ${fontFamily}`;
-          ctx.fillStyle=isAmount?'#0f766e':'#1e293b';
-          if(isAmount || (showSession?i===3:i===2)){
-            ctx.textAlign='right'; ctx.fillText(v,x+col.w-14,y+(rowH/2)); ctx.textAlign='left';
-          }else{
-            ctx.fillText(v,x+14,y+(rowH/2));
-          }
-          x+=col.w;
-        });
-
-        // Add a visible P badge below Card number on highlighted rows.
-        if(card.hasP && card.pNumber){
-          ctx.font=`800 14px ${fontFamily}`; ctx.fillStyle='#b45309';
-          ctx.fillText(`P: ${card.pNumber}`,tableX+14,y+(rowH/2)+20);
-        }
-
-        const sourceX=tableX+columns.slice(0,-1).reduce((sum,c)=>sum+c.w,0);
-        ctx.font=`600 17px ${fontFamily}`; ctx.fillStyle='#1e293b'; ctx.textBaseline='top';
-        card.sourceLines.forEach((line,lineIndex)=>ctx.fillText(line,sourceX+14,y+11+(lineIndex*sourceLineH)));
-        ctx.textBaseline='middle';
-        y+=rowH;
+      const vals=showSession
+        ? [reportCardLabel(card),card.time||'-',card.session||'-',String(card.rows||0),money(card.total)]
+        : [reportCardLabel(card),card.time||'-',String(card.rows||0),money(card.total)];
+      x=tableX;
+      vals.forEach((v,i)=>{
+        const col=columns[i];
+        const isAmount=(showSession?i===4:i===3);
+        ctx.font=`${isAmount?'800':'600'} 17px ${fontFamily}`;
+        ctx.fillStyle=isAmount?'#0f766e':'#1e293b';
+        if(isAmount || (showSession?i===3:i===2)){
+          ctx.textAlign='right'; ctx.fillText(v,x+col.w-14,y+(rowH/2)); ctx.textAlign='left';
+        }else ctx.fillText(v,x+14,y+(rowH/2));
+        x+=col.w;
       });
 
-      // column dividers
-      x=tableX; ctx.strokeStyle='#cbd5e1';
-      columns.slice(0,-1).forEach(col=>{ x+=col.w; ctx.beginPath(); ctx.moveTo(x,tableY); ctx.lineTo(x,y); ctx.stroke(); });
+      if(card.hasP && card.pNumber){
+        ctx.font=`800 14px ${fontFamily}`; ctx.fillStyle='#b45309';
+        ctx.fillText(`P: ${card.pNumber}`,tableX+14,y+(rowH/2)+20);
+      }
 
-      const visibleTotal=pageCards.reduce((sum,c)=>sum+Number(c.total||0),0);
-      ctx.fillStyle='#0f172a'; ctx.fillRect(tableX,y,tableW,64);
-      ctx.font=`800 20px ${fontFamily}`; ctx.fillStyle='#ffffff'; ctx.fillText(pages.length>1?'Page Total':'TOTAL',tableX+18,y+32);
-      ctx.textAlign='right'; ctx.fillStyle='#7dd3fc'; ctx.fillText(money(visibleTotal),tableX+tableW-18,y+32); ctx.textAlign='left';
-      ctx.font=`600 15px ${fontFamily}`; ctx.fillStyle='#64748b';
-      ctx.fillText('Generated by Viber 2D Desk · Full Card Source · P Number Highlight',margin,H-28);
-      const part=pages.length>1?`_part-${pageIndex+1}`:'';
-      const filename=`${reportExportSafeFilePart(date)}_${reportExportSafeFilePart(session)}_${reportExportSafeFilePart(name)}_card-breakdown${part}.jpg`;
-      await reportExportDownloadCanvas(canvas,filename);
-    }
-    showToast(pages.length>1?`JPG ${pages.length} ဖိုင် သိမ်းပြီးပါပြီ`:'Card Breakdown JPG သိမ်းပြီးပါပြီ');
+      const sourceX=tableX+columns.slice(0,-1).reduce((sum,c)=>sum+c.w,0);
+      ctx.font=`600 17px ${fontFamily}`; ctx.fillStyle='#1e293b'; ctx.textBaseline='top';
+      card.sourceLines.forEach((line,lineIndex)=>ctx.fillText(line,sourceX+14,y+11+(lineIndex*sourceLineH)));
+      ctx.textBaseline='middle';
+      y+=rowH;
+    });
+
+    x=tableX; ctx.strokeStyle='#cbd5e1';
+    columns.slice(0,-1).forEach(col=>{ x+=col.w; ctx.beginPath(); ctx.moveTo(x,tableY); ctx.lineTo(x,y); ctx.stroke(); });
+
+    const visibleTotal=pageCards.reduce((sum,c)=>sum+Number(c.total||0),0);
+    ctx.fillStyle='#0f172a'; ctx.fillRect(tableX,y,tableW,64);
+    ctx.font=`800 20px ${fontFamily}`; ctx.fillStyle='#ffffff'; ctx.fillText(pages.length>1?'Page Total':'TOTAL',tableX+18,y+32);
+    ctx.textAlign='right'; ctx.fillStyle='#7dd3fc'; ctx.fillText(money(visibleTotal),tableX+tableW-18,y+32); ctx.textAlign='left';
+    ctx.font=`600 15px ${fontFamily}`; ctx.fillStyle='#64748b';
+    ctx.fillText('Generated by Viber 2D Desk · Full Card Source · P Number Highlight',margin,H-28);
+    const part=pages.length>1?`_part-${pageIndex+1}`:'';
+    const filename=`${reportExportSafeFilePart(date)}_${reportExportSafeFilePart(session)}_${reportExportSafeFilePart(name)}_card-breakdown${part}.jpg`;
+    outputs.push({canvas,filename});
+  }
+  return {date,session,name,cards,summary,pages:outputs};
+}
+
+async function saveNameCardBreakdownJpg(name,options={}){
+  try{
+    const built=buildNameCardBreakdownJpgCanvases(name);
+    if(!built){ if(!options.silent) showToast('ဒီ Name အတွက် Card Breakdown data မရှိပါ'); return 0; }
+    for(const item of built.pages) await reportExportDownloadCanvas(item.canvas,item.filename);
+    if(!options.silent) showToast(built.pages.length>1?`JPG ${built.pages.length} ဖိုင် သိမ်းပြီးပါပြီ`:'Card Breakdown JPG သိမ်းပြီးပါပြီ');
+    return built.pages.length;
   }catch(error){
     console.error('Name Card Breakdown JPG export failed',error);
-    showToast(`JPG Export မအောင်မြင်ပါ: ${error?.message||error}`);
+    if(!options.silent) showToast(`JPG Export မအောင်မြင်ပါ: ${error?.message||error}`);
+    return 0;
   }
 }
 
+function reportExportCanvasFile(canvas,filename){
+  const dataUrl=canvas.toDataURL('image/jpeg',0.94);
+  const comma=dataUrl.indexOf(',');
+  const binary=atob(dataUrl.slice(comma+1));
+  const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+  return new File([bytes],filename,{type:'image/jpeg',lastModified:Date.now()});
+}
+
+async function shareNameCardBreakdownJpg(name){
+  try{
+    const built=buildNameCardBreakdownJpgCanvases(name);
+    if(!built){ showToast('ဒီ Name အတွက် Share လုပ်ရန် Card data မရှိပါ'); return; }
+    const files=built.pages.map(item=>reportExportCanvasFile(item.canvas,item.filename));
+    const shareData={
+      title:`Viber 2D Desk · ${name}`,
+      text:`${built.date} · ${built.session} · ${name} · Card Total ${money(built.summary.total)}`,
+      files
+    };
+    if(navigator.share && (!navigator.canShare || navigator.canShare({files}))){
+      try{
+        await navigator.share(shareData);
+        showToast(currentUiLang()==='en'?'Image shared.':'Report Image မျှဝေပြီးပါပြီ');
+        return;
+      }catch(error){
+        if(error?.name==='AbortError') return;
+        console.warn('File share failed; falling back to download.',error);
+      }
+    }
+    for(const item of built.pages) await reportExportDownloadCanvas(item.canvas,item.filename);
+    showToast(currentUiLang()==='en'?'Direct image sharing is not supported here. JPG was downloaded instead.':'ဒီ Browser မှာ Image Share မထောက်ပံ့သေးပါ။ JPG ကို Download အစားထိုးလုပ်ပြီးပါပြီ။');
+  }catch(error){
+    console.error('Share Card Breakdown image failed',error);
+    showToast(`Share မအောင်မြင်ပါ: ${error?.message||error}`);
+  }
+}
+
+let reportBulkDownloadRunning=false;
+async function downloadAllNameCardBreakdownJpg(){
+  if(reportBulkDownloadRunning){ showToast(currentUiLang()==='en'?'Download All is already running.':'Download All လုပ်နေဆဲပါ။'); return; }
+  const date=val('reportDate')||today();
+  const session=val('reportSession')||'AM';
+  const names=(settings.names||[]).filter(n=>reportCardBreakdown(date,session,n).length);
+  if(!names.length){ showToast(currentUiLang()==='en'?'No name has Card Breakdown data for this filter.':'ဒီ Date / Session မှာ Download လုပ်ရန် Name Card data မရှိပါ။'); return; }
+  const msg=currentUiLang()==='en'
+    ?`Download Card Breakdown JPG for ${names.length} names? Your browser may ask permission for multiple downloads.`
+    :`Name ${names.length} ယောက်အတွက် Card Breakdown JPG အားလုံး Download လုပ်မလား? Browser က multiple downloads ခွင့်တောင်းလျှင် Allow ကိုရွေးပါ။`;
+  if(!confirm(msg)) return;
+  reportBulkDownloadRunning=true;
+  let okNames=0, files=0;
+  try{
+    showToast(currentUiLang()==='en'?`Preparing ${names.length} names…`:`Name ${names.length} ယောက် JPG ပြင်ဆင်နေသည်…`);
+    for(let i=0;i<names.length;i++){
+      const count=await saveNameCardBreakdownJpg(names[i],{silent:true});
+      if(count){ okNames++; files+=count; }
+      if(i<names.length-1) await new Promise(resolve=>setTimeout(resolve,220));
+    }
+    showToast(currentUiLang()==='en'?`Downloaded ${files} JPG file(s) for ${okNames} name(s).`:`Name ${okNames} ယောက်အတွက် JPG ${files} ဖိုင် Download ပြီးပါပြီ။`);
+  }finally{
+    reportBulkDownloadRunning=false;
+  }
+}
 
 // Stage 4.8A.0 — Fixed Professional P Number Breakdown JPG export.
 async function saveNamePBreakdownJpg(name){
@@ -3614,6 +3680,186 @@ async function saveNamePBreakdownJpg(name){
   }
 }
 
+
+// Stage 4.8D.0 — Name Final Report JPG: summary + Card Breakdown + P Breakdown in one report set.
+function buildNameFinalReportJpgCanvases(name){
+  const date=val('reportDate')||today();
+  const session=val('reportSession')||'AM';
+  const cards=reportCardBreakdown(date,session,name);
+  if(!cards.length) return null;
+  const pCards=reportPCardBreakdown(date,session,name);
+  const summary=commissionSummary(name,date,session);
+  const exportStamp=new Date();
+  const showSession=session==='DAILY';
+  const W=1600, margin=70, headerH=405, footerH=92, sectionTitleH=46, tableHeadH=56, minRowH=58, sourceLineH=21;
+  const tableW=W-(margin*2);
+  const fontFamily='"Noto Sans Myanmar","Myanmar Text","Pyidaungsu","Segoe UI",Arial,sans-serif';
+  const cardColumns=showSession
+    ? [{w:130},{w:155},{w:110},{w:95},{w:185},{w:tableW-675}]
+    : [{w:145},{w:175},{w:105},{w:200},{w:tableW-625}];
+  const pColumns=showSession
+    ? [{w:105},{w:120},{w:145},{w:105},{w:90},{w:180},{w:tableW-745}]
+    : [{w:115},{w:135},{w:165},{w:100},{w:195},{w:tableW-710}];
+
+  const measureCanvas=document.createElement('canvas');
+  const mctx=measureCanvas.getContext('2d');
+  mctx.font=`600 17px ${fontFamily}`;
+  const prepareRows=(rows,columns)=>rows.map(row=>{
+    const fullSource=String(row.fullSource||row.rawText||row.sources?.join('\n')||'-').trim()||'-';
+    const sourceLines=reportExportWrappedLines(mctx,fullSource,columns[columns.length-1].w-28);
+    return {...row,fullSource,sourceLines,exportRowH:Math.max(minRowH,22+(sourceLines.length*sourceLineH))};
+  });
+  const cardRows=prepareRows(cards,cardColumns);
+  const pRows=prepareRows(pCards,pColumns);
+  const sections=[
+    {key:'card',title:'CARD TOTAL BREAKDOWN',rows:cardRows,columns:cardColumns},
+    {key:'p',title:'P NUMBER BREAKDOWN',rows:pRows,columns:pColumns}
+  ].filter(section=>section.rows.length);
+
+  const sectionStartH=sectionTitleH+tableHeadH;
+  const maxBodyH=10800;
+  const pages=[];
+  let current={items:[],used:0};
+  const flush=()=>{ if(current.items.length){ pages.push(current); current={items:[],used:0}; } };
+  sections.forEach(section=>{
+    const ensureSectionStart=(continued=false)=>{
+      if(current.items.length && current.used+sectionStartH>maxBodyH) flush();
+      current.items.push({type:'sectionStart',section,continued,h:sectionStartH});
+      current.used+=sectionStartH;
+    };
+    ensureSectionStart(false);
+    section.rows.forEach((row,rowIndex)=>{
+      if(current.items.length && current.used+row.exportRowH>maxBodyH){
+        flush();
+        ensureSectionStart(true);
+      }
+      current.items.push({type:'row',section,row,rowIndex,h:row.exportRowH});
+      current.used+=row.exportRowH;
+    });
+  });
+  flush();
+
+  const outputs=[];
+  pages.forEach((page,pageIndex)=>{
+    const H=headerH+page.used+58+footerH;
+    const canvas=document.createElement('canvas'); canvas.width=W; canvas.height=H;
+    const ctx=canvas.getContext('2d'); ctx.textBaseline='middle';
+    ctx.fillStyle='#f8fafc'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,W,92);
+    ctx.font=`800 34px ${fontFamily}`; ctx.fillStyle='#ffffff'; ctx.fillText('Viber 2D Desk',margin,47);
+    ctx.textAlign='right'; ctx.font=`800 22px ${fontFamily}`; ctx.fillStyle='#86efac'; ctx.fillText('NAME FINAL REPORT',W-margin,47); ctx.textAlign='left';
+
+    const boxX=margin, boxY=116, boxW=tableW, boxH=245;
+    ctx.fillStyle='#ffffff'; ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=2;
+    ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(boxX,boxY,boxW,boxH,22); else ctx.rect(boxX,boxY,boxW,boxH); ctx.fill(); ctx.stroke();
+    ctx.font=`800 31px ${fontFamily}`; ctx.fillStyle='#0f172a'; ctx.fillText(String(name||'Default'),boxX+28,boxY+40);
+    ctx.font=`600 17px ${fontFamily}`; ctx.fillStyle='#475569';
+    ctx.fillText(`Date: ${date}`,boxX+28,boxY+82);
+    ctx.fillText(`Session: ${session}`,boxX+300,boxY+82);
+    ctx.fillText(`Cards: ${cards.length}`,boxX+560,boxY+82);
+    ctx.fillText(`P Cards: ${pCards.length}`,boxX+760,boxY+82);
+    if(pages.length>1) ctx.fillText(`Page: ${pageIndex+1}/${pages.length}`,boxX+990,boxY+82);
+    ctx.font=`700 17px ${fontFamily}`; ctx.fillStyle='#92400e';
+    ctx.fillText(`P Number: ${summary.p||'-'}`,boxX+28,boxY+118);
+
+    const metricY=boxY+160;
+    const metrics=[
+      ['Total',money(summary.total),'#0369a1'],
+      ['P Amount',money(summary.pamt),'#b45309'],
+      ['Payout',money(summary.payout),'#7c3aed'],
+      [`Cor ${summary.rate}%`,money(Math.round(summary.cor)),'#475569'],
+      ['Final',signedMoney(summary.final),summary.final<0?'#dc2626':'#16a34a']
+    ];
+    const metricW=(boxW-56)/metrics.length;
+    metrics.forEach((m,i)=>{
+      const x=boxX+28+(i*metricW);
+      ctx.font=`700 14px ${fontFamily}`; ctx.fillStyle='#64748b'; ctx.fillText(m[0],x,metricY);
+      ctx.font=`800 21px ${fontFamily}`; ctx.fillStyle=m[2]; ctx.fillText(m[1],x,metricY+30);
+    });
+    ctx.font=`800 16px ${fontFamily}`; ctx.fillStyle=summary.final<0?'#dc2626':'#16a34a';
+    ctx.fillText(summary.status||'',boxX+28,boxY+226);
+    ctx.textAlign='right'; ctx.font=`500 14px ${fontFamily}`; ctx.fillStyle='#64748b';
+    ctx.fillText(`Exported: ${exportStamp.toLocaleString()}`,boxX+boxW-28,boxY+226); ctx.textAlign='left';
+
+    let y=headerH;
+    const drawGridRow=(section,row,rowIndex,rowH)=>{
+      const cols=section.columns;
+      const isP=section.key==='p';
+      const highlight=isP || (!!row.hasP);
+      ctx.fillStyle=highlight?'#fef3c7':(rowIndex%2===0?'#ffffff':'#f1f5f9');
+      ctx.fillRect(margin,y,tableW,rowH);
+      ctx.strokeStyle=highlight?'#f59e0b':'#e2e8f0'; ctx.strokeRect(margin,y,tableW,rowH);
+      let x=margin;
+      const vals=isP
+        ? (showSession?[row.pNumber||'-',reportCardLabel(row),row.time||'-',row.session||'-',String(row.hits||0),money(row.amount)]:[row.pNumber||'-',reportCardLabel(row),row.time||'-',String(row.hits||0),money(row.amount)])
+        : (showSession?[reportCardLabel(row),row.time||'-',row.session||'-',String(row.rows||0),money(row.total)]:[reportCardLabel(row),row.time||'-',String(row.rows||0),money(row.total)]);
+      vals.forEach((v,i)=>{
+        const col=cols[i];
+        const numeric=isP ? (showSession?[4,5]:[3,4]).includes(i) : (showSession?[3,4]:[2,3]).includes(i);
+        const amount=isP ? (showSession?i===5:i===4) : (showSession?i===4:i===3);
+        ctx.font=`${amount||(isP&&i===0)?'800':'600'} 17px ${fontFamily}`;
+        ctx.fillStyle=amount?(isP?'#b45309':'#0f766e'):(isP&&i===0?'#92400e':'#1e293b');
+        if(numeric){ ctx.textAlign='right'; ctx.fillText(v,x+col.w-14,y+(rowH/2)); ctx.textAlign='left'; }
+        else ctx.fillText(v,x+14,y+(rowH/2));
+        x+=col.w;
+      });
+      if(!isP && row.hasP && row.pNumber){
+        ctx.font=`800 13px ${fontFamily}`; ctx.fillStyle='#b45309'; ctx.fillText(`P: ${row.pNumber}`,margin+14,y+(rowH/2)+19);
+      }
+      const sourceX=margin+cols.slice(0,-1).reduce((sum,c)=>sum+c.w,0);
+      ctx.font=`600 17px ${fontFamily}`; ctx.fillStyle='#1e293b'; ctx.textBaseline='top';
+      row.sourceLines.forEach((line,li)=>ctx.fillText(line,sourceX+14,y+11+(li*sourceLineH)));
+      ctx.textBaseline='middle';
+      x=margin; ctx.strokeStyle='#cbd5e1';
+      cols.slice(0,-1).forEach(col=>{ x+=col.w; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,y+rowH); ctx.stroke(); });
+      y+=rowH;
+    };
+
+    page.items.forEach(item=>{
+      if(item.type==='sectionStart'){
+        const section=item.section;
+        ctx.fillStyle=section.key==='p'?'#78350f':'#0f766e'; ctx.fillRect(margin,y,tableW,sectionTitleH);
+        ctx.font=`800 20px ${fontFamily}`; ctx.fillStyle='#ffffff';
+        ctx.fillText(`${section.title}${item.continued?' · CONTINUED':''}`,margin+16,y+(sectionTitleH/2));
+        ctx.textAlign='right';
+        if(section.key==='p') ctx.fillText(`P Amount ${money(summary.pamt)}`,margin+tableW-16,y+(sectionTitleH/2));
+        else ctx.fillText(`Total ${money(summary.total)}`,margin+tableW-16,y+(sectionTitleH/2));
+        ctx.textAlign='left'; y+=sectionTitleH;
+        const headers=section.key==='p'
+          ? (showSession?['P No.','Card','Time','Session','Hits','P Amount','Full Original Card Source']:['P No.','Card','Time','Hits','P Amount','Full Original Card Source'])
+          : (showSession?['Card','Time','Session','Rows','Amount','Full Original Card Source']:['Card','Time','Rows','Amount','Full Original Card Source']);
+        ctx.fillStyle='#e2e8f0'; ctx.fillRect(margin,y,tableW,tableHeadH); ctx.strokeStyle='#cbd5e1'; ctx.strokeRect(margin,y,tableW,tableHeadH);
+        ctx.font=`800 17px ${fontFamily}`; ctx.fillStyle='#0f172a';
+        let x=margin; section.columns.forEach((col,i)=>{ ctx.fillText(headers[i],x+12,y+(tableHeadH/2)); x+=col.w; });
+        x=margin; section.columns.slice(0,-1).forEach(col=>{ x+=col.w; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,y+tableHeadH); ctx.stroke(); });
+        y+=tableHeadH;
+      }else if(item.type==='row') drawGridRow(item.section,item.row,item.rowIndex,item.h);
+    });
+
+    ctx.fillStyle='#0f172a'; ctx.fillRect(margin,y,tableW,58);
+    ctx.font=`800 18px ${fontFamily}`; ctx.fillStyle='#ffffff'; ctx.fillText('FINAL SUMMARY',margin+16,y+29);
+    ctx.textAlign='right'; ctx.fillStyle=summary.final<0?'#fca5a5':'#86efac'; ctx.fillText(`Final ${signedMoney(summary.final)}`,margin+tableW-16,y+29); ctx.textAlign='left';
+    ctx.font=`600 14px ${fontFamily}`; ctx.fillStyle='#64748b'; ctx.fillText('Generated by Viber 2D Desk · Name Final Report · Full Card Source',margin,H-25);
+    const part=pages.length>1?`_part-${pageIndex+1}`:'';
+    outputs.push({canvas,filename:`${reportExportSafeFilePart(date)}_${reportExportSafeFilePart(session)}_${reportExportSafeFilePart(name)}_final-report${part}.jpg`});
+  });
+  return {date,session,name,summary,cards,pCards,pages:outputs};
+}
+
+async function saveNameFinalReportJpg(name){
+  try{
+    const built=buildNameFinalReportJpgCanvases(name);
+    if(!built){ showToast(currentUiLang()==='en'?'No report data for this name.':'ဒီ Name အတွက် Final Report data မရှိပါ။'); return; }
+    for(const item of built.pages) await reportExportDownloadCanvas(item.canvas,item.filename);
+    showToast(currentUiLang()==='en'
+      ?`Final Report JPG saved${built.pages.length>1?` (${built.pages.length} files)`:''}.`
+      :(built.pages.length>1?`Final Report JPG ${built.pages.length} ဖိုင် သိမ်းပြီးပါပြီ။`:'Final Report JPG သိမ်းပြီးပါပြီ။'));
+  }catch(error){
+    console.error('Name Final Report JPG export failed',error);
+    showToast(`Final JPG Export မအောင်မြင်ပါ: ${error?.message||error}`);
+  }
+}
+
 function toggleReportTotalBreakdown(){ reportTotalBreakdownOpen=!reportTotalBreakdownOpen; renderReports(); }
 function toggleReportPBreakdown(){ reportPBreakdownOpen=!reportPBreakdownOpen; renderReports(); }
 function toggleReportNameBreakdown(name,type){
@@ -3667,7 +3913,7 @@ function renderReports(){
     const pCards=reportPCardBreakdown(r.date,r.session,n);
     const jpgDisabled=nameCards.length?'':' disabled';
     const pJpgDisabled=pCards.length?'':' disabled';
-    let html=`<tr><td><b>${escapeHtml(n)}</b></td><td class="right"><button class="reportCellDrill" onclick="toggleReportNameBreakdown('${jsArg(n)}','total')">${money(s.total)} <span>${totalOpen?'▲':'▼'}</span></button></td><td class="right"><button class="reportCellDrill warnText" onclick="toggleReportNameBreakdown('${jsArg(n)}','p')">${money(s.pamt)} <span>${pOpen?'▲':'▼'}</span></button></td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td><td class="center"><div class="reportJpgGroup"><button class="reportJpgBtn" type="button" onclick="saveNameCardBreakdownJpg('${jsArg(n)}')"${jpgDisabled} title="Card Total Breakdown JPG">Card JPG</button><button class="reportPjpgBtn" type="button" onclick="saveNamePBreakdownJpg('${jsArg(n)}')"${pJpgDisabled} title="P Number Breakdown JPG">P JPG</button></div></td></tr>`;
+    let html=`<tr><td><b>${escapeHtml(n)}</b></td><td class="right"><button class="reportCellDrill" onclick="toggleReportNameBreakdown('${jsArg(n)}','total')">${money(s.total)} <span>${totalOpen?'▲':'▼'}</span></button></td><td class="right"><button class="reportCellDrill warnText" onclick="toggleReportNameBreakdown('${jsArg(n)}','p')">${money(s.pamt)} <span>${pOpen?'▲':'▼'}</span></button></td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td><td class="center"><div class="reportJpgGroup"><button class="reportJpgBtn" type="button" onclick="saveNameCardBreakdownJpg('${jsArg(n)}')"${jpgDisabled} title="Card Total Breakdown JPG">Card JPG</button><button class="reportPjpgBtn" type="button" onclick="saveNamePBreakdownJpg('${jsArg(n)}')"${pJpgDisabled} title="P Number Breakdown JPG">P JPG</button><button class="reportFinalJpgBtn" type="button" onclick="saveNameFinalReportJpg('${jsArg(n)}')"${jpgDisabled} title="Name Final Report JPG">Final JPG</button><button class="reportShareBtn" type="button" onclick="shareNameCardBreakdownJpg('${jsArg(n)}')"${jpgDisabled} title="Share Card Breakdown Image">Share</button></div></td></tr>`;
     if(totalOpen || pOpen){
       const parts=[];
       if(totalOpen) parts.push(reportTotalBreakdownHTML(nameCards,{showName:false,showSession:r.session==='DAILY'}));
@@ -3833,7 +4079,7 @@ const UI_PHRASE_PAIRS=[
   ['Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်','Laptop Professional Workspace / ကတ်အလုပ်ခွင်'],['Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။','Saved Card List၊ Selected Card Editor နှင့် Live Summary ကို တစ်မျက်နှာတည်းတွင် မြင်နိုင်သည်။'],['+ New Paste / စာရင်းအသစ်','+ စာရင်းအသစ်'],['Entry Records ဖွင့်မယ်','Entry Records ဖွင့်မည်'],['Card List / ကတ်စာရင်း','ကတ်စာရင်း'],['Selected Card Editor','ရွေးထားသော ကတ်ပြင်ရန်'],['Live Summary','လက်ရှိအကျဉ်းချုပ်'],['Edit Card','ကတ်ပြင်မည်'],['Copy Raw','မူရင်း Copy'],['Selected Card Total','ရွေးထားသောကတ် စုစုပေါင်း'],['Selected Card Rows','ရွေးထားသောကတ် Rows'],['Viber Time','Viber အချိန်'],['Name Total','အမည် စုစုပေါင်း'],['Session Total','Session စုစုပေါင်း'],['P Number Amount','P Number ပမာဏ'],['Current Paste Preview Total','လက်ရှိ Paste Preview စုစုပေါင်း'],['Detected Cards','တွေ့ရှိသော ကတ်များ'],['Preview Rows','Preview Rows'],['Cloud Sync Status','Cloud Sync အခြေအနေ'],
   ['Paste & Parse Tools','Paste & Parse ကိရိယာများ'],['Hide Tools ▲','Tools ဖျောက်မည် ▲'],['Show Tools ▼','Tools ပြမည် ▼'],['Parse Preview','စစ်ကြည့်မည်'],['Confirm Save','အတည်ပြုသိမ်းမည်'],['Clear Text','စာသားရှင်းမည်'],['Preview Total','Preview စုစုပေါင်း'],['Warnings','သတိပေးချက်'],['Aggregated by Number','နံပါတ်အလိုက်ပေါင်း'],['Preview Detail','Preview အသေးစိတ်'],['Upload Image','ပုံတင်မည်'],['Camera','ကင်မရာ'],['Clear Image','ပုံရှင်းမည်'],
   ['Search','ရှာဖွေ'],['All Names','အမည်အားလုံး'],['Edit','ပြင်မည်'],['Delete','ဖျက်မည်'],['Remove','ဖယ်မည်'],['Save','သိမ်းမည်'],['Cancel','မလုပ်တော့'],['Close','ပိတ်မည်'],['Open','ဖွင့်မည်'],['Copy','Copy'],['Previous','ယခင်'],['Next','နောက်တစ်ခု'],['Apply','အတည်ပြုအသုံးပြု'],['Undo','ပြန်ဖျက်'],['Edited','ပြင်ထားသည်'],['No records','စာရင်းမရှိသေးပါ'],['No data','Data မရှိသေးပါ'],
-  ['App Owner Parser Control Center','App Owner Parser Control Center'],['Parser Issue Reports','Parser Issue Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule Studio'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (optional)'],['Writer Filter','Writer Filter'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Report','အစီရင်ခံစာ'],['Card JPG','Card JPG'],['P JPG','P JPG'],['JPG Export','JPG Export'],['Total Amount','စုစုပေါင်းငွေ'],['P Amount','P ပမာဏ'],['Card Total','ကတ်စုစုပေါင်း'],['Time','အချိန်'],['Status','အခြေအနေ'],['Open Card','ကတ်ဖွင့်မည်'],['Daily','နေ့စဉ်'],['AM','AM'],['PM','PM'],['DAILY','DAILY'],
+  ['App Owner Parser Control Center','App Owner Parser Control Center'],['Parser Issue Reports','Parser Issue Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule Studio'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (optional)'],['Writer Filter','Writer Filter'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Report','အစီရင်ခံစာ'],['Card JPG','Card JPG'],['P JPG','P JPG'],['Final JPG','Final JPG'],['Share','မျှဝေမည်'],['Download All Names','အမည်အားလုံး JPG သိမ်းမည်'],['JPG Export','JPG Export'],['Total Amount','စုစုပေါင်းငွေ'],['P Amount','P ပမာဏ'],['Card Total','ကတ်စုစုပေါင်း'],['Time','အချိန်'],['Status','အခြေအနေ'],['Open Card','ကတ်ဖွင့်မည်'],['Daily','နေ့စဉ်'],['AM','AM'],['PM','PM'],['DAILY','DAILY'],
   ['Login','ဝင်မည်'],['Register','အကောင့်ဖွင့်မည်'],['Forgot Password','Password မေ့နေသည်'],['Password','Password'],['Confirm Password','Password အတည်ပြု'],['Your Name / အမည်','အမည်'],['Shop / Workspace Name','Shop / Workspace အမည်'],['Create Account / Account ဖွင့်မယ်','အကောင့်ဖွင့်မည်'],['Send Reset Email','Reset Email ပို့မည်'],['Login / ဝင်မယ်','ဝင်မည်']
 ];
 const UI_EN_TO_MY=new Map(UI_PHRASE_PAIRS.map(([en,my])=>[en,my]));
@@ -4355,8 +4601,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.8A.0';
-const APP_VERSION_LABEL='Stage 4.8A.0 P Number Breakdown JPG';
+const APP_VERSION='4.8C.0';
+const APP_VERSION_LABEL='Stage 4.8D.0 Name Final Report JPG';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -4949,7 +5195,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.8A.0 P Number Breakdown JPG',
+    version:'Stage 4.8D.0 Name Final Report JPG',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

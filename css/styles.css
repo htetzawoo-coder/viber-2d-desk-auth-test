@@ -529,3 +529,20 @@ button[data-pwa-install],button[data-pwa-share]{white-space:nowrap}
 
 /* Stage 4.7A.4 — Full Source + P Number highlighted JPG */
 .reportJpgBtn{border:1px solid #38bdf8;background:linear-gradient(180deg,#0ea5e9,#0284c7);color:#fff;border-radius:9px;padding:7px 11px;font-weight:900;cursor:pointer;box-shadow:0 2px 0 rgba(3,105,161,.7);white-space:nowrap}.reportJpgBtn:hover{filter:brightness(1.08);transform:translateY(-1px)}.reportJpgBtn:active{transform:translateY(1px);box-shadow:none}.reportJpgBtn:disabled{opacity:.38;cursor:not-allowed;filter:none;transform:none;box-shadow:none}.center{text-align:center}
+
+
+/* Stage 4.7C.0 — Cloud Sync Safety & Conflict Protection */
+.cloudSyncPill{cursor:pointer;position:relative}
+.cloudPendingBadge{margin-left:6px;padding:2px 6px;border-radius:999px;background:#7c2d12;color:#fed7aa;border:1px solid #c2410c;font-size:10px;font-weight:800;white-space:nowrap}
+.cloudSyncPill.synced .cloudPendingBadge{background:#14532d;color:#bbf7d0;border-color:#166534}
+.cloudResolveBtn[hidden]{display:none!important}
+.cloudConflictCard{width:min(1060px,96vw)}
+.cloudConflictHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.cloudConflictStats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:14px 0}
+.cloudConflictSummary{padding:11px 12px;border:1px solid #7f1d1d;background:#2b0b0b;border-radius:12px;line-height:1.55}
+.cloudConflictCompare{margin-top:12px;border:1px solid #334155;border-radius:12px;overflow:hidden}
+.cloudConflictCompare td{vertical-align:top;white-space:pre-wrap;word-break:break-word}
+.cloudConflictActions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:14px}
+html[data-resolved-theme="light"] .cloudConflictSummary{background:#fff1f2;border-color:#fda4af;color:#881337}
+html[data-resolved-theme="light"] .cloudConflictCompare{border-color:#cbd5e1}
+@media(max-width:760px){.cloudConflictStats{grid-template-columns:1fr 1fr}.cloudConflictHead{flex-direction:column}.cloudConflictActions{justify-content:stretch}.cloudConflictActions .btn{flex:1}}

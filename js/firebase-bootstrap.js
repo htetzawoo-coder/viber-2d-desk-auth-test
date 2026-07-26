@@ -1,11 +1,11 @@
 (() => {
   "use strict";
 
-  const VERSION = "4.7A.4";
+  const VERSION = "4.7C.0";
   const FIREBASE_VERSION = "10.12.5";
   const statusBox = () => document.getElementById("authMessage");
 
-  // Stage 4.7A.4: do not depend on a single CDN/DNS provider.
+  // Stage 4.7C.0: retain multi-CDN Firebase bootstrap.
   // Firebase's official gstatic CDN is tried first, followed by public mirrors
   // of the same Firebase npm package build.
   const SDK_SOURCES = [

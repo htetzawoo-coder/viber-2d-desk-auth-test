@@ -21,7 +21,7 @@ function applyAuthLanguage(lang){
 function setAuthLanguage(lang){applyAuthLanguage(lang);window.v2dRefreshPwaUi?.();}
 function authMsg(my,en){return authLanguage()==='en'?en:my;}
 
-const AUTH_STAGE_VERSION = "4.7A.4";
+const AUTH_STAGE_VERSION = "4.7C.0";
 let v2dAppScriptLoaded = false;
 
 function authEl(id){ return document.getElementById(id); }
@@ -234,7 +234,12 @@ async function sendPasswordReset(event){
 }
 
 async function logoutUser(){
-  const ok=confirm(authMsg("Logout ထွက်မလား?","Log out?"));
+  const pending=Number(window.v2dGetPendingSyncCount?.()||0);
+  const unsynced=!!window.v2dHasUnsyncedChanges?.();
+  const question=unsynced
+    ? authMsg(`Cloud မတင်ရသေးသော ပြောင်းလဲမှု ${pending||1} ခု ရှိနိုင်ပါသည်။ Logout ထွက်လျှင် Local Cache ထဲတွင်သာ ယာယီကျန်နိုင်သည်။ ဆက်ထွက်မလား?`,`There are ${pending||1} unsynced cloud change(s). Logging out may leave them only in local cache. Log out anyway?`)
+    : authMsg("Logout ထွက်မလား?","Log out?");
+  const ok=confirm(question);
   if(!ok) return;
   try{
     await window.v2dAuth.signOut();

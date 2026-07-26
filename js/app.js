@@ -7,12 +7,19 @@ const USER_STORAGE_PREFIX=`v2d_user_${CURRENT_UID}__`;
 function userStorageKey(base){ return USER_STORAGE_PREFIX+base; }
 function userGetItem(base){ return localStorage.getItem(userStorageKey(base)); }
 function userSetItem(base,value){
-  localStorage.setItem(userStorageKey(base),value);
+  // Stage 4.7C: LocalStorage is cache/offline fallback only; a cache failure must never block Cloud save.
+  try{
+    localStorage.setItem(userStorageKey(base),value);
+    window.__V2D_LOCAL_CACHE_DEGRADED=false;
+  }catch(error){
+    window.__V2D_LOCAL_CACHE_DEGRADED=true;
+    console.warn('Local cache write skipped; Cloud remains the main source',base,error);
+  }
   if(window.__V2D_CLOUD_SYNC_READY && !window.__V2D_APPLYING_REMOTE && typeof scheduleCloudSync==='function' && isCloudRelevantKey(base)){
     scheduleCloudSync(base);
   }
 }
-function userRemoveItem(base){ localStorage.removeItem(userStorageKey(base)); }
+function userRemoveItem(base){ try{localStorage.removeItem(userStorageKey(base));}catch(_e){} }
 
 const LEGACY_USER_STORAGE_KEYS=[
   "v2d_records","v2d_over_deductions","v2d_audit_trail","v2d_undo_stack",
@@ -581,27 +588,27 @@ function showToast(msg,type='',duration=4200){
   },Math.max(2500,Number(duration)||4200));
 }
 function saveRecords(){
-  try{
-    userSetItem('v2d_records',JSON.stringify(records));
-  }catch(e){
-    showToast('Save storage ပြည့်နေပါတယ်။ Audit history ကို လျှော့ပြီး ထပ်သိမ်းပါ');
-    throw e;
-  }
+  // Memory -> best-effort local cache -> Cloud auto-sync. Cloud is the authoritative store.
+  userSetItem('v2d_records',JSON.stringify(records));
 }
 
-const CLOUD_SYNC_VERSION='4.5.0';
-const CLOUD_WORKSPACE_DOC_ID='current_workspace';
-const CLOUD_SYNC_DEBOUNCE_MS=900;
+const CLOUD_SYNC_VERSION='4.7C.0';
+const CLOUD_STATE_DOC_ID='state';
+const LEGACY_CLOUD_WORKSPACE_DOC_ID='current_workspace';
+const CLOUD_SYNC_DEBOUNCE_MS=650;
+const CLOUD_TRANSACTION_RECORD_LIMIT=350;
+const CLOUD_BATCH_WRITE_LIMIT=400;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
   'v2d_records','v2d_over_deductions','v2d_settings','v2d_global_view',
   'v2d_p_memory','v2d_dealer_manual_memory','v2d_audit_trail'
 ]);
 const DEVICE_ID=(()=>{
   const key='v2d_device_id';
-  let id=localStorage.getItem(key);
+  let id='';
+  try{id=localStorage.getItem(key)||'';}catch(_e){}
   if(!id){
     id=(window.crypto?.randomUUID?.()||('device-'+Date.now()+'-'+Math.random().toString(36).slice(2)));
-    localStorage.setItem(key,id);
+    try{localStorage.setItem(key,id);}catch(_e){}
   }
   return id;
 })();
@@ -612,6 +619,7 @@ let cloudSyncState={
   dirty:false,
   dirtyBaseHash:'',
   baseHash:'',
+  stateHash:'',
   timer:null,
   inFlight:false,
   queued:false,
@@ -619,8 +627,19 @@ let cloudSyncState={
   conflictData:null,
   lastSyncedAt:'',
   lastError:'',
-  needsInitialUpload:false
+  needsInitialUpload:false,
+  bootSource:'cache',
+  remoteRecordCount:0,
+  revision:0,
+  retryCount:0,
+  retryTimer:null,
+  baseStateSnapshot:null,
+  conflictAnalysis:null
 };
+let cloudRecordMirror=new Map();
+let cloudRecordRevisionMirror=new Map();
+let cloudRefreshInFlight=false;
+const CLOUD_RETRY_DELAYS=[2000,5000,15000,30000,60000];
 
 function isCloudRelevantKey(base){ return CLOUD_RELEVANT_STORAGE_KEYS.has(String(base||'')); }
 function cloudMetaKey(){ return userStorageKey('v2d_cloud_meta'); }
@@ -630,9 +649,48 @@ function readCloudMeta(){
 function writeCloudMeta(patch={}){
   const current=readCloudMeta();
   const next={...current,...patch,updatedAt:new Date().toISOString()};
-  localStorage.setItem(cloudMetaKey(),JSON.stringify(next));
+  try{localStorage.setItem(cloudMetaKey(),JSON.stringify(next));}catch(_e){}
   return next;
 }
+function pendingJournalKey(){ return userStorageKey('v2d_cloud_pending_journal'); }
+function cloudBaseMirrorKey(){ return userStorageKey('v2d_cloud_base_mirror'); }
+function readCloudBaseMirror(){
+  try{const obj=JSON.parse(localStorage.getItem(cloudBaseMirrorKey())||'{}');return new Map(Object.entries(obj&&typeof obj==='object'?obj:{}));}catch(_e){return new Map();}
+}
+function writeCloudBaseMirror(map){
+  try{localStorage.setItem(cloudBaseMirrorKey(),JSON.stringify(Object.fromEntries(map instanceof Map?map.entries():[])));}catch(_e){}
+}
+function readPendingJournal(){
+  try{const v=JSON.parse(localStorage.getItem(pendingJournalKey())||'[]');return Array.isArray(v)?v:[];}catch(_e){return [];}
+}
+function writePendingJournal(items){
+  try{localStorage.setItem(pendingJournalKey(),JSON.stringify((Array.isArray(items)?items:[]).slice(-60)));}catch(_e){}
+  updateCloudPendingUi();
+}
+function addPendingJournal(reason='local-change'){
+  if(window.__V2D_APPLYING_REMOTE) return;
+  const now=Date.now(); const items=readPendingJournal(); const last=items[items.length-1];
+  if(!last || last.reason!==String(reason) || now-Number(last.at||0)>900){
+    items.push({id:window.crypto?.randomUUID?.()||String(now)+Math.random(),reason:String(reason||'local-change'),at:now});
+    writePendingJournal(items);
+  }else updateCloudPendingUi();
+}
+function clearPendingJournal(){ writePendingJournal([]); }
+function pendingSyncCount(){
+  const n=readPendingJournal().length;
+  return n || ((cloudSyncState.dirty||readCloudMeta().pending===true)?1:0);
+}
+function hasUnsyncedCloudChanges(){ return !!(cloudSyncState.dirty||cloudSyncState.inFlight||cloudSyncState.conflictData||readCloudMeta().pending===true||pendingSyncCount()>0); }
+function updateCloudPendingUi(){
+  const count=pendingSyncCount();
+  const badge=document.getElementById('cloudPendingBadge');
+  if(badge){badge.hidden=count<=0;badge.textContent=`Pending ${count}`;}
+  const resolve=document.getElementById('cloudResolveBtn');
+  if(resolve) resolve.hidden=!cloudSyncState.conflictData;
+}
+window.v2dHasUnsyncedChanges=hasUnsyncedCloudChanges;
+window.v2dGetPendingSyncCount=pendingSyncCount;
+
 function simpleHash(text){
   let h=2166136261;
   const str=String(text||'');
@@ -642,10 +700,13 @@ function simpleHash(text){
   }
   return (h>>>0).toString(16).padStart(8,'0');
 }
+function jsonSafe(value,fallback){
+  try{return JSON.parse(JSON.stringify(value));}catch(_e){return fallback;}
+}
 function compactAuditForCloud(items){
-  return (Array.isArray(items)?items:[]).slice(0,60).map(item=>({
-    ...item,
-    rawText:item?.rawText?String(item.rawText).slice(0,1500):''
+  return (Array.isArray(items)?items:[]).slice(0,80).map(item=>({
+    ...jsonSafe(item,{}),
+    rawText:item?.rawText?String(item.rawText).slice(0,2500):''
   }));
 }
 function normalizeCloudRecords(items){
@@ -663,7 +724,6 @@ function normalizeCloudRecords(items){
 }
 function currentWorkspaceState(){
   return {
-    records:normalizeCloudRecords(records),
     overDeductions:Array.isArray(overDeductions)?overDeductions:[],
     settings:settings&&typeof settings==='object'?settings:{},
     globalView:globalView&&typeof globalView==='object'?globalView:{},
@@ -672,37 +732,62 @@ function currentWorkspaceState(){
     auditTrail:compactAuditForCloud(auditTrail)
   };
 }
-function workspaceContentHash(state=currentWorkspaceState()){
-  return simpleHash(JSON.stringify(state));
+function workspaceStateHash(state=currentWorkspaceState()){
+  return simpleHash(JSON.stringify(jsonSafe(state,{})));
 }
-function buildCloudWorkspace(reason='auto'){
-  const state=currentWorkspaceState();
-  const contentHash=workspaceContentHash(state);
-  return {
-    type:'cloud_first_workspace',
-    schemaVersion:2,
-    app:'Viber 2D Desk',
-    version:'Stage 4.7A.4 Full Source + P Highlight + PWA',
-    syncVersion:CLOUD_SYNC_VERSION,
-    ownerUid:CURRENT_UID,
-    ownerEmail:CURRENT_USER?.email||'',
-    deviceId:DEVICE_ID,
-    reason,
-    contentHash,
-    ...state,
-    totalRecords:state.records.length,
-    totalAmount:state.records.reduce((sum,row)=>sum+Number(row.amount||0),0),
-    clientUpdatedAt:new Date().toISOString(),
-    updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-  };
+function cloudRecordDocId(row,index=0){
+  const raw=String(row?.id||`row-${row?.ts||Date.now()}-${index}-${row?.number||'00'}-${row?.amount||0}`);
+  return encodeURIComponent(raw).replace(/\./g,'%2E').slice(0,1200);
+}
+function cloudRecordHash(row){
+  const safe={...jsonSafe(row,{})};
+  delete safe.ownerUid; delete safe._recordHash; delete safe._cloudUpdatedAt; delete safe._cloudDocId; delete safe._revision; delete safe._deviceId; delete safe._clientUpdatedAt; delete safe._cloudSchemaVersion;
+  return simpleHash(JSON.stringify(safe));
+}
+function appRecordFromCloud(data,docId){
+  const row={...jsonSafe(data,{})};
+  delete row.ownerUid; delete row._recordHash; delete row._cloudUpdatedAt; delete row._cloudSchemaVersion; delete row._revision; delete row._deviceId; delete row._clientUpdatedAt;
+  row.id=row.id||decodeURIComponent(docId||'');
+  return row;
+}
+function buildCurrentRecordMap(){
+  const map=new Map();
+  normalizeCloudRecords(records).forEach((row,index)=>{
+    const docId=cloudRecordDocId(row,index);
+    map.set(docId,{row,hash:cloudRecordHash(row)});
+  });
+  return map;
+}
+function recordManifestHash(map=buildCurrentRecordMap()){
+  const entries=[...map.entries()].map(([id,item])=>`${id}:${item.hash}`).sort();
+  return simpleHash(entries.join('|'));
+}
+function structuredContentHash(stateHash,recordMap){
+  return simpleHash(`${stateHash}|${recordManifestHash(recordMap)}|${recordMap.size}`);
+}
+function currentUserDocRef(){
+  if(!db||!CURRENT_USER) return null;
+  return db.collection('users').doc(CURRENT_UID);
+}
+function currentWorkspaceCollectionRef(){
+  const user=currentUserDocRef();
+  return user?user.collection('workspace'):null;
+}
+function currentCloudStateRef(){
+  const workspace=currentWorkspaceCollectionRef();
+  return workspace?workspace.doc(CLOUD_STATE_DOC_ID):null;
+}
+function currentCloudRecordsRef(){
+  const user=currentUserDocRef();
+  return user?user.collection('records'):null;
 }
 function currentUserSnapshotsRef(){
-  if(!db || !CURRENT_USER) return null;
-  return db.collection('users').doc(CURRENT_UID).collection('snapshots');
+  const user=currentUserDocRef();
+  return user?user.collection('snapshots'):null;
 }
-function currentWorkspaceRef(){
+function legacyWorkspaceRef(){
   const snapshots=currentUserSnapshotsRef();
-  return snapshots?snapshots.doc(CLOUD_WORKSPACE_DOC_ID):null;
+  return snapshots?snapshots.doc(LEGACY_CLOUD_WORKSPACE_DOC_ID):null;
 }
 function formatSyncTime(value){
   const date=value?new Date(value):new Date();
@@ -723,9 +808,10 @@ function setCloudSyncStatus(status,message='',detail=''){
     error:tUi('syncError')
   };
   if(text) text.textContent=message?translateUiMessage(message):(defaults[status]||'Cloud');
+  const source=cloudSyncState.bootSource==='cloud'?'Cloud Main':'Cloud Cache';
   const finalDetail=detail?translateUiMessage(detail):(
-    status==='synced'&&cloudSyncState.lastSyncedAt?`${tUi('last')} ${formatSyncTime(cloudSyncState.lastSyncedAt)}`:
-    status==='offline'?tUi('autoSyncWhenOnline'):
+    status==='synced'&&cloudSyncState.lastSyncedAt?`${source} · ${tUi('last')} ${formatSyncTime(cloudSyncState.lastSyncedAt)}`:
+    status==='offline'?`${source} · ${tUi('autoSyncWhenOnline')}`:
     status==='conflict'?tUi('newerDataOtherDevice'):
     status==='loading'?tUi('checkingAccountData'):''
   );
@@ -736,8 +822,10 @@ function setCloudSyncStatus(status,message='',detail=''){
   if(wsBox) wsBox.className=`workspaceSyncBox ${status}`;
   if(wsText) wsText.textContent=message||defaults[status]||'Cloud';
   if(wsDetail) wsDetail.textContent=finalDetail;
+  updateCloudPendingUi();
 }
 function persistWorkspaceStateLocally(){
+  // Stage 4.7B: LocalStorage is a best-effort cache only. Firestore is the main source.
   window.__V2D_APPLYING_REMOTE=true;
   try{
     userSetItem('v2d_records',JSON.stringify(records));
@@ -751,8 +839,42 @@ function persistWorkspaceStateLocally(){
     window.__V2D_APPLYING_REMOTE=false;
   }
 }
-function applyCloudWorkspace(data,{initial=false}={}){
-  if(!data || typeof data!=='object') return false;
+function applyStructuredCloud(stateData,cloudRows,{initial=false,fromCache=false}={}){
+  const state=stateData&&typeof stateData==='object'?stateData:{};
+  window.__V2D_APPLYING_REMOTE=true;
+  try{
+    records=normalizeCloudRecords(cloudRows||[]);
+    overDeductions=Array.isArray(state.overDeductions)?state.overDeductions:[];
+    settings=state.settings&&typeof state.settings==='object'?state.settings:{};
+    globalView=state.globalView&&typeof state.globalView==='object'?state.globalView:{};
+    pMemory=state.pMemory&&typeof state.pMemory==='object'?state.pMemory:{};
+    dealerManualMemory=state.dealerManualMemory&&typeof state.dealerManualMemory==='object'?state.dealerManualMemory:{};
+    auditTrail=Array.isArray(state.auditTrail)?state.auditTrail:[];
+    persistWorkspaceStateLocally();
+  }finally{
+    window.__V2D_APPLYING_REMOTE=false;
+  }
+  const recordMap=buildCurrentRecordMap();
+  cloudRecordMirror=new Map([...recordMap.entries()].map(([id,item])=>[id,item.hash]));
+  writeCloudBaseMirror(cloudRecordMirror);
+  cloudSyncState.stateHash=state.stateHash||workspaceStateHash();
+  cloudSyncState.revision=Number(state.revision||0)||0;
+  cloudSyncState.baseStateSnapshot=jsonSafe(currentWorkspaceState(),{});
+  const hash=state.contentHash||structuredContentHash(cloudSyncState.stateHash,recordMap);
+  cloudSyncState.baseHash=hash;
+  cloudSyncState.dirtyBaseHash='';
+  cloudSyncState.dirty=false;
+  cloudSyncState.conflictData=null;
+  cloudSyncState.remoteRecordCount=records.length;
+  cloudSyncState.lastSyncedAt=state.clientUpdatedAt||new Date().toISOString();
+  cloudSyncState.bootSource=fromCache?'cache':'cloud';
+  writeCloudMeta({pending:false,lastCloudHash:hash,lastStateHash:cloudSyncState.stateHash,dirtyBaseHash:'',lastSyncedAt:cloudSyncState.lastSyncedAt,lastError:'',mode:'structured-cloud'});
+  clearPendingJournal(); cloudSyncState.retryCount=0; clearTimeout(cloudSyncState.retryTimer);
+  if(!initial&&cloudSyncState.uiReady) refreshUiFromCloud();
+  return true;
+}
+function applyLegacyWorkspaceForMigration(data,{initial=true}={}){
+  if(!data||typeof data!=='object') return false;
   window.__V2D_APPLYING_REMOTE=true;
   try{
     records=normalizeCloudRecords(data.records);
@@ -763,17 +885,15 @@ function applyCloudWorkspace(data,{initial=false}={}){
     dealerManualMemory=data.dealerManualMemory&&typeof data.dealerManualMemory==='object'?data.dealerManualMemory:{};
     auditTrail=Array.isArray(data.auditTrail)?data.auditTrail:[];
     persistWorkspaceStateLocally();
-  }finally{
-    window.__V2D_APPLYING_REMOTE=false;
-  }
-  const hash=data.contentHash||workspaceContentHash();
-  cloudSyncState.baseHash=hash;
+  }finally{window.__V2D_APPLYING_REMOTE=false;}
+  cloudRecordMirror=new Map();
+  cloudSyncState.baseHash='';
   cloudSyncState.dirtyBaseHash='';
-  cloudSyncState.dirty=false;
-  cloudSyncState.conflictData=null;
-  cloudSyncState.lastSyncedAt=data.clientUpdatedAt||new Date().toISOString();
-  writeCloudMeta({pending:false,lastCloudHash:hash,dirtyBaseHash:'',lastSyncedAt:cloudSyncState.lastSyncedAt,lastError:''});
-  if(!initial && cloudSyncState.uiReady) refreshUiFromCloud();
+  cloudSyncState.dirty=true;
+  cloudSyncState.needsInitialUpload=true;
+  cloudSyncState.bootSource='cloud';
+  writeCloudMeta({pending:true,lastCloudHash:'',dirtyBaseHash:'',lastError:'',mode:'migration-to-structured'});
+  if(!initial&&cloudSyncState.uiReady) refreshUiFromCloud();
   return true;
 }
 function refreshUiFromCloud(){
@@ -796,282 +916,443 @@ function refreshUiFromCloud(){
     loadManualDealerInputs();
     renderAll();
     renderDiagnostics();
-  }finally{
-    window.__V2D_APPLYING_REMOTE=false;
-  }
+  }finally{window.__V2D_APPLYING_REMOTE=false;}
 }
 function markCloudDirty(reason='local-change'){
   if(window.__V2D_APPLYING_REMOTE) return;
-  if(!cloudSyncState.dirty){
-    cloudSyncState.dirtyBaseHash=cloudSyncState.baseHash||readCloudMeta().lastCloudHash||'';
-  }
+  if(!cloudSyncState.dirty) cloudSyncState.dirtyBaseHash=cloudSyncState.baseHash||readCloudMeta().lastCloudHash||'';
   cloudSyncState.dirty=true;
-  writeCloudMeta({pending:true,dirtyBaseHash:cloudSyncState.dirtyBaseHash,lastError:''});
-  if(!navigator.onLine){
-    setCloudSyncStatus('offline');
-  }else{
-    setCloudSyncStatus('saving','Saving…','ပြောင်းလဲမှုကို Cloud တင်ရန် စောင့်နေသည်');
-  }
+  addPendingJournal(reason);
+  writeCloudMeta({pending:true,dirtyBaseHash:cloudSyncState.dirtyBaseHash,lastError:'',mode:'structured-cloud'});
+  if(!navigator.onLine) setCloudSyncStatus('offline');
+  else setCloudSyncStatus('saving','Saving…','Cloud Main သို့ Auto Save စောင့်နေသည်');
 }
 function scheduleCloudSync(reason='local-change',delay=CLOUD_SYNC_DEBOUNCE_MS){
-  if(!CURRENT_USER || !db || window.__V2D_APPLYING_REMOTE) return;
+  if(!CURRENT_USER||!db||window.__V2D_APPLYING_REMOTE) return;
   markCloudDirty(reason);
   clearTimeout(cloudSyncState.timer);
   cloudSyncState.timer=setTimeout(()=>flushCloudWorkspace({showMsg:false,reason}),Math.max(100,Number(delay)||CLOUD_SYNC_DEBOUNCE_MS));
 }
+function buildStructuredStatePayload(reason,recordMap){
+  const state=currentWorkspaceState();
+  const stateHash=workspaceStateHash(state);
+  const contentHash=structuredContentHash(stateHash,recordMap);
+  return {
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 4.7C.0 Cloud Sync Safety',
+    syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
+    reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
+    ...state,
+    clientUpdatedAt:new Date().toISOString(), updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+  };
+}
+function recordCloudPayload(row,hash,docId=''){
+  const revision=(Number(cloudRecordRevisionMirror.get(docId)||0)+1);
+  return {...jsonSafe(row,{}),ownerUid:CURRENT_UID,_recordHash:hash,_revision:revision,_deviceId:DEVICE_ID,_cloudSchemaVersion:4,_clientUpdatedAt:new Date().toISOString(),_cloudUpdatedAt:firebase.firestore.FieldValue.serverTimestamp()};
+}
+function diffCloudRecords(currentMap){
+  const upserts=[]; const deletes=[];
+  currentMap.forEach((item,id)=>{if(cloudRecordMirror.get(id)!==item.hash) upserts.push({id,...item});});
+  cloudRecordMirror.forEach((_hash,id)=>{if(!currentMap.has(id)) deletes.push(id);});
+  return {upserts,deletes,total:upserts.length+deletes.length};
+}
+function changedRecordIds(baseMirror,candidateMirror){
+  const ids=new Set([...baseMirror.keys(),...candidateMirror.keys()]); const changed=[];
+  ids.forEach(id=>{if((baseMirror.get(id)||'')!==(candidateMirror.get(id)||'')) changed.push(id);});
+  return changed;
+}
+function cloudRowSummary(row){
+  if(!row) return '(deleted)';
+  const bits=[row.cardNumber?`Card #${row.cardNumber}`:'',row.number?`No ${row.number}`:'',row.amount!=null?`Amount ${money(row.amount)}`:'',row.source?String(row.source):''].filter(Boolean);
+  return bits.join(' · ');
+}
+function analyzeCloudConflict(found){
+  const localMap=buildCurrentRecordMap(); const remoteMirror=found?.mirror||new Map();
+  const remoteRowsById=new Map();
+  (found?.rows||[]).forEach((row,index)=>remoteRowsById.set(cloudRecordDocId(row,index),row));
+  const localHashMirror=new Map([...localMap.entries()].map(([id,v])=>[id,v.hash]));
+  const localChanged=changedRecordIds(cloudRecordMirror,localHashMirror);
+  const remoteChanged=changedRecordIds(cloudRecordMirror,remoteMirror);
+  const remoteSet=new Set(remoteChanged); const directOverlap=localChanged.filter(id=>remoteSet.has(id));
+  const cardKey=(row,id)=>String(row?.cardId||row?.groupId||row?.batchId||id||'');
+  const localCards=new Set(localChanged.map(id=>cardKey(localMap.get(id)?.row,id)));
+  const remoteCards=new Set(remoteChanged.map(id=>cardKey(remoteRowsById.get(id),id)));
+  const overlappingCards=new Set([...localCards].filter(k=>k&&remoteCards.has(k)));
+  const overlapSet=new Set(directOverlap);
+  if(overlappingCards.size){
+    localChanged.forEach(id=>{if(overlappingCards.has(cardKey(localMap.get(id)?.row,id)))overlapSet.add(id);});
+    remoteChanged.forEach(id=>{if(overlappingCards.has(cardKey(remoteRowsById.get(id),id)))overlapSet.add(id);});
+  }
+  const overlap=[...overlapSet];
+  const localStateHash=workspaceStateHash();
+  const baseStateHash=cloudSyncState.stateHash||workspaceStateHash(cloudSyncState.baseStateSnapshot||{});
+  const remoteStateHash=found?.state?.stateHash||'';
+  const localStateChanged=!!baseStateHash && localStateHash!==baseStateHash;
+  const remoteStateChanged=!!baseStateHash && !!remoteStateHash && remoteStateHash!==baseStateHash;
+  return {found,localMap,remoteRowsById,localChanged,remoteChanged,overlap,overlappingCards:[...overlappingCards],localStateChanged,remoteStateChanged};
+}
+function applyStateOnlyFromCloud(state){
+  const st=state&&typeof state==='object'?state:{};
+  overDeductions=Array.isArray(st.overDeductions)?st.overDeductions:[];
+  settings=st.settings&&typeof st.settings==='object'?st.settings:{};
+  globalView=st.globalView&&typeof st.globalView==='object'?st.globalView:{};
+  pMemory=st.pMemory&&typeof st.pMemory==='object'?st.pMemory:{};
+  dealerManualMemory=st.dealerManualMemory&&typeof st.dealerManualMemory==='object'?st.dealerManualMemory:{};
+  auditTrail=Array.isArray(st.auditTrail)?st.auditTrail:[];
+}
+async function autoMergeNonOverlappingConflict(analysis){
+  if(!analysis || analysis.overlap.length || (analysis.localStateChanged&&analysis.remoteStateChanged)) return false;
+  const localState=jsonSafe(currentWorkspaceState(),{});
+  const merged=new Map(analysis.remoteRowsById);
+  analysis.localChanged.forEach(id=>{const item=analysis.localMap.get(id);if(item)merged.set(id,item.row);else merged.delete(id);});
+  window.__V2D_APPLYING_REMOTE=true;
+  try{
+    records=[...merged.values()];
+    if(!analysis.localStateChanged) applyStateOnlyFromCloud(analysis.found.state);
+    else { overDeductions=localState.overDeductions;settings=localState.settings;globalView=localState.globalView;pMemory=localState.pMemory;dealerManualMemory=localState.dealerManualMemory;auditTrail=localState.auditTrail; }
+    persistWorkspaceStateLocally();
+  }finally{window.__V2D_APPLYING_REMOTE=false;}
+  cloudRecordMirror=new Map(analysis.found.mirror);
+  writeCloudBaseMirror(cloudRecordMirror);
+  cloudRecordRevisionMirror=new Map(analysis.found.revisionMirror||[]);
+  cloudSyncState.baseHash=analysis.found.state.contentHash||'';
+  cloudSyncState.stateHash=analysis.found.state.stateHash||workspaceStateHash(analysis.found.state);
+  cloudSyncState.revision=Number(analysis.found.state.revision||0)||0;
+  cloudSyncState.baseStateSnapshot=jsonSafe({overDeductions:analysis.found.state.overDeductions||[],settings:analysis.found.state.settings||{},globalView:analysis.found.state.globalView||{},pMemory:analysis.found.state.pMemory||{},dealerManualMemory:analysis.found.state.dealerManualMemory||{},auditTrail:analysis.found.state.auditTrail||[]},{});
+  cloudSyncState.dirty=true; cloudSyncState.dirtyBaseHash=cloudSyncState.baseHash; cloudSyncState.conflictData=null; cloudSyncState.conflictAnalysis=null;
+  writeCloudMeta({pending:true,lastCloudHash:cloudSyncState.baseHash,dirtyBaseHash:cloudSyncState.baseHash,lastError:'',mode:'structured-cloud'});
+  addPendingJournal('auto-merge-non-overlap');
+  if(cloudSyncState.uiReady){refreshUiFromCloud();showToast('တခြားစက်မှ မတူညီသော Records ကို Auto Merge လုပ်ပြီး Cloud Sync ဆက်လုပ်နေပါသည်','success',5500);}
+  cloudSyncState.queued=true;
+  setTimeout(()=>{if(!cloudSyncState.conflictData)flushCloudWorkspace({showMsg:false,reason:'auto-merge-non-overlap'});},300);
+  return true;
+}
+async function prepareCloudConflict(){
+  try{
+    const found=await fetchStructuredCloud({serverFirst:true});
+    if(!found) return false;
+    const analysis=analyzeCloudConflict(found); cloudSyncState.conflictAnalysis=analysis;
+    if(await autoMergeNonOverlappingConflict(analysis)) return true;
+    cloudSyncState.conflictData=found.state||cloudSyncState.conflictData||{};
+    setCloudSyncStatus('conflict');
+    if(cloudSyncState.uiReady) openCloudConflictModal();
+    return false;
+  }catch(err){console.error('Conflict analysis failed',err);return false;}
+}
+function renderCloudConflictModal(){
+  const a=cloudSyncState.conflictAnalysis; if(!a)return;
+  const put=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=String(v);};
+  put('conflictLocalPending',pendingSyncCount()); put('conflictLocalChanged',a.localChanged.length); put('conflictCloudChanged',a.remoteChanged.length); put('conflictOverlapCount',a.overlap.length+(a.localStateChanged&&a.remoteStateChanged?1:0));
+  const summary=document.getElementById('cloudConflictSummary'); if(summary){
+    const stateText=a.localStateChanged&&a.remoteStateChanged?'Settings/State ကို စက်နှစ်လုံးစလုံးက ပြင်ထားသည်။':(a.localStateChanged?'ဒီစက်မှာ Settings/State ပြင်ထားသည်။':(a.remoteStateChanged?'Cloud မှာ Settings/State ပြင်ထားသည်။':'Settings conflict မရှိပါ။'));
+    summary.innerHTML=`<b>Data ကို Auto overwrite မလုပ်ထားပါ။</b><br>Local changed: ${a.localChanged.length} · Cloud changed: ${a.remoteChanged.length} · Same Card/Record conflict: ${a.overlap.length}${a.overlappingCards?.length?` · Cards: ${a.overlappingCards.length}`:''}<br>${escapeHtml(stateText)}`;
+  }
+  const body=document.getElementById('cloudConflictRows'); if(body){
+    const ids=a.overlap.slice(0,40);
+    body.innerHTML=ids.length?ids.map(id=>`<tr><td>${escapeHtml(id.slice(0,28))}</td><td>${escapeHtml(cloudRowSummary(a.localMap.get(id)?.row))}</td><td>${escapeHtml(cloudRowSummary(a.remoteRowsById.get(id)))}</td></tr>`).join(''):'<tr><td colspan="3" class="muted">တူညီသော Record conflict မရှိပါ။ Settings/State conflict ဖြစ်နိုင်ပါသည်။</td></tr>';
+  }
+}
+async function openCloudConflictModal(){
+  if(!cloudSyncState.conflictAnalysis) await prepareCloudConflict();
+  const modal=document.getElementById('cloudConflictModal'); if(!modal)return;
+  renderCloudConflictModal(); modal.classList.add('show');
+}
+function closeCloudConflictModal(){document.getElementById('cloudConflictModal')?.classList.remove('show');}
+function toggleCloudConflictCompare(){const el=document.getElementById('cloudConflictCompare');if(el)el.hidden=!el.hidden;}
+function cloudSyncPillAction(){if(cloudSyncState.conflictData)openCloudConflictModal();else if(hasUnsyncedCloudChanges())syncCloudNow();}
+async function resolveConflictUseCloud(){
+  if(!confirm('ဒီစက်က မတင်ရသေးသော ပြောင်းလဲမှုကို မသုံးတော့ဘဲ Cloud version ကိုယူမလား? Backup JSON ထုတ်ထားရန် အကြံပြုပါသည်။'))return;
+  const found=cloudSyncState.conflictAnalysis?.found||await fetchStructuredCloud({serverFirst:true});
+  if(!found){showToast('Cloud Data ဖတ်မရပါ','error',5500);return;}
+  applyStructuredCloud(found.state,found.rows,{initial:false,fromCache:false}); cloudRecordMirror=new Map(found.mirror); writeCloudBaseMirror(cloudRecordMirror); cloudRecordRevisionMirror=new Map(found.revisionMirror||[]); cloudSyncState.conflictData=null; cloudSyncState.conflictAnalysis=null; clearPendingJournal(); closeCloudConflictModal(); setCloudSyncStatus('synced'); showToast('Cloud version ကို အသုံးပြုပြီးပါပြီ','success',5000);
+}
+async function forceReplaceCloudWithLocal(){
+  if(!navigator.onLine) throw new Error('Internet မရှိပါ');
+  const stateRef=currentCloudStateRef(), recordsRef=currentCloudRecordsRef(); if(!stateRef||!recordsRef)throw new Error('Cloud path မရပါ');
+  const localMap=buildCurrentRecordMap(); const statePayload=buildStructuredStatePayload('conflict-keep-mine',localMap);
+  const remoteSnap=await recordsRef.get({source:'server'}); const remoteIds=[]; remoteSnap.forEach(doc=>remoteIds.push(doc.id));
+  const ops=[...localMap.entries()].map(([id,item])=>({type:'set',id,...item})); remoteIds.filter(id=>!localMap.has(id)).forEach(id=>ops.push({type:'delete',id}));
+  for(let i=0;i<ops.length;i+=CLOUD_BATCH_WRITE_LIMIT){const batch=db.batch();ops.slice(i,i+CLOUD_BATCH_WRITE_LIMIT).forEach(op=>{const ref=recordsRef.doc(op.id);if(op.type==='set')batch.set(ref,recordCloudPayload(op.row,op.hash,op.id),{merge:false});else batch.delete(ref);});await batch.commit();}
+  await stateRef.set(statePayload,{merge:false});
+  cloudRecordMirror=new Map([...localMap.entries()].map(([id,item])=>[id,item.hash])); writeCloudBaseMirror(cloudRecordMirror);
+  ops.filter(x=>x.type==='set').forEach(x=>cloudRecordRevisionMirror.set(x.id,(Number(cloudRecordRevisionMirror.get(x.id)||0)+1))); ops.filter(x=>x.type==='delete').forEach(x=>cloudRecordRevisionMirror.delete(x.id));
+  cloudSyncState.stateHash=statePayload.stateHash;cloudSyncState.baseHash=statePayload.contentHash;cloudSyncState.revision=statePayload.revision;cloudSyncState.baseStateSnapshot=jsonSafe(currentWorkspaceState(),{});cloudSyncState.dirty=false;cloudSyncState.dirtyBaseHash='';cloudSyncState.conflictData=null;cloudSyncState.conflictAnalysis=null;cloudSyncState.lastSyncedAt=statePayload.clientUpdatedAt;clearPendingJournal();writeCloudMeta({pending:false,lastCloudHash:statePayload.contentHash,lastStateHash:statePayload.stateHash,dirtyBaseHash:'',lastSyncedAt:statePayload.clientUpdatedAt,lastError:'',mode:'structured-cloud'});setCloudSyncStatus('synced');
+}
+async function resolveConflictKeepMine(){
+  if(!confirm('ဒီစက် version ဖြင့် Cloud ကို အစားထိုးမလား? Cloud ဘက်က conflict data ကို ပြန်ဖုံးမည်ဖြစ်သည်။'))return;
+  try{setCloudSyncStatus('saving','Saving…','Conflict ကို Keep Mine ဖြင့်ဖြေရှင်းနေသည်');await forceReplaceCloudWithLocal();closeCloudConflictModal();showToast('ဒီစက် version ကို Cloud Main အဖြစ် သိမ်းပြီးပါပြီ','success',5500);}catch(err){showToast('Conflict ဖြေရှင်းမရပါ: '+(err?.message||err),'error',7000);setCloudSyncStatus('conflict');}
+}
+function scheduleCloudRetry(){
+  if(!navigator.onLine||cloudSyncState.conflictData||!hasUnsyncedCloudChanges())return;
+  clearTimeout(cloudSyncState.retryTimer); const idx=Math.min(cloudSyncState.retryCount,CLOUD_RETRY_DELAYS.length-1); const delay=CLOUD_RETRY_DELAYS[idx]; cloudSyncState.retryCount=Math.min(cloudSyncState.retryCount+1,CLOUD_RETRY_DELAYS.length-1);
+  cloudSyncState.retryTimer=setTimeout(()=>{if(navigator.onLine&&!cloudSyncState.conflictData)flushCloudWorkspace({showMsg:false,reason:'auto-retry'});},delay);
+  updateCloudPendingUi();
+}
+
+function assertNoRemoteConflict(remote,expectedBase,force){
+  if(force||!remote?.exists) return;
+  const data=remote.data()||{}; const remoteHash=data.contentHash||'';
+  if(remoteHash&&expectedBase&&remoteHash!==expectedBase&&data.deviceId!==DEVICE_ID){
+    const err=new Error('တခြားစက်မှာ Cloud Data အသစ်ပြောင်းထားပါတယ်');
+    err.code='v2d/cloud-conflict'; err.remoteData=data; throw err;
+  }
+  if(remoteHash&&!expectedBase&&cloudSyncState.needsInitialUpload&&data.deviceId!==DEVICE_ID){
+    const err=new Error('Cloud တွင် Data ရှိပြီးသားဖြစ်၍ Local Migration ဖြင့် မဖုံးနိုင်ပါ');
+    err.code='v2d/cloud-conflict'; err.remoteData=data; throw err;
+  }
+}
+async function commitLargeStructuredSync(stateRef,recordsRef,statePayload,diff,expectedBase,force){
+  const remote=await stateRef.get({source:'server'});
+  assertNoRemoteConflict(remote,expectedBase,force);
+  const ops=[...diff.upserts.map(x=>({type:'set',...x})),...diff.deletes.map(id=>({type:'delete',id}))];
+  for(let i=0;i<ops.length;i+=CLOUD_BATCH_WRITE_LIMIT){
+    const batch=db.batch();
+    ops.slice(i,i+CLOUD_BATCH_WRITE_LIMIT).forEach(op=>{
+      const ref=recordsRef.doc(op.id);
+      if(op.type==='set') batch.set(ref,recordCloudPayload(op.row,op.hash,op.id),{merge:false});
+      else batch.delete(ref);
+    });
+    await batch.commit();
+  }
+  await stateRef.set(statePayload,{merge:false});
+}
 async function flushCloudWorkspace({showMsg=false,reason='auto',force=false}={}){
-  if(!CURRENT_USER || !db){
+  if(!CURRENT_USER||!db){
     setCloudSyncStatus('error','Sync Error','Login/Firebase မချိတ်မိသေးပါ');
     if(showMsg) showToast('Login/Firebase မချိတ်မိသေးပါ','error',5500);
     return false;
   }
   if(!navigator.onLine){
     markCloudDirty(reason);
-    if(showMsg) showToast('Internet မရှိသေးပါ။ Data ကို စက်ထဲသိမ်းထားပြီး Internet ပြန်ရလျှင် Auto Sync လုပ်မယ်','warn',6500);
+    if(showMsg) showToast('Internet မရှိသေးပါ။ Local Cache ထဲတွင် ယာယီထားပြီး Internet ပြန်ရလျှင် Cloud သို့ Auto Sync လုပ်မယ်','warn',6500);
     return false;
   }
-  if(cloudSyncState.inFlight){
-    cloudSyncState.queued=true;
-    return false;
-  }
-  if(cloudSyncState.conflictData && !force){
+  if(cloudSyncState.inFlight){cloudSyncState.queued=true;return false;}
+  if(cloudSyncState.conflictData&&!force){
     setCloudSyncStatus('conflict');
     if(showMsg) showToast('တခြားစက်မှာ Cloud Data အသစ်ရှိနေပါတယ်။ Backup JSON ထုတ်ပြီး Cloud Refresh ဖြင့် စစ်ပါ','error',7500);
     return false;
   }
-  const payload=buildCloudWorkspace(reason);
-  const payloadBytes=new TextEncoder().encode(JSON.stringify({...payload,updatedAt:null})).length;
-  if(payloadBytes>950000){
-    const message='Cloud workspace အရွယ်အစားကြီးလွန်းနေပါတယ်။ Backup JSON ထုတ်ထားပြီး Card-based Cloud Stage ကို ဆက်တင်ပါ';
-    cloudSyncState.lastError=message;
-    writeCloudMeta({pending:true,lastError:message});
-    setCloudSyncStatus('error','Sync Size Limit',`${Math.round(payloadBytes/1024)} KB`);
-    if(showMsg) showToast(message,'error',8000);
-    return false;
+  const recordMap=buildCurrentRecordMap();
+  const statePayload=buildStructuredStatePayload(reason,recordMap);
+  const diff=diffCloudRecords(recordMap);
+  const stateChanged=statePayload.stateHash!==cloudSyncState.stateHash;
+  if(!force&&!cloudSyncState.dirty&&!stateChanged&&diff.total===0&&statePayload.contentHash===cloudSyncState.baseHash){
+    setCloudSyncStatus('synced'); return true;
   }
-  if(!force && !cloudSyncState.dirty && payload.contentHash===cloudSyncState.baseHash){
-    setCloudSyncStatus('synced');
-    return true;
+  const stateBytes=new TextEncoder().encode(JSON.stringify({...statePayload,updatedAt:null})).length;
+  if(stateBytes>850000){
+    const message='Cloud settings/state အရွယ်အစားကြီးလွန်းနေပါတယ်။ Audit/Settings data ကို လျှော့ပါ';
+    cloudSyncState.lastError=message; writeCloudMeta({pending:true,lastError:message}); setCloudSyncStatus('error','Sync Size Limit',`${Math.round(stateBytes/1024)} KB`);
+    if(showMsg) showToast(message,'error',8000); return false;
   }
-  cloudSyncState.inFlight=true;
-  cloudSyncState.queued=false;
-  setCloudSyncStatus('saving','Saving…',showMsg?'Cloud ကို တင်နေသည်':'Auto Sync လုပ်နေသည်');
-  if(showMsg) showToast('Cloud Sync စတင်နေပါသည်…','info',3000);
+  cloudSyncState.inFlight=true; cloudSyncState.queued=false;
+  setCloudSyncStatus('saving','Saving…',`${diff.upserts.length} update · ${diff.deletes.length} delete`);
+  if(showMsg) showToast('Cloud Main သို့ Sync စတင်နေပါသည်…','info',3000);
   try{
-    const ref=currentWorkspaceRef();
-    if(!ref) throw new Error('Cloud workspace path မရပါ');
+    const stateRef=currentCloudStateRef(); const recordsRef=currentCloudRecordsRef();
+    if(!stateRef||!recordsRef) throw new Error('Cloud structured path မရပါ');
     const expectedBase=cloudSyncState.dirtyBaseHash||cloudSyncState.baseHash||'';
-    await db.runTransaction(async transaction=>{
-      const snap=await transaction.get(ref);
-      if(snap.exists){
-        const remote=snap.data()||{};
-        const remoteHash=remote.contentHash||'';
-        const changedElsewhere=remoteHash && expectedBase && remoteHash!==expectedBase && remote.deviceId!==DEVICE_ID;
-        if(changedElsewhere){
-          const err=new Error('တခြားစက်မှာ Cloud Data အသစ်ပြောင်းထားပါတယ်');
-          err.code='v2d/cloud-conflict';
-          err.remoteData=remote;
-          throw err;
-        }
-      }
-      transaction.set(ref,payload,{merge:false});
-    });
-    records=payload.records;
-    cloudSyncState.baseHash=payload.contentHash;
-    cloudSyncState.dirtyBaseHash='';
-    cloudSyncState.dirty=false;
-    cloudSyncState.conflictData=null;
-    cloudSyncState.lastError='';
-    cloudSyncState.lastSyncedAt=payload.clientUpdatedAt;
-    writeCloudMeta({pending:false,lastCloudHash:payload.contentHash,dirtyBaseHash:'',lastSyncedAt:payload.clientUpdatedAt,lastError:''});
+    if(diff.total<=CLOUD_TRANSACTION_RECORD_LIMIT){
+      await db.runTransaction(async transaction=>{
+        const remote=await transaction.get(stateRef);
+        assertNoRemoteConflict(remote,expectedBase,force);
+        diff.upserts.forEach(item=>transaction.set(recordsRef.doc(item.id),recordCloudPayload(item.row,item.hash,item.id),{merge:false}));
+        diff.deletes.forEach(id=>transaction.delete(recordsRef.doc(id)));
+        transaction.set(stateRef,statePayload,{merge:false});
+      });
+    }else{
+      await commitLargeStructuredSync(stateRef,recordsRef,statePayload,diff,expectedBase,force);
+    }
+    records=normalizeCloudRecords(records);
+    cloudRecordMirror=new Map([...recordMap.entries()].map(([id,item])=>[id,item.hash]));
+    writeCloudBaseMirror(cloudRecordMirror);
+    diff.upserts.forEach(item=>cloudRecordRevisionMirror.set(item.id,(Number(cloudRecordRevisionMirror.get(item.id)||0)+1)));
+    diff.deletes.forEach(id=>cloudRecordRevisionMirror.delete(id));
+    cloudSyncState.stateHash=statePayload.stateHash;
+    cloudSyncState.revision=statePayload.revision;
+    cloudSyncState.baseStateSnapshot=jsonSafe(currentWorkspaceState(),{});
+    cloudSyncState.baseHash=statePayload.contentHash;
+    cloudSyncState.dirtyBaseHash=''; cloudSyncState.dirty=false; cloudSyncState.conflictData=null; cloudSyncState.lastError='';
+    cloudSyncState.lastSyncedAt=statePayload.clientUpdatedAt; cloudSyncState.needsInitialUpload=false; cloudSyncState.bootSource='cloud'; cloudSyncState.remoteRecordCount=recordMap.size;
+    writeCloudMeta({pending:false,lastCloudHash:statePayload.contentHash,dirtyBaseHash:'',lastSyncedAt:statePayload.clientUpdatedAt,lastError:'',mode:'structured-cloud'});
+    clearPendingJournal(); cloudSyncState.retryCount=0; clearTimeout(cloudSyncState.retryTimer);
     userRemoveItem('v2d_force_sync_on_boot');
     setCloudSyncStatus('synced');
-    if(showMsg) showToast('Cloud Sync အောင်မြင်ပါပြီ','success',5000);
+    if(showMsg) showToast('Cloud Main Sync အောင်မြင်ပါပြီ','success',5000);
     return true;
   }catch(err){
-    console.error('Cloud sync failed',err);
-    cloudSyncState.lastError=err?.message||String(err);
+    console.error('Structured cloud sync failed',err); cloudSyncState.lastError=err?.message||String(err);
     if(err?.code==='v2d/cloud-conflict'){
-      cloudSyncState.conflictData=err.remoteData||{};
-      writeCloudMeta({pending:true,lastError:cloudSyncState.lastError});
-      setCloudSyncStatus('conflict');
-      if(showMsg) showToast('Sync Conflict: တခြားစက်မှာ Data အသစ်ရှိနေပါတယ်။ Local Data ကို မဖျက်ထားပါ','error',8000);
+      cloudSyncState.conflictData=err.remoteData||{}; writeCloudMeta({pending:true,lastError:cloudSyncState.lastError}); setCloudSyncStatus('conflict');
+      const autoMerged=await prepareCloudConflict();
+      if(!autoMerged && showMsg) showToast('Sync Conflict: တူညီသော Data ကို စက်နှစ်လုံးမှ ပြင်ထားနိုင်ပါတယ်။ Compare/Resolve လုပ်ပါ','error',8000);
     }else{
-      writeCloudMeta({pending:true,lastError:cloudSyncState.lastError});
-      setCloudSyncStatus(navigator.onLine?'error':'offline','Sync Error',cloudSyncState.lastError);
+      writeCloudMeta({pending:true,lastError:cloudSyncState.lastError}); setCloudSyncStatus(navigator.onLine?'error':'offline','Sync Error',cloudSyncState.lastError);
+      scheduleCloudRetry();
       if(showMsg) showToast('Cloud Sync မအောင်မြင်ပါ: '+cloudSyncState.lastError,'error',7500);
     }
     return false;
   }finally{
     cloudSyncState.inFlight=false;
-    if(cloudSyncState.queued && !cloudSyncState.conflictData){
-      cloudSyncState.queued=false;
-      setTimeout(()=>flushCloudWorkspace({showMsg:false,reason:'queued-change'}),250);
-    }
+    if(cloudSyncState.queued&&!cloudSyncState.conflictData){cloudSyncState.queued=false;setTimeout(()=>flushCloudWorkspace({showMsg:false,reason:'queued-change'}),250);}
   }
 }
-async function findLatestLegacySnapshot(){
-  const snapshots=currentUserSnapshotsRef();
-  if(!snapshots) return null;
-  try{
-    const snap=await snapshots.orderBy('localCreatedAt','desc').limit(30).get();
-    let found=null;
-    snap.forEach(doc=>{
-      const data=doc.data()||{};
-      if(!found && doc.id!==CLOUD_WORKSPACE_DOC_ID && data.type==='stage2_full_snapshot') found=data;
-    });
-    return found;
-  }catch(err){
-    console.warn('Legacy snapshot lookup skipped',err);
-    return null;
+async function fetchStructuredCloud({serverFirst=true}={}){
+  const stateRef=currentCloudStateRef(); const recordsRef=currentCloudRecordsRef();
+  if(!stateRef||!recordsRef) return null;
+  const read=async source=>{
+    const stateSnap=source?await stateRef.get({source}):await stateRef.get();
+    if(!stateSnap.exists) return null;
+    const rowsSnap=source?await recordsRef.get({source}):await recordsRef.get();
+    const rows=[]; const mirror=new Map(); const revisionMirror=new Map();
+    rowsSnap.forEach(doc=>{const data=doc.data()||{}; rows.push(appRecordFromCloud(data,doc.id)); mirror.set(doc.id,data._recordHash||cloudRecordHash(data)); revisionMirror.set(doc.id,Number(data._revision||0)||0);});
+    return {state:stateSnap.data()||{},rows,mirror,revisionMirror,fromCache:!!stateSnap.metadata?.fromCache};
+  };
+  if(serverFirst&&navigator.onLine){
+    try{return await read('server');}catch(err){console.warn('Structured server read failed; trying Firestore cache',err);}
   }
+  try{return await read(null);}catch(_err){return null;}
 }
-async function fetchCurrentWorkspace({serverFirst=true}={}){
-  const ref=currentWorkspaceRef();
-  if(!ref) return null;
-  if(serverFirst && navigator.onLine){
-    try{
-      const snap=await ref.get({source:'server'});
-      return snap.exists?snap.data():null;
-    }catch(err){
-      console.warn('Server workspace read failed; trying cache',err);
-    }
+async function findLegacyWorkspace(){
+  const direct=legacyWorkspaceRef();
+  if(direct){
+    try{const snap=navigator.onLine?await direct.get({source:'server'}):await direct.get();if(snap.exists)return snap.data()||null;}catch(_e){}
   }
+  const snapshots=currentUserSnapshotsRef(); if(!snapshots)return null;
   try{
-    const snap=await ref.get();
-    return snap.exists?snap.data():null;
-  }catch(_err){
-    return null;
-  }
+    const snap=await snapshots.orderBy('localCreatedAt','desc').limit(30).get(); let found=null;
+    snap.forEach(doc=>{const data=doc.data()||{};if(!found&&data.type==='stage2_full_snapshot')found=data;}); return found;
+  }catch(err){console.warn('Legacy snapshot lookup skipped',err);return null;}
+}
+function hasMeaningfulLocalCache(){
+  return (Array.isArray(records)&&records.length>0)||(settings&&Object.keys(settings).length>0)||(Array.isArray(overDeductions)&&overDeductions.length>0);
+}
+async function refreshStructuredCloudFromServer({showToastMessage=false,initial=false}={}){
+  if(cloudRefreshInFlight) return false;
+  cloudRefreshInFlight=true;
+  try{
+    const found=await fetchStructuredCloud({serverFirst:true});
+    if(!found) return false;
+    applyStructuredCloud(found.state,found.rows,{initial,fromCache:found.fromCache});
+    cloudRecordMirror=found.mirror; writeCloudBaseMirror(cloudRecordMirror); cloudRecordRevisionMirror=new Map(found.revisionMirror||[]);
+    if(showToastMessage) showToast('Cloud Main Data ပြန်ဖတ်ပြီးပါပြီ','success',4500);
+    return true;
+  }finally{cloudRefreshInFlight=false;}
 }
 function subscribeCloudWorkspace(){
-  const ref=currentWorkspaceRef();
-  if(!ref || cloudSyncState.unsubscribe) return;
-  cloudSyncState.unsubscribe=ref.onSnapshot({includeMetadataChanges:true},snap=>{
-    if(!snap.exists) return;
+  const stateRef=currentCloudStateRef(); if(!stateRef||cloudSyncState.unsubscribe)return;
+  cloudSyncState.unsubscribe=stateRef.onSnapshot({includeMetadataChanges:true},async snap=>{
+    if(!snap.exists)return;
     const data=snap.data()||{};
-    if(snap.metadata.hasPendingWrites){
-      setCloudSyncStatus('saving','Saving…','Browser queue ထဲမှာရှိသည်');
-      return;
-    }
+    if(snap.metadata.hasPendingWrites){setCloudSyncStatus('saving','Saving…','Firestore queue ထဲတွင်ရှိသည်');return;}
     const remoteHash=data.contentHash||'';
-    if(!remoteHash){ setCloudSyncStatus('synced'); return; }
-    if(remoteHash===cloudSyncState.baseHash){
-      cloudSyncState.lastSyncedAt=data.clientUpdatedAt||cloudSyncState.lastSyncedAt||new Date().toISOString();
-      setCloudSyncStatus('synced');
-      return;
-    }
-    if(cloudSyncState.dirty){
-      cloudSyncState.conflictData=data;
-      setCloudSyncStatus('conflict');
-      return;
-    }
-    applyCloudWorkspace(data,{initial:false});
-    setCloudSyncStatus('synced','Cloud Updated',`တခြားစက်မှ ${formatSyncTime(data.clientUpdatedAt)}`);
-    if(cloudSyncState.uiReady) showToast('တခြားစက်မှ Cloud Data အသစ်ကို Auto Update လုပ်ပြီးပါပြီ','success',4500);
-  },err=>{
-    console.error('Cloud listener error',err);
-    setCloudSyncStatus(navigator.onLine?'error':'offline','Sync Error',err?.message||String(err));
-  });
+    if(!remoteHash){setCloudSyncStatus('synced');return;}
+    if(remoteHash===cloudSyncState.baseHash){cloudSyncState.lastSyncedAt=data.clientUpdatedAt||cloudSyncState.lastSyncedAt||new Date().toISOString();setCloudSyncStatus('synced');return;}
+    if(cloudSyncState.dirty){cloudSyncState.conflictData=data;setCloudSyncStatus('conflict');prepareCloudConflict();return;}
+    const ok=await refreshStructuredCloudFromServer({showToastMessage:false,initial:false});
+    if(ok){setCloudSyncStatus('synced','Cloud Updated',`တခြားစက်မှ ${formatSyncTime(data.clientUpdatedAt)}`);if(cloudSyncState.uiReady)showToast('တခြားစက်မှ Cloud Data အသစ်ကို Auto Update လုပ်ပြီးပါပြီ','success',4500);}
+  },err=>{console.error('Cloud state listener error',err);setCloudSyncStatus(navigator.onLine?'error':'offline','Sync Error',err?.message||String(err));});
 }
 async function initializeCloudFirstSync(){
   setCloudSyncStatus('loading');
   const meta=readCloudMeta();
+  const localPending=meta.pending===true||readPendingJournal().length>0;
   cloudSyncState.baseHash=meta.lastCloudHash||'';
-  cloudSyncState.dirty=meta.pending===true;
+  cloudSyncState.stateHash=meta.lastStateHash||'';
+  cloudSyncState.dirty=localPending;
   cloudSyncState.dirtyBaseHash=meta.dirtyBaseHash||cloudSyncState.baseHash||'';
   cloudSyncState.lastSyncedAt=meta.lastSyncedAt||'';
+  cloudRecordMirror=readCloudBaseMirror();
+  updateCloudPendingUi();
   const forceUpload=userGetItem('v2d_force_sync_on_boot')==='1';
-  try{ await Promise.resolve(window.v2dPersistenceReady); }catch(_e){}
-  const remote=await fetchCurrentWorkspace({serverFirst:true});
-  if(remote){
-    const remoteHash=remote.contentHash||'';
-    if(forceUpload){
+  try{await Promise.resolve(window.v2dPersistenceReady);}catch(_e){}
+  let structured=null;
+  if(!forceUpload) structured=await fetchStructuredCloud({serverFirst:true});
+
+  if(structured && localPending){
+    // Critical 4.7C rule: never overwrite unsynced local cache on startup.
+    const remoteHash=structured.state?.contentHash||'';
+    const knownBase=meta.lastCloudHash||'';
+    cloudRecordRevisionMirror=new Map(structured.revisionMirror||[]);
+    if(!knownBase || remoteHash===knownBase){
+      // Cloud did not move since our last successful base. Keep local cache and upload it.
+      cloudRecordMirror=cloudRecordMirror.size?cloudRecordMirror:new Map(structured.mirror);
       cloudSyncState.baseHash=remoteHash;
+      cloudSyncState.stateHash=structured.state?.stateHash||meta.lastStateHash||'';
+      cloudSyncState.revision=Number(structured.state?.revision||0)||0;
       cloudSyncState.dirty=true;
       cloudSyncState.dirtyBaseHash=remoteHash;
-      cloudSyncState.needsInitialUpload=true;
-    }else if(cloudSyncState.dirty){
-      const expected=cloudSyncState.dirtyBaseHash||cloudSyncState.baseHash||'';
-      if(expected && remoteHash && expected!==remoteHash){
-        cloudSyncState.conflictData=remote;
-      }else{
-        cloudSyncState.baseHash=remoteHash;
-        cloudSyncState.dirtyBaseHash=remoteHash;
-        cloudSyncState.needsInitialUpload=true;
-      }
+      cloudSyncState.bootSource='cache';
+      cloudSyncState.needsInitialUpload=false;
     }else{
-      applyCloudWorkspace(remote,{initial:true});
+      // Cloud and local both moved. Preserve local and open conflict analysis.
+      cloudSyncState.baseHash=knownBase;
+      cloudSyncState.stateHash=meta.lastStateHash||'';
+      cloudSyncState.dirty=true;
+      cloudSyncState.dirtyBaseHash=knownBase;
+      cloudSyncState.bootSource='cache';
+      cloudSyncState.conflictData=structured.state||{};
+      cloudSyncState.conflictAnalysis=analyzeCloudConflict(structured);
     }
-  }else if(!forceUpload && !cloudSyncState.dirty){
-    const legacy=await findLatestLegacySnapshot();
+  }else if(structured){
+    applyStructuredCloud(structured.state,structured.rows,{initial:true,fromCache:structured.fromCache});
+    cloudRecordMirror=structured.mirror; writeCloudBaseMirror(cloudRecordMirror); cloudRecordRevisionMirror=new Map(structured.revisionMirror||[]);
+  }else if(forceUpload){
+    cloudRecordMirror=cloudRecordMirror.size?cloudRecordMirror:new Map(); cloudSyncState.baseHash=''; cloudSyncState.dirty=true; cloudSyncState.dirtyBaseHash=''; cloudSyncState.needsInitialUpload=true; cloudSyncState.bootSource='cache';
+  }else{
+    const legacy=await findLegacyWorkspace();
     if(legacy){
-      applyCloudWorkspace(legacy,{initial:true});
-      cloudSyncState.needsInitialUpload=true;
-      cloudSyncState.dirty=true;
-      cloudSyncState.dirtyBaseHash='';
+      applyLegacyWorkspaceForMigration(legacy,{initial:true});
+    }else if(hasMeaningfulLocalCache()){
+      cloudRecordMirror=cloudRecordMirror.size?cloudRecordMirror:new Map(); cloudSyncState.baseHash=''; cloudSyncState.dirty=true; cloudSyncState.dirtyBaseHash=''; cloudSyncState.needsInitialUpload=true; cloudSyncState.bootSource='cache';
     }else{
-      cloudSyncState.needsInitialUpload=true;
-      cloudSyncState.dirty=true;
-      cloudSyncState.dirtyBaseHash='';
+      records=[]; overDeductions=[]; globalView={}; pMemory={}; dealerManualMemory={}; auditTrail=[];
+      cloudRecordMirror=new Map(); cloudSyncState.baseHash=''; cloudSyncState.dirty=true; cloudSyncState.dirtyBaseHash=''; cloudSyncState.needsInitialUpload=true; cloudSyncState.bootSource='cloud';
     }
-  }else{
-    cloudSyncState.needsInitialUpload=true;
   }
-  cloudSyncState.initialized=true;
-  window.__V2D_CLOUD_SYNC_READY=true;
-  subscribeCloudWorkspace();
-  if(cloudSyncState.conflictData){
-    setCloudSyncStatus('conflict');
-  }else if(!navigator.onLine){
-    setCloudSyncStatus('offline');
-  }else if(cloudSyncState.needsInitialUpload || cloudSyncState.dirty){
-    setCloudSyncStatus('saving','Saving…','Initial Auto Sync စောင့်နေသည်');
-  }else{
-    setCloudSyncStatus('synced');
-  }
+  cloudSyncState.initialized=true; window.__V2D_CLOUD_SYNC_READY=true; subscribeCloudWorkspace();
+  if(cloudSyncState.conflictData)setCloudSyncStatus('conflict');
+  else if(!navigator.onLine)setCloudSyncStatus('offline');
+  else if(cloudSyncState.needsInitialUpload||cloudSyncState.dirty)setCloudSyncStatus('saving','Saving…',`Pending ${pendingSyncCount()} · Cloud Main သို့ Auto Sync`);
+  else setCloudSyncStatus('synced');
 }
 async function saveCloudSnapshot(showMsg=true){
-  if(showMsg) return flushCloudWorkspace({showMsg:true,reason:'manual-sync',force:false});
-  scheduleCloudSync('legacy-auto-call');
-  return true;
+  if(showMsg)return flushCloudWorkspace({showMsg:true,reason:'manual-sync',force:false});
+  scheduleCloudSync('legacy-auto-call'); return true;
 }
 async function loadLatestCloudSnapshot(){
-  if(!db || !CURRENT_USER){ showToast('Login/Firebase မချိတ်မိသေးပါ','error',5500); return; }
+  if(!db||!CURRENT_USER){showToast('Login/Firebase မချိတ်မိသေးပါ','error',5500);return;}
   const hasPending=cloudSyncState.dirty||readCloudMeta().pending===true;
-  const prompt=hasPending
-    ? 'ဒီစက်မှာ Cloud မတင်ရသေးသော ပြောင်းလဲမှုရှိပါတယ်။ Backup JSON အရင်ထုတ်ရန် အကြံပြုပါတယ်။ Cloud Data ဖြင့် Local Data ကို အစားထိုးမလား?'
-    : 'Cloud မှနောက်ဆုံး Data ကို ပြန်ဖတ်မလား?';
-  if(!confirm(prompt)) return;
+  const prompt=hasPending?'ဒီစက်မှာ Cloud မတင်ရသေးသော ပြောင်းလဲမှုရှိပါတယ်။ Backup JSON အရင်ထုတ်ရန် အကြံပြုပါတယ်။ Cloud Main Data ဖြင့် Local Cache ကို အစားထိုးမလား?':'Cloud Main မှနောက်ဆုံး Data ကို ပြန်ဖတ်မလား?';
+  if(!confirm(prompt))return;
   try{
-    showToast('Cloud Data ပြန်ဖတ်နေပါသည်…','info',3500);
-    let found=await fetchCurrentWorkspace({serverFirst:true});
-    if(!found) found=await findLatestLegacySnapshot();
-    if(!found){ showToast('Cloud Data မတွေ့သေးပါ','warn',5000); return; }
-    applyCloudWorkspace(found,{initial:false});
-    cloudSyncState.conflictData=null;
-    setCloudSyncStatus('synced');
-    showToast('Cloud Refresh အောင်မြင်ပါပြီ','success',5000);
-  }catch(err){
-    console.error(err);
-    showToast('Cloud Refresh မအောင်မြင်ပါ: '+(err?.message||err),'error',7000);
-  }
+    showToast('Cloud Main Data ပြန်ဖတ်နေပါသည်…','info',3500);
+    const found=await fetchStructuredCloud({serverFirst:true});
+    if(found){applyStructuredCloud(found.state,found.rows,{initial:false,fromCache:found.fromCache});cloudRecordMirror=found.mirror; writeCloudBaseMirror(cloudRecordMirror); cloudRecordRevisionMirror=new Map(found.revisionMirror||[]);cloudSyncState.conflictData=null;setCloudSyncStatus('synced');showToast('Cloud Refresh အောင်မြင်ပါပြီ','success',5000);return;}
+    const legacy=await findLegacyWorkspace();
+    if(!legacy){showToast('Cloud Data မတွေ့သေးပါ','warn',5000);return;}
+    applyLegacyWorkspaceForMigration(legacy,{initial:false}); cloudSyncState.conflictData=null; await flushCloudWorkspace({showMsg:true,reason:'legacy-refresh-migration',force:true});
+  }catch(err){console.error(err);showToast('Cloud Refresh မအောင်မြင်ပါ: '+(err?.message||err),'error',7000);}
 }
-function syncCloudNow(){ return saveCloudSnapshot(true); }
+function syncCloudNow(){return saveCloudSnapshot(true);}
+
+window.addEventListener('beforeunload',event=>{
+  if(!hasUnsyncedCloudChanges()) return;
+  event.preventDefault(); event.returnValue='';
+});
 
 window.addEventListener('offline',()=>{
-  if(cloudSyncState.dirty) writeCloudMeta({pending:true});
+  if(cloudSyncState.dirty)writeCloudMeta({pending:true});
   setCloudSyncStatus('offline');
 });
 window.addEventListener('online',()=>{
+  cloudSyncState.retryCount=0; clearTimeout(cloudSyncState.retryTimer);
   flushParserReportQueue();
-  if(cloudSyncState.conflictData){ setCloudSyncStatus('conflict'); return; }
-  if(cloudSyncState.dirty || readCloudMeta().pending===true){
-    flushCloudWorkspace({showMsg:false,reason:'network-restored'});
-  }else{
-    setCloudSyncStatus('synced');
-  }
+  if(cloudSyncState.conflictData){setCloudSyncStatus('conflict');return;}
+  if(cloudSyncState.dirty||readCloudMeta().pending===true)flushCloudWorkspace({showMsg:false,reason:'network-restored'});
+  else refreshStructuredCloudFromServer({showToastMessage:false,initial:false}).then(ok=>{if(ok)setCloudSyncStatus('synced');});
 });
+
 
 function saveOverDeductions(){userSetItem('v2d_over_deductions',JSON.stringify(overDeductions));}
 function saveSettings(){
@@ -2962,7 +3243,7 @@ function reportPBreakdownHTML(cards,{showName=false,showSession=false}={}){
   return `<div class="reportDrillHead"><b>P Number Card Breakdown</b><span>${cards.length} cards · P Amount ${money(total)}</span></div>
     <div class="scroll"><table class="reportDrillTable"><thead><tr>${showName?'<th>Name</th>':''}<th>P No.</th><th>Card</th><th>Time</th>${showSession?'<th>Session</th>':''}<th class="right">Hits</th><th class="right">P Amount</th><th>Source</th><th></th></tr></thead><tbody>${cards.map(card=>`<tr>${showName?`<td><b>${escapeHtml(card.name)}</b></td>`:''}<td><b>${escapeHtml(card.pNumber||'-')}</b></td><td><span class="cardNoBadge">${reportCardLabel(card)}</span></td><td>${escapeHtml(card.time||'-')}</td>${showSession?`<td>${escapeHtml(card.session||'-')}</td>`:''}<td class="right">${card.hits}</td><td class="right warnText"><b>${money(card.amount)}</b></td><td class="reportSourceCell">${escapeHtml(card.sources.join(' | ')||'-')}</td><td>${reportOpenButton(card)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="${(showName?1:0)+(showSession?1:0)+4}">Total P Amount</th><th class="right">${money(total)}</th><th colspan="2"></th></tr></tfoot></table></div>`;
 }
-// Stage 4.7A.4 — Fixed Professional JPG export: full Card Source + P Number row highlight
+// Stage 4.7A.4 — Fixed Professional JPG export: full Card Source + P Number row highlight (retained in 4.7B)
 function reportExportSafeFilePart(value){
   const cleaned=String(value||'report').normalize('NFKC').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,'_').replace(/_+/g,'_').replace(/^[_\-.]+|[_\-.]+$/g,'');
   return (cleaned||'report').slice(0,80);
@@ -3886,8 +4167,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.7A.4';
-const APP_VERSION_LABEL='Stage 4.7A.4 Full Source + P Highlight + PWA';
+const APP_VERSION='4.7C.0';
+const APP_VERSION_LABEL='Stage 4.7C.0 Cloud Sync Safety & Conflict Protection';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -4480,7 +4761,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.7A.4 Full Source + P Highlight + PWA',
+    version:'Stage 4.7C.0 Cloud Sync Safety',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,
@@ -4635,8 +4916,10 @@ async function bootstrapCloudFirstApp(){
   if(IS_APP_OWNER){ startOwnerParserControlCenter(); startOwnerUserControlCenter(); }
   cloudSyncState.uiReady=true;
   setTimeout(()=>flushParserReportQueue(),700);
-  if(cloudSyncState.needsInitialUpload || cloudSyncState.dirty){
-    setTimeout(()=>flushCloudWorkspace({showMsg:false,reason:'initial-auto-sync'}),350);
+  if(cloudSyncState.conflictData){ setCloudSyncStatus('conflict'); setTimeout(()=>openCloudConflictModal(),450); }
+  else if(cloudSyncState.needsInitialUpload || cloudSyncState.dirty){
+    const forceBootUpload=userGetItem('v2d_force_sync_on_boot')==='1';
+    setTimeout(()=>flushCloudWorkspace({showMsg:false,reason:'initial-auto-sync',force:forceBootUpload}),350);
   }else{
     setCloudSyncStatus(cloudSyncState.conflictData?'conflict':(navigator.onLine?'synced':'offline'));
   }

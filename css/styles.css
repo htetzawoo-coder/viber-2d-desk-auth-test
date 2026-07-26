@@ -546,3 +546,9 @@ button[data-pwa-install],button[data-pwa-share]{white-space:nowrap}
 html[data-resolved-theme="light"] .cloudConflictSummary{background:#fff1f2;border-color:#fda4af;color:#881337}
 html[data-resolved-theme="light"] .cloudConflictCompare{border-color:#cbd5e1}
 @media(max-width:760px){.cloudConflictStats{grid-template-columns:1fr 1fr}.cloudConflictHead{flex-direction:column}.cloudConflictActions{justify-content:stretch}.cloudConflictActions .btn{flex:1}}
+
+/* Stage 4.8C.0 — Share Image + Download All Names */
+.reportBulkActions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 4px}.reportDownloadAllBtn{border:1px solid #22c55e;background:linear-gradient(180deg,#22c55e,#16a34a);color:#fff;border-radius:10px;padding:8px 14px;font-weight:900;cursor:pointer;box-shadow:0 2px 0 rgba(21,128,61,.65);white-space:nowrap}.reportDownloadAllBtn:hover{filter:brightness(1.06);transform:translateY(-1px)}.reportDownloadAllBtn:active{transform:translateY(1px);box-shadow:none}.reportShareBtn{border:1px solid #10b981;background:linear-gradient(180deg,#10b981,#059669);color:#fff;border-radius:9px;padding:7px 11px;font-weight:900;cursor:pointer;box-shadow:0 2px 0 rgba(4,120,87,.65);white-space:nowrap}.reportShareBtn:hover{filter:brightness(1.06);transform:translateY(-1px)}.reportShareBtn:active{transform:translateY(1px);box-shadow:none}.reportShareBtn:disabled{opacity:.38;cursor:not-allowed;filter:none;transform:none;box-shadow:none}
+
+/* Stage 4.8D.0 — Name Final Report JPG */
+.reportFinalJpgBtn{border:1px solid #8b5cf6;background:linear-gradient(180deg,#8b5cf6,#7c3aed);color:#fff;border-radius:9px;padding:7px 11px;font-weight:900;cursor:pointer;box-shadow:0 2px 0 rgba(91,33,182,.65);white-space:nowrap}.reportFinalJpgBtn:hover{filter:brightness(1.06);transform:translateY(-1px)}.reportFinalJpgBtn:active{transform:translateY(1px);box-shadow:none}.reportFinalJpgBtn:disabled{opacity:.38;cursor:not-allowed;filter:none;transform:none;box-shadow:none}

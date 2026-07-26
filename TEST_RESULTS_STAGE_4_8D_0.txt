@@ -1,0 +1,18 @@
+Stage 4.8D.0 — Name Final Report JPG
+
+Static checks performed:
+- project app.js JavaScript syntax: PASS
+- project auth.js JavaScript syntax: PASS
+- project pwa.js JavaScript syntax: PASS
+- Project / Online main assets: MATCH
+- Final JPG button hook: PASS
+- Final Report canvas builder: PASS
+- Summary metrics (Total / P Amount / Payout / Cor / Final): PRESENT
+- Card Total Breakdown section: PRESENT
+- P Number Breakdown section: PRESENT
+- Full Original Card Source: PRESENT
+- P-related row highlight logic: PRESENT
+- Long report auto page split: PRESENT
+- Existing Firestore rule reference files unchanged: YES
+
+Live browser JPG visual/download verification: REQUIRED on user's report data.

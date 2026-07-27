@@ -1,0 +1,63 @@
+Stage 4.9A.0 — Owner Dashboard Overview + User Management Consolidation
+Static / Regression Checks: 60/60 PASS
+
+PASS  JS Syntax project/js/app.js
+PASS  JS Syntax project/js/auth.js
+PASS  JS Syntax project/js/pwa.js
+PASS  JS Syntax project/js/firebase-bootstrap.js
+PASS  No duplicate IDs project/dev.html
+PASS  Owner Dashboard present project/dev.html
+PASS  Legacy Owner Users page removed project/dev.html
+PASS  No duplicate IDs project/index.html
+PASS  Owner Dashboard present project/index.html
+PASS  Legacy Owner Users page removed project/index.html
+PASS  No duplicate IDs online/index.html
+PASS  Owner Dashboard present online/index.html
+PASS  Legacy Owner Users page removed online/index.html
+PASS  HTML ID ownerDashboardTab
+PASS  HTML ID ownerUserExpiringCount
+PASS  HTML ID ownerDashNewReportCount
+PASS  HTML ID ownerDashReviewReportCount
+PASS  HTML ID ownerDashActiveRuleCount
+PASS  HTML ID ownerDashDraftRuleCount
+PASS  HTML ID ownerDashboardExpiringList
+PASS  HTML ID ownerDashboardParserAttentionList
+PASS  HTML ID ownerUserPlanFilter
+PASS  Dashboard function ownerDashboardSetUserFilter
+PASS  Dashboard function ownerDashboardOpenUser
+PASS  Dashboard function ownerDashboardOpenParser
+PASS  Dashboard function ownerDashboardOpenParserReport
+PASS  Dashboard function renderOwnerDashboardOverview
+PASS  Dashboard function ownerRefreshDashboard
+PASS  Dashboard function ownerUserExpiringSoon
+PASS  Dashboard function ownerUserStatusForDisplay
+PASS  Owner-only route guard
+PASS  Legacy ownerUsers alias
+PASS  Plan filter logic
+PASS  Expiring filter logic
+PASS  Parser unchanged expandToken
+PASS  Parser unchanged expandExpression
+PASS  Parser unchanged parseReverseLine
+PASS  Parser unchanged parseComplexLine
+PASS  Parser unchanged parsePastePairBranchLine
+PASS  Parser unchanged parseSpecialBurmeseLine
+PASS  Parser unchanged parseSpecialCarryLine
+PASS  Parser unchanged parseLine
+PASS  Parser unchanged parseHeaderLine
+PASS  Parser unchanged buildMessageBlocks
+PASS  Parser unchanged parseMessageBlock
+PASS  Parser unchanged parseMessage
+PASS  Project/Online match index.html
+PASS  Project/Online match css/styles.css
+PASS  Project/Online match js/app.js
+PASS  Project/Online match js/auth.js
+PASS  Project/Online match js/firebase-config.js
+PASS  Project/Online match js/firebase-bootstrap.js
+PASS  Project/Online match js/pwa.js
+PASS  Project/Online match manifest.webmanifest
+PASS  Project/Online match service-worker.js
+PASS  Owner can read user profile metadata
+PASS  Workspace privacy retained
+PASS  Records privacy retained
+PASS  App version label
+PASS  PWA cache bumped

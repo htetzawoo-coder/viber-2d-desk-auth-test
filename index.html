@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.8D.0 Name Final Report JPG</title>
+  <title>Viber 2D Desk - Stage 4.9A.0 Owner Dashboard</title>
   <meta name="theme-color" content="#0b1f3a" id="themeColorMeta" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -24,7 +24,7 @@
       <div class="authLogo pwaBrandLogo"><img src="icons/icon-192.png" alt="Viber 2D Desk logo"></div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.8D.0 · Name Final Report JPG</div>
+        <div class="muted">Stage 4.9A.0 · Owner Dashboard</div>
       </div>
     </div>
 
@@ -99,8 +99,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 4.8D.0 Name Final Report JPG + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.8D.0: Final JPG · Card JPG · P JPG · Share · Download All</div></div>
+        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 4.9A.0 Owner Dashboard + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.9A.0: Owner Dashboard · User Management · Parser Overview · License Control</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -160,8 +160,8 @@
       <button class="tab" data-id="reports" onclick="go('reports')">Reports<small>အစီရင်ခံစာ</small></button>
       <button class="tab" data-id="image" onclick="go('image')">Image<small>ပုံ / မျှဝေ</small></button>
       <button class="tab" data-id="settings" onclick="go('settings')">Settings<small>ဆက်တင်</small></button>
-      <button id="ownerParserTab" class="tab ownerOnlyTab" data-id="ownerParser" onclick="go('ownerParser')" style="display:none">Owner Parser<small>Owner Rule Control</small></button>
-      <button id="ownerUsersTab" class="tab ownerOnlyTab" data-id="ownerUsers" onclick="go('ownerUsers')" style="display:none">Owner Users<small>User / License Control</small></button>
+      <button id="ownerDashboardTab" class="tab ownerOnlyTab" data-id="ownerDashboard" onclick="go('ownerDashboard')" style="display:none">Owner Dashboard<small>Users / License / Overview</small></button>
+      <button id="ownerParserTab" class="tab ownerOnlyTab" data-id="ownerParser" onclick="go('ownerParser')" style="display:none">Owner Parser<small>Rule Control</small></button>
       <button class="tab" data-id="audit" onclick="go('audit')">History<small>မှတ်တမ်း / Undo</small></button>
       <button class="tab" data-id="tests" onclick="go('tests')">Tests<small>Parser စမ်းသပ်မှု</small></button>
       <button class="tab" data-id="diagnostics" onclick="go('diagnostics')">Diagnostics<small>Error / Version</small></button>
@@ -841,29 +841,61 @@
     </div>
   </section>
 
-  <section id="ownerUsers" class="page">
-    <div class="card ownerControlShell">
+  <section id="ownerDashboard" class="page">
+    <div class="card ownerControlShell ownerDashboardShell">
       <div class="ownerControlHeader">
         <div>
-          <h2>App Owner User & License Management</h2>
-          <div class="muted">Registered User Account များ၏ Access / Plan / Expiry ကို စီမံရန်။ User ၏ Entry Records နှင့် Business Data ကို ဒီနေရာမှ မဖတ်ပါ။</div>
+          <h2>App Owner Dashboard</h2>
+          <div class="muted">User accounts, license status နှင့် Parser activity ကို တစ်နေရာတည်းမှ စောင့်ကြည့်ပြီး User Management ကို တိုက်ရိုက်စီမံရန်။</div>
         </div>
-        <div class="ownerBadge" id="ownerUsersAccessBadge">Owner access checking…</div>
+        <div class="ownerBadge" id="ownerDashboardAccessBadge">Owner access checking…</div>
       </div>
 
-      <div class="grid4 ownerStats" style="margin-top:12px">
-        <div class="stat"><div class="k">Registered Users</div><div class="v" id="ownerUserTotalCount">0</div></div>
-        <div class="stat"><div class="k">Active</div><div class="v good" id="ownerUserActiveCount">0</div></div>
-        <div class="stat"><div class="k">Disabled</div><div class="v bad" id="ownerUserDisabledCount">0</div></div>
-        <div class="stat"><div class="k">Expired</div><div class="v warnText" id="ownerUserExpiredCount">0</div></div>
+      <div class="ownerDashboardToolbar" style="margin-top:12px">
+        <div class="btnrow">
+          <button class="btn secondary" type="button" onclick="ownerRefreshDashboard()">Refresh All</button>
+          <button class="btn warn" type="button" onclick="ownerDashboardOpenParser()">Open Owner Parser</button>
+          <button class="btn gray" type="button" onclick="document.getElementById('ownerUserManagementAnchor')?.scrollIntoView({behavior:'smooth'})">User Management</button>
+        </div>
+        <div class="muted ownerDashboardUpdated" id="ownerDashboardUpdated">Realtime dashboard</div>
       </div>
 
-      <div class="ownerUserControlGrid" style="margin-top:12px">
+      <div class="ownerDashboardSectionTitle"><h3>Account Overview</h3><span class="muted">Registered / Active / Disabled / Expired / Expiring Soon</span></div>
+      <div class="ownerDashboardStats ownerDashboardUserStats">
+        <button class="ownerMetricCard" type="button" onclick="ownerDashboardSetUserFilter('ALL')"><span>Registered Users</span><b id="ownerUserTotalCount">0</b><small>All accounts</small></button>
+        <button class="ownerMetricCard good" type="button" onclick="ownerDashboardSetUserFilter('active')"><span>Active</span><b id="ownerUserActiveCount">0</b><small>Available now</small></button>
+        <button class="ownerMetricCard bad" type="button" onclick="ownerDashboardSetUserFilter('disabled')"><span>Disabled</span><b id="ownerUserDisabledCount">0</b><small>Owner disabled</small></button>
+        <button class="ownerMetricCard warn" type="button" onclick="ownerDashboardSetUserFilter('expired')"><span>Expired</span><b id="ownerUserExpiredCount">0</b><small>Past expiry</small></button>
+        <button class="ownerMetricCard amber" type="button" onclick="ownerDashboardSetUserFilter('expiring')"><span>Expiring Soon</span><b id="ownerUserExpiringCount">0</b><small>Next 7 days</small></button>
+      </div>
+
+      <div class="ownerDashboardSectionTitle"><h3>Parser Overview</h3><span class="muted">Reports and runtime rules</span></div>
+      <div class="ownerDashboardStats ownerDashboardParserStats">
+        <button class="ownerMetricCard warn" type="button" onclick="ownerDashboardOpenParser('new')"><span>New Reports</span><b id="ownerDashNewReportCount">0</b><small>Needs review</small></button>
+        <button class="ownerMetricCard blue" type="button" onclick="ownerDashboardOpenParser('in_review')"><span>In Review</span><b id="ownerDashReviewReportCount">0</b><small>Being checked</small></button>
+        <button class="ownerMetricCard good" type="button" onclick="ownerDashboardOpenParser('', 'active')"><span>Active Rules</span><b id="ownerDashActiveRuleCount">0</b><small>Runtime enabled</small></button>
+        <button class="ownerMetricCard" type="button" onclick="ownerDashboardOpenParser('', 'draft')"><span>Draft Rules</span><b id="ownerDashDraftRuleCount">0</b><small>Not activated</small></button>
+      </div>
+
+      <div class="ownerDashboardAttentionGrid" style="margin-top:12px">
+        <div class="ownerPane">
+          <div class="ownerPaneTitle"><h3>Expiring Soon</h3><span class="miniBadge">≤ 7 days</span></div>
+          <div id="ownerDashboardExpiringList" class="ownerAttentionList"><div class="muted ownerEmpty">No expiring users.</div></div>
+        </div>
+        <div class="ownerPane">
+          <div class="ownerPaneTitle"><h3>Parser Attention</h3><button class="btn gray small" type="button" onclick="ownerDashboardOpenParser()">Open Parser</button></div>
+          <div id="ownerDashboardParserAttentionList" class="ownerAttentionList"><div class="muted ownerEmpty">No pending parser reports.</div></div>
+        </div>
+      </div>
+
+      <div id="ownerUserManagementAnchor" class="ownerDashboardSectionTitle ownerUserManagementHeading"><h3>User Management</h3><span class="muted">Account profile / Plan / Expiry / Access only</span></div>
+      <div class="ownerUserControlGrid">
         <div class="ownerPane">
           <div class="ownerPaneTitle"><h3>Registered User List</h3><button class="btn gray small" onclick="ownerRefreshUsers()">Refresh</button></div>
-          <div class="grid2 ownerFilters">
-            <div><label>Status</label><select id="ownerUserStatusFilter" onchange="renderOwnerUsers()"><option value="ALL">All</option><option value="active">Active</option><option value="disabled">Disabled</option><option value="expired">Expired</option></select></div>
-            <div><label>Search</label><input id="ownerUserSearch" placeholder="Email / Name / Shop" oninput="renderOwnerUsers()"></div>
+          <div class="ownerUserFilterGrid ownerFilters">
+            <div><label>Status</label><select id="ownerUserStatusFilter" onchange="renderOwnerUsers()"><option value="ALL">All</option><option value="active">Active</option><option value="expiring">Expiring Soon</option><option value="disabled">Disabled</option><option value="expired">Expired</option></select></div>
+            <div><label>Plan</label><select id="ownerUserPlanFilter" onchange="renderOwnerUsers()"><option value="ALL">All Plans</option><option value="trial">Trial</option><option value="basic">Basic</option><option value="standard">Standard</option><option value="pro">Pro</option><option value="custom">Custom</option></select></div>
+            <div><label>Search</label><input id="ownerUserSearch" placeholder="Email / Name / Shop / UID" oninput="renderOwnerUsers()"></div>
           </div>
           <div id="ownerUserList" class="ownerUserList"></div>
         </div>
@@ -899,7 +931,7 @@
               <button class="btn danger" onclick="ownerSetUserActive(false)">Disable</button>
             </div>
             <div id="ownerUserLicenseResult" class="ownerRuleResult muted">Changes မသိမ်းရသေးပါ။</div>
-            <div class="authSafetyNote" style="margin-top:10px">Privacy: Owner User Control က Account Profile / License metadata ကိုသာ ဖတ်နိုင်သည်။ User ၏ <code>users/{uid}/snapshots</code> Business Data ကို Owner ဖတ်ခွင့်မရှိပါ။</div>
+            <div class="authSafetyNote" style="margin-top:10px">Privacy: Owner Dashboard က Account Profile / License metadata ကိုသာ ဖတ်နိုင်သည်။ User ၏ <code>users/{uid}/workspace</code> နှင့် <code>users/{uid}/records</code> Business Data ကို Owner ဖတ်ခွင့်မရှိပါ။</div>
           </div>
         </div>
       </div>

@@ -102,6 +102,9 @@ let ownerParserRules=[];
 let ownerSelectedReportId='';
 let ownerSelectedRuleId='';
 let ownerSelectedRuleCollection='';
+let ownerParserRuleVersions=[];
+let ownerSelectedHistoryRuleId='';
+let ownerSelectedHistoryCollection='';
 let ownerReportsUnsub=null;
 let ownerGlobalRulesUnsub=null;
 let ownerWorkspaceRulesUnsub=null;
@@ -938,7 +941,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 4.9A.0 Owner Dashboard',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.1 Rule History + Rollback + Mobile Report',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -3860,6 +3863,239 @@ async function saveNameFinalReportJpg(name){
   }
 }
 
+
+// Stage 4.8E.0 — Mobile Report JPG Optimization (1080x1920 portrait, large text, full source).
+const MOBILE_REPORT_W=1080;
+const MOBILE_REPORT_H=1920;
+const MOBILE_REPORT_MARGIN=54;
+const MOBILE_REPORT_FONT='"Noto Sans Myanmar","Myanmar Text","Pyidaungsu","Segoe UI",Arial,sans-serif';
+
+function reportMobilePageCanvas(){
+  const canvas=document.createElement('canvas');
+  canvas.width=MOBILE_REPORT_W; canvas.height=MOBILE_REPORT_H;
+  return canvas;
+}
+function reportMobileRoundedRect(ctx,x,y,w,h,r,fill,stroke){
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(x,y,w,h,r); else ctx.rect(x,y,w,h);
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();}
+}
+function reportMobileSourceLines(text,maxWidth,fontSize=26){
+  const c=document.createElement('canvas'); const ctx=c.getContext('2d');
+  ctx.font=`600 ${fontSize}px ${MOBILE_REPORT_FONT}`;
+  return reportExportWrappedLines(ctx,String(text||'-'),maxWidth);
+}
+function reportMobileChunkCards(cards,{mode='card',bodyH=1480,sourceWidth=900,lineH=34}={}){
+  const fixedH=mode==='p'?150:146;
+  const maxLines=Math.max(3,Math.floor((bodyH-fixedH-12)/lineH));
+  const items=[];
+  cards.forEach(card=>{
+    const fullSource=String(card.fullSource||card.rawText||card.sources?.join('\n')||'-').trim()||'-';
+    const lines=reportMobileSourceLines(fullSource,sourceWidth,26);
+    for(let start=0;start<lines.length;start+=maxLines){
+      const sourceLines=lines.slice(start,start+maxLines);
+      items.push({
+        mode, card, fullSource, sourceLines,
+        continued:start>0,
+        hasMore:start+maxLines<lines.length,
+        h:fixedH+(sourceLines.length*lineH)+24
+      });
+    }
+  });
+  return items;
+}
+function reportMobilePackPages(items,bodyH){
+  const pages=[]; let current=[]; let used=0; const gap=14;
+  items.forEach(item=>{
+    const add=item.h+(current.length?gap:0);
+    if(current.length && used+add>bodyH){pages.push(current);current=[];used=0;}
+    if(current.length) used+=gap;
+    current.push(item); used+=item.h;
+  });
+  if(current.length) pages.push(current);
+  return pages;
+}
+function reportMobileDrawTop(ctx,{accent='#38bdf8',title='REPORT',name,date,session,pageIndex,pageCount,summaryLines=[]}){
+  ctx.fillStyle='#f8fafc'; ctx.fillRect(0,0,MOBILE_REPORT_W,MOBILE_REPORT_H);
+  ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,MOBILE_REPORT_W,88);
+  ctx.textBaseline='middle'; ctx.textAlign='left';
+  ctx.font=`800 34px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#ffffff'; ctx.fillText('Viber 2D Desk',MOBILE_REPORT_MARGIN,45);
+  ctx.textAlign='right'; ctx.font=`800 21px ${MOBILE_REPORT_FONT}`; ctx.fillStyle=accent; ctx.fillText(title,MOBILE_REPORT_W-MOBILE_REPORT_MARGIN,45); ctx.textAlign='left';
+  reportMobileRoundedRect(ctx,MOBILE_REPORT_MARGIN,112,MOBILE_REPORT_W-(MOBILE_REPORT_MARGIN*2),210,22,'#ffffff','#cbd5e1');
+  ctx.font=`800 31px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#0f172a'; ctx.fillText(String(name||'Default'),MOBILE_REPORT_MARGIN+26,151);
+  ctx.font=`600 20px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#475569';
+  ctx.fillText(`Date: ${date}`,MOBILE_REPORT_MARGIN+26,194);
+  ctx.fillText(`Session: ${session}`,MOBILE_REPORT_MARGIN+390,194);
+  ctx.textAlign='right'; ctx.fillText(`Part ${pageIndex+1}/${pageCount}`,MOBILE_REPORT_W-MOBILE_REPORT_MARGIN-26,194); ctx.textAlign='left';
+  let x=MOBILE_REPORT_MARGIN+26;
+  summaryLines.forEach((s,i)=>{
+    ctx.font=`${s.bold?'800':'700'} ${s.size||22}px ${MOBILE_REPORT_FONT}`; ctx.fillStyle=s.color||'#0f172a';
+    ctx.fillText(s.text,x,246+(i*37));
+  });
+}
+function reportMobileDrawCardItem(ctx,item,y,{pMode=false}={}){
+  const card=item.card; const x=MOBILE_REPORT_MARGIN; const w=MOBILE_REPORT_W-(MOBILE_REPORT_MARGIN*2);
+  const highlight=pMode || !!card.hasP;
+  const bg=highlight?'#fffbeb':'#ffffff'; const border=highlight?'#f59e0b':'#cbd5e1';
+  reportMobileRoundedRect(ctx,x,y,w,item.h,20,bg,border);
+  const topY=y+35;
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  if(pMode){
+    ctx.font=`800 27px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#92400e'; ctx.fillText(`P ${card.pNumber||'-'}  ·  ${reportCardLabel(card)}`,x+24,topY);
+    ctx.textAlign='right'; ctx.fillStyle='#b45309'; ctx.fillText(money(card.amount||0),x+w-24,topY); ctx.textAlign='left';
+    ctx.font=`700 21px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#475569';
+    const sessionText=card.session?` · ${card.session}`:'';
+    ctx.fillText(`${card.time||'-'}${sessionText}   ·   Hits ${card.hits||0}`,x+24,topY+42);
+  }else{
+    ctx.font=`800 27px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#0f172a'; ctx.fillText(`${reportCardLabel(card)}${item.continued?' · continued':''}`,x+24,topY);
+    ctx.textAlign='right'; ctx.fillStyle='#0f766e'; ctx.fillText(money(card.total||0),x+w-24,topY); ctx.textAlign='left';
+    ctx.font=`700 21px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#475569';
+    const sessionText=card.session?` · ${card.session}`:'';
+    ctx.fillText(`${card.time||'-'}${sessionText}   ·   Rows ${card.rows||0}`,x+24,topY+42);
+    if(card.hasP && card.pNumber){
+      reportMobileRoundedRect(ctx,x+w-190,topY+53,164,38,18,'#fef3c7','#f59e0b');
+      ctx.textAlign='center'; ctx.font=`800 18px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#92400e'; ctx.fillText(`P: ${card.pNumber}`,x+w-108,topY+72); ctx.textAlign='left';
+    }
+  }
+  const sourceY=y+(pMode?112:110);
+  ctx.font=`800 18px ${MOBILE_REPORT_FONT}`; ctx.fillStyle=highlight?'#92400e':'#64748b';
+  ctx.fillText(item.continued?'SOURCE · CONTINUED':'SOURCE',x+24,sourceY);
+  ctx.font=`600 26px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#111827'; ctx.textBaseline='top';
+  item.sourceLines.forEach((line,i)=>ctx.fillText(line,x+24,sourceY+27+(i*34)));
+  ctx.textBaseline='middle';
+}
+function reportMobileDrawFooter(ctx,pageIndex,pageCount,label){
+  ctx.fillStyle='#e2e8f0'; ctx.fillRect(0,MOBILE_REPORT_H-62,MOBILE_REPORT_W,62);
+  ctx.font=`600 17px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#475569'; ctx.textAlign='left';
+  ctx.fillText(`Viber 2D Desk · ${label}`,MOBILE_REPORT_MARGIN,MOBILE_REPORT_H-31);
+  ctx.textAlign='right'; ctx.fillText(`${pageIndex+1}/${pageCount}`,MOBILE_REPORT_W-MOBILE_REPORT_MARGIN,MOBILE_REPORT_H-31); ctx.textAlign='left';
+}
+function buildNameCardBreakdownMobileJpgCanvases(name){
+  const date=val('reportDate')||today(); const session=val('reportSession')||'AM';
+  const cards=reportCardBreakdown(date,session,name); if(!cards.length) return null;
+  const summary=commissionSummary(name,date,session); const bodyTop=345, bodyBottom=MOBILE_REPORT_H-78, bodyH=bodyBottom-bodyTop;
+  const items=reportMobileChunkCards(cards,{mode:'card',bodyH,sourceWidth:920,lineH:34});
+  const pages=reportMobilePackPages(items,bodyH); const outputs=[];
+  pages.forEach((pageItems,pageIndex)=>{
+    const canvas=reportMobilePageCanvas(); const ctx=canvas.getContext('2d');
+    reportMobileDrawTop(ctx,{accent:'#7dd3fc',title:'MOBILE · CARD BREAKDOWN',name,date,session,pageIndex,pageCount:pages.length,summaryLines:[{text:`Total Amount: ${money(summary.total)}`,bold:true,color:'#0369a1',size:25},{text:`Cards: ${cards.length}  ·  P Number: ${summary.p||'-'}`,color:'#475569',size:20}]});
+    let y=bodyTop;
+    pageItems.forEach(item=>{reportMobileDrawCardItem(ctx,item,y,{pMode:false}); y+=item.h+14;});
+    reportMobileDrawFooter(ctx,pageIndex,pages.length,'Mobile Card Breakdown · Full Source');
+    const part=pages.length>1?`_part-${pageIndex+1}`:'';
+    outputs.push({canvas,filename:`${reportExportSafeFilePart(date)}_${reportExportSafeFilePart(session)}_${reportExportSafeFilePart(name)}_card-mobile${part}.jpg`});
+  });
+  return {date,session,name,summary,cards,pages:outputs};
+}
+function buildNamePBreakdownMobileJpgCanvases(name){
+  const date=val('reportDate')||today(); const session=val('reportSession')||'AM';
+  const cards=reportPCardBreakdown(date,session,name); if(!cards.length) return null;
+  const totalP=cards.reduce((s,c)=>s+Number(c.amount||0),0); const hits=cards.reduce((s,c)=>s+Number(c.hits||0),0);
+  const pLabels=[...new Set(cards.map(c=>`${session==='DAILY'?(c.session||'-')+': ':''}${c.pNumber||'-'}`))].join(' · ');
+  const bodyTop=345, bodyBottom=MOBILE_REPORT_H-78, bodyH=bodyBottom-bodyTop;
+  const items=reportMobileChunkCards(cards,{mode:'p',bodyH,sourceWidth:920,lineH:34});
+  const pages=reportMobilePackPages(items,bodyH); const outputs=[];
+  pages.forEach((pageItems,pageIndex)=>{
+    const canvas=reportMobilePageCanvas(); const ctx=canvas.getContext('2d');
+    reportMobileDrawTop(ctx,{accent:'#fbbf24',title:'MOBILE · P BREAKDOWN',name,date,session,pageIndex,pageCount:pages.length,summaryLines:[{text:`Total P Amount: ${money(totalP)}`,bold:true,color:'#b45309',size:25},{text:`P: ${pLabels||'-'}  ·  Cards: ${cards.length}  ·  Hits: ${hits}`,color:'#475569',size:19}]});
+    let y=bodyTop;
+    pageItems.forEach(item=>{reportMobileDrawCardItem(ctx,item,y,{pMode:true}); y+=item.h+14;});
+    reportMobileDrawFooter(ctx,pageIndex,pages.length,'Mobile P Breakdown · Full Source');
+    const part=pages.length>1?`_part-${pageIndex+1}`:'';
+    outputs.push({canvas,filename:`${reportExportSafeFilePart(date)}_${reportExportSafeFilePart(session)}_${reportExportSafeFilePart(name)}_p-mobile${part}.jpg`});
+  });
+  return {date,session,name,cards,totalP,hits,pages:outputs};
+}
+function reportMobileFinalItems(cards,pCards,bodyH){
+  const cardItems=reportMobileChunkCards(cards,{mode:'card',bodyH:bodyH-100,sourceWidth:920,lineH:34}).map(x=>({...x,section:'card'}));
+  const pItems=reportMobileChunkCards(pCards,{mode:'p',bodyH:bodyH-100,sourceWidth:920,lineH:34}).map(x=>({...x,section:'p'}));
+  const all=[...cardItems,...pItems]; const pages=[]; let page=[]; let used=0; let section='';
+  all.forEach(item=>{
+    const needTitle=section!==item.section; const add=(needTitle?58:0)+item.h+14;
+    if(page.length && used+add>bodyH){pages.push(page);page=[];used=0;section='';}
+    const titleNeeded=section!==item.section;
+    page.push({...item,sectionTitle:titleNeeded}); used+=(titleNeeded?58:0)+item.h+14; section=item.section;
+  });
+  if(page.length) pages.push(page);
+  return pages;
+}
+function buildNameFinalReportMobileJpgCanvases(name){
+  const date=val('reportDate')||today(); const session=val('reportSession')||'AM';
+  const cards=reportCardBreakdown(date,session,name); if(!cards.length) return null;
+  const pCards=reportPCardBreakdown(date,session,name); const summary=commissionSummary(name,date,session);
+  const bodyTop=430, bodyBottom=MOBILE_REPORT_H-78, bodyH=bodyBottom-bodyTop;
+  const pages=reportMobileFinalItems(cards,pCards,bodyH); const outputs=[];
+  pages.forEach((pageItems,pageIndex)=>{
+    const canvas=reportMobilePageCanvas(); const ctx=canvas.getContext('2d');
+    ctx.fillStyle='#f8fafc'; ctx.fillRect(0,0,MOBILE_REPORT_W,MOBILE_REPORT_H);
+    ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,MOBILE_REPORT_W,88);
+    ctx.textBaseline='middle'; ctx.font=`800 34px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#fff'; ctx.fillText('Viber 2D Desk',MOBILE_REPORT_MARGIN,45);
+    ctx.textAlign='right'; ctx.font=`800 21px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#86efac'; ctx.fillText('MOBILE · FINAL REPORT',MOBILE_REPORT_W-MOBILE_REPORT_MARGIN,45); ctx.textAlign='left';
+    reportMobileRoundedRect(ctx,MOBILE_REPORT_MARGIN,112,MOBILE_REPORT_W-(MOBILE_REPORT_MARGIN*2),292,22,'#ffffff','#cbd5e1');
+    ctx.font=`800 31px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#0f172a'; ctx.fillText(String(name||'Default'),MOBILE_REPORT_MARGIN+26,150);
+    ctx.font=`600 19px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#475569'; ctx.fillText(`Date: ${date}`,MOBILE_REPORT_MARGIN+26,192); ctx.fillText(`Session: ${session}`,MOBILE_REPORT_MARGIN+390,192);
+    ctx.textAlign='right'; ctx.fillText(`Part ${pageIndex+1}/${pages.length}`,MOBILE_REPORT_W-MOBILE_REPORT_MARGIN-26,192); ctx.textAlign='left';
+    const metrics=[['Total',money(summary.total),'#0369a1'],['P Amount',money(summary.pamt),'#b45309'],['Payout',money(summary.payout),'#7c3aed'],[`Cor ${summary.rate}%`,money(Math.round(summary.cor)),'#475569'],['Final',signedMoney(summary.final),summary.final<0?'#dc2626':'#16a34a']];
+    metrics.forEach((m,i)=>{const col=i%2,row=Math.floor(i/2); const x=MOBILE_REPORT_MARGIN+28+(col*470), y=244+(row*58); ctx.font=`700 15px ${MOBILE_REPORT_FONT}`;ctx.fillStyle='#64748b';ctx.fillText(m[0],x,y);ctx.font=`800 22px ${MOBILE_REPORT_FONT}`;ctx.fillStyle=m[2];ctx.fillText(m[1],x,y+27);});
+    let y=bodyTop; let activeSection='';
+    pageItems.forEach(item=>{
+      if(item.sectionTitle || activeSection!==item.section){
+        const isP=item.section==='p'; ctx.fillStyle=isP?'#78350f':'#0f766e'; ctx.fillRect(MOBILE_REPORT_MARGIN,y,MOBILE_REPORT_W-(MOBILE_REPORT_MARGIN*2),48);
+        ctx.font=`800 20px ${MOBILE_REPORT_FONT}`; ctx.fillStyle='#fff'; ctx.fillText(isP?'P NUMBER BREAKDOWN':'CARD TOTAL BREAKDOWN',MOBILE_REPORT_MARGIN+18,y+24); y+=58; activeSection=item.section;
+      }
+      reportMobileDrawCardItem(ctx,item,y,{pMode:item.section==='p'}); y+=item.h+14;
+    });
+    reportMobileDrawFooter(ctx,pageIndex,pages.length,'Mobile Final Report · Full Source');
+    const part=pages.length>1?`_part-${pageIndex+1}`:'';
+    outputs.push({canvas,filename:`${reportExportSafeFilePart(date)}_${reportExportSafeFilePart(session)}_${reportExportSafeFilePart(name)}_final-mobile${part}.jpg`});
+  });
+  return {date,session,name,summary,cards,pCards,pages:outputs};
+}
+async function reportMobileDownloadSet(built,label,options={}){
+  if(!built){if(!options.silent)showToast(currentUiLang()==='en'?`No ${label} data.`:`${label} data မရှိပါ။`);return 0;}
+  for(const item of built.pages) await reportExportDownloadCanvas(item.canvas,item.filename);
+  if(!options.silent) showToast(currentUiLang()==='en'?`${label} saved${built.pages.length>1?` (${built.pages.length} files)`:''}.`:`${label} ${built.pages.length>1?built.pages.length+' ဖိုင် ':''}သိမ်းပြီးပါပြီ။`);
+  return built.pages.length;
+}
+async function saveNameCardBreakdownMobileJpg(name,options={}){try{return await reportMobileDownloadSet(buildNameCardBreakdownMobileJpgCanvases(name),'Mobile Card JPG',options);}catch(e){console.error(e);if(!options.silent)showToast('Mobile Card JPG မအောင်မြင်ပါ: '+(e?.message||e));return 0;}}
+async function saveNamePBreakdownMobileJpg(name,options={}){try{return await reportMobileDownloadSet(buildNamePBreakdownMobileJpgCanvases(name),'Mobile P JPG',options);}catch(e){console.error(e);if(!options.silent)showToast('Mobile P JPG မအောင်မြင်ပါ: '+(e?.message||e));return 0;}}
+async function saveNameFinalReportMobileJpg(name,options={}){try{return await reportMobileDownloadSet(buildNameFinalReportMobileJpgCanvases(name),'Mobile Final JPG',options);}catch(e){console.error(e);if(!options.silent)showToast('Mobile Final JPG မအောင်မြင်ပါ: '+(e?.message||e));return 0;}}
+function handleMobileReportExport(select,name){
+  const type=select?.value||''; if(select)select.value='';
+  if(type==='card') saveNameCardBreakdownMobileJpg(name);
+  else if(type==='p') saveNamePBreakdownMobileJpg(name);
+  else if(type==='final') saveNameFinalReportMobileJpg(name);
+}
+// Stage 4.8E share default: portrait Mobile Card JPG, optimized for Viber / phone viewing.
+async function shareNameCardBreakdownMobileJpg(name){
+  try{
+    const built=buildNameCardBreakdownMobileJpgCanvases(name);
+    if(!built){showToast('ဒီ Name အတွက် Share လုပ်ရန် Card data မရှိပါ');return;}
+    const files=built.pages.map(item=>reportExportCanvasFile(item.canvas,item.filename));
+    const shareData={title:`Viber 2D Desk · ${name}`,text:`${built.date} · ${built.session} · ${name} · ${money(built.summary.total)}`,files};
+    if(navigator.share && (!navigator.canShare || navigator.canShare({files}))){
+      try{await navigator.share(shareData);showToast(currentUiLang()==='en'?'Mobile report image shared.':'ဖုန်းကြည့်ရန် Mobile Report Image မျှဝေပြီးပါပြီ။');return;}catch(error){if(error?.name==='AbortError')return;console.warn(error);}
+    }
+    for(const item of built.pages) await reportExportDownloadCanvas(item.canvas,item.filename);
+    showToast(currentUiLang()==='en'?'Image sharing is unavailable. Mobile JPG was downloaded.':'Share မထောက်ပံ့သော Browser ဖြစ်၍ Mobile JPG ကို Download အစားထိုးလုပ်ပြီးပါပြီ။');
+  }catch(error){console.error(error);showToast('Mobile Share မအောင်မြင်ပါ: '+(error?.message||error));}
+}
+let reportMobileBulkDownloadRunning=false;
+async function downloadAllNameMobileCardJpg(){
+  if(reportMobileBulkDownloadRunning){showToast('Mobile Download All လုပ်နေဆဲပါ။');return;}
+  const date=val('reportDate')||today(),session=val('reportSession')||'AM';
+  const names=(settings.names||[]).filter(n=>reportCardBreakdown(date,session,n).length);
+  if(!names.length){showToast('ဒီ Date / Session မှာ Mobile JPG ထုတ်ရန် Name data မရှိပါ။');return;}
+  if(!confirm(currentUiLang()==='en'?`Download phone-optimized JPGs for ${names.length} names?`:`Name ${names.length} ယောက်အတွက် ဖုန်းကြည့်ရန် Mobile JPG အားလုံး Download လုပ်မလား?`))return;
+  reportMobileBulkDownloadRunning=true; let files=0,ok=0;
+  try{
+    for(let i=0;i<names.length;i++){const c=await saveNameCardBreakdownMobileJpg(names[i],{silent:true});if(c){files+=c;ok++;}if(i<names.length-1)await new Promise(r=>setTimeout(r,220));}
+    showToast(`Mobile JPG ${files} ဖိုင် · Name ${ok} ယောက် Download ပြီးပါပြီ။`);
+  }finally{reportMobileBulkDownloadRunning=false;}
+}
+
+
 function toggleReportTotalBreakdown(){ reportTotalBreakdownOpen=!reportTotalBreakdownOpen; renderReports(); }
 function toggleReportPBreakdown(){ reportPBreakdownOpen=!reportPBreakdownOpen; renderReports(); }
 function toggleReportNameBreakdown(name,type){
@@ -3913,7 +4149,7 @@ function renderReports(){
     const pCards=reportPCardBreakdown(r.date,r.session,n);
     const jpgDisabled=nameCards.length?'':' disabled';
     const pJpgDisabled=pCards.length?'':' disabled';
-    let html=`<tr><td><b>${escapeHtml(n)}</b></td><td class="right"><button class="reportCellDrill" onclick="toggleReportNameBreakdown('${jsArg(n)}','total')">${money(s.total)} <span>${totalOpen?'▲':'▼'}</span></button></td><td class="right"><button class="reportCellDrill warnText" onclick="toggleReportNameBreakdown('${jsArg(n)}','p')">${money(s.pamt)} <span>${pOpen?'▲':'▼'}</span></button></td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td><td class="center"><div class="reportJpgGroup"><button class="reportJpgBtn" type="button" onclick="saveNameCardBreakdownJpg('${jsArg(n)}')"${jpgDisabled} title="Card Total Breakdown JPG">Card JPG</button><button class="reportPjpgBtn" type="button" onclick="saveNamePBreakdownJpg('${jsArg(n)}')"${pJpgDisabled} title="P Number Breakdown JPG">P JPG</button><button class="reportFinalJpgBtn" type="button" onclick="saveNameFinalReportJpg('${jsArg(n)}')"${jpgDisabled} title="Name Final Report JPG">Final JPG</button><button class="reportShareBtn" type="button" onclick="shareNameCardBreakdownJpg('${jsArg(n)}')"${jpgDisabled} title="Share Card Breakdown Image">Share</button></div></td></tr>`;
+    let html=`<tr><td><b>${escapeHtml(n)}</b></td><td class="right"><button class="reportCellDrill" onclick="toggleReportNameBreakdown('${jsArg(n)}','total')">${money(s.total)} <span>${totalOpen?'▲':'▼'}</span></button></td><td class="right"><button class="reportCellDrill warnText" onclick="toggleReportNameBreakdown('${jsArg(n)}','p')">${money(s.pamt)} <span>${pOpen?'▲':'▼'}</span></button></td><td class="right">${money(s.payout)}</td><td class="right">${s.rate}%</td><td class="right">${money(Math.round(s.cor))}</td><td class="right ${cls}">${f}</td><td class="center"><div class="reportJpgGroup"><button class="reportJpgBtn" type="button" onclick="saveNameCardBreakdownJpg('${jsArg(n)}')"${jpgDisabled} title="Card Total Breakdown JPG">Card JPG</button><button class="reportPjpgBtn" type="button" onclick="saveNamePBreakdownJpg('${jsArg(n)}')"${pJpgDisabled} title="P Number Breakdown JPG">P JPG</button><button class="reportFinalJpgBtn" type="button" onclick="saveNameFinalReportJpg('${jsArg(n)}')"${jpgDisabled} title="Name Final Report JPG">Final JPG</button><select class="reportMobileJpgSelect" onchange="handleMobileReportExport(this,'${jsArg(n)}')"${jpgDisabled} title="Phone optimized 1080x1920 JPG"><option value="">📱 Mobile JPG</option><option value="card">Card Breakdown</option><option value="p"${pCards.length?'':' disabled'}>P Breakdown</option><option value="final">Final Report</option></select><button class="reportShareBtn" type="button" onclick="shareNameCardBreakdownMobileJpg('${jsArg(n)}')"${jpgDisabled} title="Share phone-optimized Mobile Card JPG">Share</button></div></td></tr>`;
     if(totalOpen || pOpen){
       const parts=[];
       if(totalOpen) parts.push(reportTotalBreakdownHTML(nameCards,{showName:false,showSession:r.session==='DAILY'}));
@@ -4071,7 +4307,7 @@ const I18N={
 const UI_PHRASE_PAIRS=[
   ['App Owner Dashboard','App Owner Dashboard'],['Account Overview','Account အကျဉ်းချုပ်'],['Parser Overview','Parser အကျဉ်းချုပ်'],['Expiring Soon','မကြာမီသက်တမ်းကုန်'],['Next 7 days','နောက် ၇ ရက်'],['All accounts','အကောင့်အားလုံး'],['Available now','လက်ရှိအသုံးပြုနိုင်'],['Owner disabled','Owner ပိတ်ထား'],['Past expiry','သက်တမ်းကျော်'],['Needs review','စစ်ဆေးရန်လို'],['Being checked','စစ်ဆေးနေဆဲ'],['Runtime enabled','လက်ရှိအသုံးပြုနေ'],['Not activated','မဖွင့်ရသေး'],['User Management','User စီမံခန့်ခွဲမှု'],['Refresh All','အားလုံးပြန်ဖော်ပြ'],['Open Owner Parser','Owner Parser ဖွင့်မည်'],['Open Parser','Parser ဖွင့်မည်'],['Parser Attention','Parser စစ်ဆေးရန်'],['No expiring users.','မကြာမီသက်တမ်းကုန် User မရှိပါ။'],['No pending parser reports.','စောင့်နေသော Parser Report မရှိပါ။'],['All Plans','Plan အားလုံး'],
   ['App Owner User & License Management','App Owner User နှင့် License စီမံခန့်ခွဲမှု'],['Registered User List','Register လုပ်ထားသော User စာရင်း'],['User Detail & License','User အသေးစိတ်နှင့် License'],['Registered Users','Register လုပ်ထားသော Users'],['Active','အသုံးပြုနိုင်'],['Disabled','ပိတ်ထား'],['Expired','သက်တမ်းကုန်'],['Account Access','အကောင့်အသုံးပြုခွင့်'],['Plan','Plan'],['Expiry Date & Time','သက်တမ်းကုန်ရက်နှင့်အချိန်'],['Custom Expiry Notice','သက်တမ်းကုန် Notice စာသား'],['Custom Disabled Notice','ပိတ်ထားသည့် Notice စာသား'],['Save Access Settings','Access Settings သိမ်းမည်'],['No Expiry','သက်တမ်းမကန့်သတ်'],['Activate','အသုံးပြုခွင့်ဖွင့်မည်'],['Disable','အသုံးပြုခွင့်ပိတ်မည်'],['Created','ဖွင့်ထားသည့်ရက်'],['Last Login','နောက်ဆုံး Login'],['User UID','User UID'],['Shop / Workspace','Shop / Workspace'],['No user','User မရွေးရသေး'],['User တစ်ယောက်ရွေးပါ။','User တစ်ယောက်ရွေးပါ။'],
-  ['App Owner Parser Control Center','App Owner Parser ထိန်းချုပ်စင်တာ'],['Parser Issue Reports','Parser ပြဿနာ Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule စီမံခန့်ခွဲမှု'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['This User Workspace','ဒီ User Workspace သာ'],['All App Users','App User အားလုံး'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (မဖြည့်လည်းရ)'],['Writer Filter','Writer Filter'],['All Writers','Writer အားလုံး'],['Exact Card Body to Match','တိတိကျကျကိုက်ညီရမည့် Card Body'],['Literal Replacements — one per line: find => replace','စာသားအစားထိုးမှု — တစ်ကြောင်းစီ find => replace'],['Trailing Note Delimiter (optional)','နောက်ဆက် Note ခွဲခြားသင်္ကေတ (မဖြည့်လည်းရ)'],['Exact Line','တိတိကျကျ Line'],['Rewrite As','အစားထိုးရေးသားရန်'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Rule','Rule အသစ်'],['1. Test Rule','၁။ Rule စမ်းသပ်မည်'],['2. Conflict Check','၂။ Conflict စစ်မည်'],['Save Draft','Draft သိမ်းမည်'],['3. Activate Rule','၃။ Rule အသုံးပြုမည်'],['Parser Rules','Parser Rules'],['Active / Draft / Disabled rules','Active / Draft / Disabled Rules'],['Mark In Review','စစ်ဆေးနေဆဲအဖြစ်မှတ်မည်'],['Resolve Report','Report ဖြေရှင်းပြီး'],['Dismiss','ပယ်မည်'],['Auto Suggest','Auto အကြံပြု'],['Disable','ပိတ်ထားမည်'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Owner access checking…','Owner Access စစ်နေသည်…'],['App Owner Verified','App Owner အတည်ပြုပြီး'],['Owner access required','Owner Access လိုအပ်သည်'],['No report','Report မရွေးရသေး'],['Report တစ်ခုရွေးပါ။','Report တစ်ခုရွေးပါ။'],
+  ['Rule Version History','Rule Version မှတ်တမ်း'],['Current Version','လက်ရှိ Version'],['Archived Versions','သိမ်းထားသော Versions'],['Rule History','Rule Version မှတ်တမ်း'],['Rollback & Activate','အရင် Version ပြန်သုံးမည်'],['Restore as Draft','Draft အဖြစ်ပြန်ယူမည်'],['Archived','သိမ်းထား'],['Rollback Source','ပြန်ယူသည့်မူရင်း'],['Close History','History ပိတ်မည်'],['No archived versions yet.','သိမ်းထားသော Version မရှိသေးပါ။'],['App Owner Parser Control Center','App Owner Parser ထိန်းချုပ်စင်တာ'],['Parser Issue Reports','Parser ပြဿနာ Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule စီမံခန့်ခွဲမှု'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['This User Workspace','ဒီ User Workspace သာ'],['All App Users','App User အားလုံး'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (မဖြည့်လည်းရ)'],['Writer Filter','Writer Filter'],['All Writers','Writer အားလုံး'],['Exact Card Body to Match','တိတိကျကျကိုက်ညီရမည့် Card Body'],['Literal Replacements — one per line: find => replace','စာသားအစားထိုးမှု — တစ်ကြောင်းစီ find => replace'],['Trailing Note Delimiter (optional)','နောက်ဆက် Note ခွဲခြားသင်္ကေတ (မဖြည့်လည်းရ)'],['Exact Line','တိတိကျကျ Line'],['Rewrite As','အစားထိုးရေးသားရန်'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Rule','Rule အသစ်'],['1. Test Rule','၁။ Rule စမ်းသပ်မည်'],['2. Conflict Check','၂။ Conflict စစ်မည်'],['Save Draft','Draft သိမ်းမည်'],['3. Activate Rule','၃။ Rule အသုံးပြုမည်'],['Parser Rules','Parser Rules'],['Active / Draft / Disabled rules','Active / Draft / Disabled Rules'],['Mark In Review','စစ်ဆေးနေဆဲအဖြစ်မှတ်မည်'],['Resolve Report','Report ဖြေရှင်းပြီး'],['Dismiss','ပယ်မည်'],['Auto Suggest','Auto အကြံပြု'],['Disable','ပိတ်ထားမည်'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Owner access checking…','Owner Access စစ်နေသည်…'],['App Owner Verified','App Owner အတည်ပြုပြီး'],['Owner access required','Owner Access လိုအပ်သည်'],['No report','Report မရွေးရသေး'],['Report တစ်ခုရွေးပါ။','Report တစ်ခုရွေးပါ။'],
     ['Dashboard','ပင်မ'],['Entry','စာရင်းသွင်း'],['Entry Records','စာရင်းမှတ်တမ်း'],['Limit Board','ကန့်သတ်ဘုတ်'],['Over','ကျော်နေသောစာရင်း'],['Reports','အစီရင်ခံစာ'],['Image','ပုံ / မျှဝေ'],['Settings','ဆက်တင်'],['History','မှတ်တမ်း / Undo'],['Tests','Parser စမ်းသပ်မှု'],['Diagnostics','Error / Version'],
   ['Language','ဘာသာ'],['Theme','Theme'],['System','System'],['Light','Light'],['Dark','Dark'],['Backup JSON','Backup JSON'],['Restore JSON','Restore JSON'],['Sync Now','ယခု Sync'],['Cloud Refresh','Cloud ပြန်ယူ'],['Clear All','အားလုံးဖျက်'],['Logout','ထွက်မည်'],['Minimize ▲','ချုံ့မည် ▲'],['Open ▼','ဖွင့်မည် ▼'],
   ['Global Date','ရက်စွဲအားလုံး'],['Global Session','Session အားလုံး'],['Today Total','ယနေ့ စုစုပေါင်း'],['AM Total','AM စုစုပေါင်း'],['PM Total','PM စုစုပေါင်း'],['Latest Records','နောက်ဆုံးစာရင်းများ'],['Date','ရက်စွဲ'],['Session','Session'],['Name','အမည်'],['Card','ကတ်'],['Writer','ရေးသားပုံ'],['Number','နံပါတ်'],['Amount','ငွေပမာဏ'],['Source','မူရင်း'],
@@ -4080,7 +4316,7 @@ const UI_PHRASE_PAIRS=[
   ['Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်','Laptop Professional Workspace / ကတ်အလုပ်ခွင်'],['Saved Card List + Selected Card Editor + Live Summary ကို တစ်မျက်နှာတည်းတွင် အမြဲမြင်နိုင်အောင် စီထားသည်။','Saved Card List၊ Selected Card Editor နှင့် Live Summary ကို တစ်မျက်နှာတည်းတွင် မြင်နိုင်သည်။'],['+ New Paste / စာရင်းအသစ်','+ စာရင်းအသစ်'],['Entry Records ဖွင့်မယ်','Entry Records ဖွင့်မည်'],['Card List / ကတ်စာရင်း','ကတ်စာရင်း'],['Selected Card Editor','ရွေးထားသော ကတ်ပြင်ရန်'],['Live Summary','လက်ရှိအကျဉ်းချုပ်'],['Edit Card','ကတ်ပြင်မည်'],['Copy Raw','မူရင်း Copy'],['Selected Card Total','ရွေးထားသောကတ် စုစုပေါင်း'],['Selected Card Rows','ရွေးထားသောကတ် Rows'],['Viber Time','Viber အချိန်'],['Name Total','အမည် စုစုပေါင်း'],['Session Total','Session စုစုပေါင်း'],['P Number Amount','P Number ပမာဏ'],['Current Paste Preview Total','လက်ရှိ Paste Preview စုစုပေါင်း'],['Detected Cards','တွေ့ရှိသော ကတ်များ'],['Preview Rows','Preview Rows'],['Cloud Sync Status','Cloud Sync အခြေအနေ'],
   ['Paste & Parse Tools','Paste & Parse ကိရိယာများ'],['Hide Tools ▲','Tools ဖျောက်မည် ▲'],['Show Tools ▼','Tools ပြမည် ▼'],['Parse Preview','စစ်ကြည့်မည်'],['Confirm Save','အတည်ပြုသိမ်းမည်'],['Clear Text','စာသားရှင်းမည်'],['Preview Total','Preview စုစုပေါင်း'],['Warnings','သတိပေးချက်'],['Aggregated by Number','နံပါတ်အလိုက်ပေါင်း'],['Preview Detail','Preview အသေးစိတ်'],['Upload Image','ပုံတင်မည်'],['Camera','ကင်မရာ'],['Clear Image','ပုံရှင်းမည်'],
   ['Search','ရှာဖွေ'],['All Names','အမည်အားလုံး'],['Edit','ပြင်မည်'],['Delete','ဖျက်မည်'],['Remove','ဖယ်မည်'],['Save','သိမ်းမည်'],['Cancel','မလုပ်တော့'],['Close','ပိတ်မည်'],['Open','ဖွင့်မည်'],['Copy','Copy'],['Previous','ယခင်'],['Next','နောက်တစ်ခု'],['Apply','အတည်ပြုအသုံးပြု'],['Undo','ပြန်ဖျက်'],['Edited','ပြင်ထားသည်'],['No records','စာရင်းမရှိသေးပါ'],['No data','Data မရှိသေးပါ'],
-  ['App Owner Parser Control Center','App Owner Parser Control Center'],['Parser Issue Reports','Parser Issue Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule Studio'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (optional)'],['Writer Filter','Writer Filter'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Report','အစီရင်ခံစာ'],['Card JPG','Card JPG'],['P JPG','P JPG'],['Final JPG','Final JPG'],['Share','မျှဝေမည်'],['Download All Names','အမည်အားလုံး JPG သိမ်းမည်'],['JPG Export','JPG Export'],['Total Amount','စုစုပေါင်းငွေ'],['P Amount','P ပမာဏ'],['Card Total','ကတ်စုစုပေါင်း'],['Time','အချိန်'],['Status','အခြေအနေ'],['Open Card','ကတ်ဖွင့်မည်'],['Daily','နေ့စဉ်'],['AM','AM'],['PM','PM'],['DAILY','DAILY'],
+  ['App Owner Parser Control Center','App Owner Parser Control Center'],['Parser Issue Reports','Parser Issue Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule Studio'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (optional)'],['Writer Filter','Writer Filter'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Report','အစီရင်ခံစာ'],['Card JPG','Card JPG'],['P JPG','P JPG'],['Final JPG','Final JPG'],['Share','မျှဝေမည်'],['Download All Names','အမည်အားလုံး JPG သိမ်းမည်'],['Download All Mobile','ဖုန်း JPG အားလုံး သိမ်းမည်'],['Mobile JPG','ဖုန်း JPG'],['JPG Export','JPG Export'],['Total Amount','စုစုပေါင်းငွေ'],['P Amount','P ပမာဏ'],['Card Total','ကတ်စုစုပေါင်း'],['Time','အချိန်'],['Status','အခြေအနေ'],['Open Card','ကတ်ဖွင့်မည်'],['Daily','နေ့စဉ်'],['AM','AM'],['PM','PM'],['DAILY','DAILY'],
   ['Login','ဝင်မည်'],['Register','အကောင့်ဖွင့်မည်'],['Forgot Password','Password မေ့နေသည်'],['Password','Password'],['Confirm Password','Password အတည်ပြု'],['Your Name / အမည်','အမည်'],['Shop / Workspace Name','Shop / Workspace အမည်'],['Create Account / Account ဖွင့်မယ်','အကောင့်ဖွင့်မည်'],['Send Reset Email','Reset Email ပို့မည်'],['Login / ဝင်မယ်','ဝင်မည်']
 ];
 const UI_EN_TO_MY=new Map(UI_PHRASE_PAIRS.map(([en,my])=>[en,my]));
@@ -4602,8 +4838,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='4.8C.0';
-const APP_VERSION_LABEL='Stage 4.9A.0 Owner Dashboard';
+const APP_VERSION='5.0A.1';
+const APP_VERSION_LABEL='Stage 5.0A.1 Rule History + Rollback + Mobile Report';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -5032,12 +5268,137 @@ function ownerConflictCheck(silent=false){
   const text=`${pass?'PASS — Activate လုပ်နိုင်ပါပြီ':'BLOCKED'}\nRegression: ${regression.passed}/${regression.total} PASS\nRule conflicts: ${signature.length}\n${[...signature,...regression.failures].join('\n')||'No conflicts found.'}`;
   ownerSetResult('ownerRuleConflictResult',text,pass); if(!silent)showToast(pass?ownerL('Conflict Check PASS','Conflict Check PASS'):ownerL('Conflict တွေ့ပါသည်','Conflict found'),pass?'success':'error',6000); return {pass,signature,regression,candidate};
 }
-async function ownerArchiveExistingRule(existing){
-  if(!existing||!db) return; const versionId=`${existing.id}-v${Number(existing.version||1)}-${Date.now()}`; const copy={...existing}; delete copy.__collection; copy.archivedAt=firebase.firestore.FieldValue.serverTimestamp(); copy.archivedBy=CURRENT_UID; await db.collection('parserRuleVersions').doc(versionId).set(copy);
+async function ownerArchiveExistingRule(existing,reason='superseded'){
+  if(!existing||!db) return '';
+  const versionNumber=Number(existing.version||1)||1;
+  const versionId=`${existing.id}-v${versionNumber}-${Date.now()}`;
+  const copy={...existing};
+  const sourceCollection=copy.__collection||ownerRuleCollectionForScope(copy.scope);
+  delete copy.__collection;
+  copy.ruleId=existing.id;
+  copy.sourceCollection=sourceCollection;
+  copy.versionNumber=versionNumber;
+  copy.archivedReason=reason;
+  copy.archivedAt=firebase.firestore.FieldValue.serverTimestamp();
+  copy.archivedBy=CURRENT_UID;
+  await db.collection('parserRuleVersions').doc(versionId).set(copy);
+  return versionId;
+}
+function ownerHistoryVersionNumber(row){ return Number(row?.versionNumber||row?.version||1)||1; }
+function ownerRuleSnapshotForWrite(row,ruleId,status,version){
+  const keep=['name','type','scope','targetUserUid','targetEntryName','targetWriterProfile','priority','sourceReportId','expectedCorrectRecords','expectedRows','matchText','replacements','noteDelimiter','replaceText'];
+  const out={id:ruleId,status,version};
+  keep.forEach(k=>{ if(row && Object.prototype.hasOwnProperty.call(row,k)) out[k]=row[k]; });
+  out.restoredFromVersion=ownerHistoryVersionNumber(row);
+  out.rollbackAt=firebase.firestore.FieldValue.serverTimestamp();
+  out.rollbackBy=CURRENT_UID;
+  out.updatedAt=firebase.firestore.FieldValue.serverTimestamp();
+  out.updatedBy=CURRENT_UID;
+  return out;
+}
+function ownerFormatHistoryTime(row){
+  const ts=ownerTimestampValue(row?.archivedAt)||ownerTimestampValue(row?.updatedAt)||ownerTimestampValue(row?.createdAt);
+  return ts?new Date(ts).toLocaleString():'-';
+}
+function ownerRuleHistoryDetails(row){
+  const lines=[];
+  lines.push(`Type: ${row.type||'-'}`);
+  lines.push(`Scope: ${row.scope||'-'}`);
+  if(row.targetUserUid) lines.push(`Target User: ${row.targetUserUid}`);
+  if(row.targetEntryName) lines.push(`Entry Name: ${row.targetEntryName}`);
+  if(row.targetWriterProfile) lines.push(`Writer: ${row.targetWriterProfile}`);
+  lines.push(`Priority: ${Number(row.priority||100)}`);
+  if(row.type==='EXACT_CORRECTION') lines.push(`Match:
+${row.matchText||''}`);
+  if(row.type==='SAFE_TRANSFORM'){
+    const replacements=(row.replacements||[]).map(x=>`${x.find} => ${x.replace}`).join(' | ');
+    if(replacements) lines.push(`Replacements: ${replacements}`);
+    if(row.noteDelimiter) lines.push(`Note delimiter: ${row.noteDelimiter}`);
+  }
+  if(row.type==='LITERAL_REWRITE') lines.push(`Rewrite: ${row.matchText||''} => ${row.replaceText||''}`);
+  const expected=row.expectedCorrectRecords||(row.expectedRows||[]).map(x=>`${x.number} ${x.amount}`).join('\n');
+  if(expected) lines.push(`Expected:
+${expected}`);
+  return lines.join('\n');
+}
+function renderOwnerRuleHistory(){
+  const panel=document.getElementById('ownerRuleHistoryCard'),list=document.getElementById('ownerRuleHistoryList');
+  if(!panel||!list) return;
+  const current=ownerParserRules.find(r=>r.id===ownerSelectedHistoryRuleId && r.__collection===ownerSelectedHistoryCollection);
+  if(!current){ panel.style.display='none'; return; }
+  panel.style.display='block';
+  setText('ownerRuleHistoryTitle',`${current.name||current.id} · Current v${Number(current.version||1)}`);
+  setText('ownerRuleHistoryMeta',`${current.type||'-'} · ${current.scope||'-'} · ${current.status||'draft'}`);
+  const archived=[...ownerParserRuleVersions].sort((a,b)=>ownerHistoryVersionNumber(b)-ownerHistoryVersionNumber(a)||ownerTimestampValue(b.archivedAt)-ownerTimestampValue(a.archivedAt));
+  const currentHtml=`<div class="ownerHistoryRow current"><div><b>Current Version v${Number(current.version||1)}</b><div class="saveTiny">${escapeHtml(current.status||'draft')} · ${escapeHtml(ownerFormatHistoryTime(current))}</div></div><div class="ownerHistoryDetails">${escapeHtml(ownerRuleHistoryDetails(current))}</div><div><span class="miniBadge">CURRENT</span></div></div>`;
+  const archivedHtml=archived.length?archived.map(v=>{
+    const vn=ownerHistoryVersionNumber(v);
+    const mode=(v.status==='active')?'Rollback & Activate':'Restore as Draft';
+    return `<div class="ownerHistoryRow"><div><b>v${vn}</b><div class="saveTiny">${escapeHtml(v.status||'draft')} · ${escapeHtml(ownerFormatHistoryTime(v))}</div><div class="saveTiny">${escapeHtml(v.archivedReason||'archived')}</div></div><details><summary>View details</summary><pre class="ownerHistoryDetails">${escapeHtml(ownerRuleHistoryDetails(v))}</pre></details><div class="btnrow ownerHistoryActions"><button class="btn warn small" onclick="ownerRollbackRule('${escapeHtml(v.__versionDocId||v.id||'')}')">${escapeHtml(mode)}</button></div></div>`;
+  }).join(''):'<div class="muted ownerEmpty">No archived versions yet.</div>';
+  list.innerHTML=currentHtml+archivedHtml;
+}
+async function ownerOpenRuleHistory(collection,id){
+  if(!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
+  ownerSelectedHistoryRuleId=id; ownerSelectedHistoryCollection=collection;
+  const panel=document.getElementById('ownerRuleHistoryCard'); if(panel) panel.style.display='block';
+  setText('ownerRuleHistoryTitle','Loading version history…'); setText('ownerRuleHistoryMeta',id);
+  const list=document.getElementById('ownerRuleHistoryList'); if(list) list.innerHTML='<div class="muted ownerEmpty">Loading…</div>';
+  try{
+    const [snap,legacy]=await Promise.all([
+      db.collection('parserRuleVersions').where('ruleId','==',id).get(),
+      db.collection('parserRuleVersions').where('id','==',id).get()
+    ]);
+    const map=new Map();
+    [...snap.docs,...legacy.docs].forEach(d=>map.set(d.id,{...d.data(),__versionDocId:d.id}));
+    const rows=[...map.values()];
+    // Backward compatibility: Stage 4.4 archives used only `id`; Stage 5 adds ruleId/sourceCollection.
+    ownerParserRuleVersions=rows.filter(v=>!v.sourceCollection||v.sourceCollection===collection||String(v.scope||'')===String(ownerParserRules.find(r=>r.id===id&&r.__collection===collection)?.scope||''));
+    renderOwnerRuleHistory();
+    document.getElementById('ownerRuleHistoryCard')?.scrollIntoView?.({behavior:'smooth',block:'start'});
+  }catch(err){
+    if(list) list.innerHTML=`<div class="ownerRuleResult fail">History load failed: ${escapeHtml(err?.message||err)}</div>`;
+  }
+}
+function ownerCloseRuleHistory(){ ownerSelectedHistoryRuleId='';ownerSelectedHistoryCollection='';ownerParserRuleVersions=[];const p=document.getElementById('ownerRuleHistoryCard');if(p)p.style.display='none'; }
+async function ownerRollbackRule(versionDocId){
+  if(!IS_APP_OWNER) return;
+  const snapshot=ownerParserRuleVersions.find(v=>v.__versionDocId===versionDocId);
+  const current=ownerParserRules.find(r=>r.id===ownerSelectedHistoryRuleId && r.__collection===ownerSelectedHistoryCollection);
+  if(!snapshot||!current){showToast(ownerL('Rollback Version မတွေ့ပါ','Rollback version not found'),'error');return;}
+  const targetStatus=snapshot.status==='active'?'active':'draft';
+  const candidate={...snapshot,id:current.id,status:targetStatus};
+  const err=ownerValidateRule(candidate);
+  if(err){showToast('Rollback blocked: '+err,'error',7000);return;}
+  const signature=ownerRuleSignatureConflict(candidate);
+  const regression=ownerCoreRegressionSuite(candidate);
+  if(signature.length||!regression.pass){
+    showToast(`Rollback blocked — Regression ${regression.passed}/${regression.total}; conflicts ${signature.length}`,'error',9000);
+    return;
+  }
+  const versions=[Number(current.version||1),...ownerParserRuleVersions.map(ownerHistoryVersionNumber)];
+  const nextVersion=Math.max(...versions,1)+1;
+  const targetCollection=snapshot.sourceCollection||ownerRuleCollectionForScope(snapshot.scope);
+  const action=targetStatus==='active'?'Rollback & Activate':'Restore as Draft';
+  if(!confirm(`${action}: ${current.name||current.id} v${Number(current.version||1)} → archived v${ownerHistoryVersionNumber(snapshot)} content?\nA new current v${nextVersion} will be created. Current data will stay in history.`)) return;
+  try{
+    await ownerArchiveExistingRule(current,`rollback-to-v${ownerHistoryVersionNumber(snapshot)}`);
+    if(targetCollection!==current.__collection){
+      await db.collection(current.__collection).doc(current.id).set({status:'disabled',updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:CURRENT_UID},{merge:true});
+    }
+    const payload=ownerRuleSnapshotForWrite(snapshot,current.id,targetStatus,nextVersion);
+    payload.createdAt=current.createdAt||firebase.firestore.FieldValue.serverTimestamp();
+    await db.collection(targetCollection).doc(current.id).set(payload);
+    ownerSelectedRuleId=current.id; ownerSelectedRuleCollection=targetCollection;
+    ownerSelectedHistoryCollection=targetCollection;
+    await loadActiveParserRulesOnce();
+    showToast(targetStatus==='active'?ownerL('အရင် Rule Version ကို ပြန် Activate လုပ်ပြီးပါပြီ','Previous rule version restored and activated'):ownerL('အရင် Rule Version ကို Draft အဖြစ်ပြန်ယူပြီးပါပြီ','Previous rule version restored as draft'),'success',8000);
+    setTimeout(()=>ownerOpenRuleHistory(targetCollection,current.id),350);
+  }catch(e){showToast('Rollback မရပါ: '+(e?.message||e),'error',9000);}
 }
 async function ownerPersistRule(status){
   if(!IS_APP_OWNER) throw new Error('App Owner access required'); const rule=ownerRuleCandidate(); const err=ownerValidateRule(rule); if(err) throw new Error(err);
-  const collection=ownerRuleCollectionForScope(rule.scope); const existing=ownerCurrentRule(); if(existing) await ownerArchiveExistingRule(existing); if(existing&&existing.__collection&&existing.__collection!==collection){await db.collection(existing.__collection).doc(existing.id).set({status:'disabled',updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:CURRENT_UID},{merge:true});}
+  const collection=ownerRuleCollectionForScope(rule.scope); const existing=ownerCurrentRule(); if(existing) await ownerArchiveExistingRule(existing,status==='active'?'superseded-by-activation':'superseded-by-draft'); if(existing&&existing.__collection&&existing.__collection!==collection){await db.collection(existing.__collection).doc(existing.id).set({status:'disabled',updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:CURRENT_UID},{merge:true});}
   const version=existing?Number(existing.version||1)+1:1; const payload={...rule,status,version,updatedBy:CURRENT_UID,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}; delete payload.__collection;
   if(!existing) payload.createdAt=firebase.firestore.FieldValue.serverTimestamp();
   await db.collection(collection).doc(rule.id).set(payload,{merge:true}); ownerSelectedRuleId=rule.id; ownerSelectedRuleCollection=collection; setVal('ownerRuleSelectedId',rule.id); setVal('ownerRuleSelectedStatus',status);
@@ -5058,13 +5419,13 @@ async function ownerUpdateReportStatus(status){
 function ownerMarkReportInReview(){ownerUpdateReportStatus('in_review');} function ownerResolveReport(){ownerUpdateReportStatus('resolved');} function ownerDismissReport(){ownerUpdateReportStatus('dismissed');}
 function renderOwnerParserRules(){
   const box=document.getElementById('ownerParserRuleList'); if(!box) return; const rows=[...ownerParserRules].sort((a,b)=>ownerTimestampValue(b.updatedAt)-ownerTimestampValue(a.updatedAt));
-  box.innerHTML=rows.length?rows.map(r=>`<div class="ownerRuleRow"><div><b>${escapeHtml(r.name||r.id)}</b><div class="saveTiny">${escapeHtml(r.id)} · v${Number(r.version||1)}</div></div><div>${escapeHtml(r.type||'-')}</div><div>${escapeHtml(r.scope||'-')}</div><div><span class="miniBadge">${escapeHtml(r.status||'draft')}</span></div><div class="btnrow ownerRuleActions"><button class="btn gray small" onclick="ownerSelectRule('${escapeHtml(r.__collection)}','${escapeHtml(r.id)}')">Edit</button>${r.status==='active'?`<button class="btn danger small" onclick="ownerDisableRule('${escapeHtml(r.__collection)}','${escapeHtml(r.id)}')">Disable</button>`:''}</div></div>`).join(''):'<div class="muted">Rule မရှိသေးပါ။</div>'; ownerRefreshStats();
+  box.innerHTML=rows.length?rows.map(r=>`<div class="ownerRuleRow"><div><b>${escapeHtml(r.name||r.id)}</b><div class="saveTiny">${escapeHtml(r.id)} · v${Number(r.version||1)}</div></div><div>${escapeHtml(r.type||'-')}</div><div>${escapeHtml(r.scope||'-')}</div><div><span class="miniBadge">${escapeHtml(r.status||'draft')}</span></div><div class="btnrow ownerRuleActions"><button class="btn gray small" onclick="ownerSelectRule('${escapeHtml(r.__collection)}','${escapeHtml(r.id)}')">Edit</button><button class="btn secondary small" onclick="ownerOpenRuleHistory('${escapeHtml(r.__collection)}','${escapeHtml(r.id)}')">Rule History</button>${r.status==='active'?`<button class="btn danger small" onclick="ownerDisableRule('${escapeHtml(r.__collection)}','${escapeHtml(r.id)}')">Disable</button>`:''}</div></div>`).join(''):'<div class="muted">Rule မရှိသေးပါ။</div>'; ownerRefreshStats();
 }
 function ownerSelectRule(collection,id){
   const r=ownerParserRules.find(x=>x.__collection===collection&&x.id===id); if(!r)return; ownerSelectedRuleId=id; ownerSelectedRuleCollection=collection;
   setVal('ownerRuleSelectedId',id);setVal('ownerRuleSelectedStatus',r.status||'draft');setVal('ownerRuleName',r.name||'');setVal('ownerRuleType',r.type||'EXACT_CORRECTION');setVal('ownerRuleScope',r.scope||'workspace');setVal('ownerRuleTargetUser',r.targetUserUid||'');setVal('ownerRuleEntryName',r.targetEntryName||'');setVal('ownerRuleWriter',r.targetWriterProfile||'');setVal('ownerRulePriority',r.priority??100);setVal('ownerRuleMatchText',r.matchText||'');setVal('ownerRuleReplacements',(r.replacements||[]).map(x=>`${x.find} => ${x.replace}`).join('\n'));setVal('ownerRuleNoteDelimiter',r.noteDelimiter||'');setVal('ownerRuleLiteralMatch',r.type==='LITERAL_REWRITE'?(r.matchText||''):'');setVal('ownerRuleLiteralReplace',r.replaceText||'');setVal('ownerRuleExpected',r.expectedCorrectRecords||(r.expectedRows||[]).map(x=>`${x.number} ${x.amount}`).join('\n'));ownerRuleTypeChanged();ownerRuleScopeChanged();ownerSetResult('ownerRuleTestResult','Rule Test မလုပ်ရသေးပါ။');ownerSetResult('ownerRuleConflictResult','Conflict Check မလုပ်ရသေးပါ။'); document.getElementById('ownerRuleStudio')?.scrollIntoView?.({behavior:'smooth'});
 }
-async function ownerDisableRule(collection,id){ if(!confirm('ဒီ Rule ကို Disable လုပ်မလား?'))return; try{const existing=ownerParserRules.find(x=>x.__collection===collection&&x.id===id);if(existing)await ownerArchiveExistingRule(existing);await db.collection(collection).doc(id).set({status:'disabled',updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:CURRENT_UID},{merge:true});showToast(ownerL('Rule ပိတ်ထားပြီးပါပြီ','Rule disabled'),'success');}catch(err){showToast('Disable မရပါ: '+(err?.message||err),'error');} }
+async function ownerDisableRule(collection,id){ if(!confirm('ဒီ Rule ကို Disable လုပ်မလား?'))return; try{const existing=ownerParserRules.find(x=>x.__collection===collection&&x.id===id);if(existing)await ownerArchiveExistingRule(existing,'disabled');await db.collection(collection).doc(id).set({status:'disabled',updatedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedBy:CURRENT_UID},{merge:true});showToast(ownerL('Rule ပိတ်ထားပြီးပါပြီ','Rule disabled'),'success');}catch(err){showToast('Disable မရပါ: '+(err?.message||err),'error');} }
 function mergeOwnerRuleLists(globalRows,workspaceRows){ const map=new Map();[...globalRows,...workspaceRows].forEach(r=>map.set(`${r.__collection}:${r.id}`,r));ownerParserRules=[...map.values()];renderOwnerParserRules(); }
 let ownerGlobalRuleRows=[],ownerWorkspaceRuleRows=[];
 function startOwnerParserControlCenter(){
@@ -5274,7 +5635,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.9A.0 Owner Dashboard',
+    version:'Stage 5.0A.1 Rule History + Rollback + Mobile Report',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   let deferredInstallPrompt = null;
-  const SW_VERSION = "4.9A.0";
+  const SW_VERSION = "5.0A.1";
   const isStandalone = () => window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
   const lang = () => localStorage.getItem("v2d_ui_language") === "en" ? "en" : "my";
   const copy = (my,en) => lang() === "en" ? en : my;

@@ -56,8 +56,8 @@ const pages = [
   ['reports',{en:'Reports',my:'အစီရင်ခံစာ'}],
   ['image',{en:'Image',my:'ပုံ / မျှဝေ'}],
   ['settings',{en:'Settings',my:'ဆက်တင်'}],
+  ['ownerDashboard',{en:'Owner Dashboard',my:'Owner Dashboard'}],
   ['ownerParser',{en:'Owner Parser',my:'Owner Parser Control'}],
-  ['ownerUsers',{en:'Owner Users',my:'Owner User Control'}],
   ['audit',{en:'History',my:'မှတ်တမ်း / Undo'}]
 ];
 const N2 = Array.from({length:100},(_,i)=>String(i).padStart(2,'0'));
@@ -220,8 +220,8 @@ async function detectAppOwnerAccess(){
     const snap=await db.collection('appOwners').doc(CURRENT_UID).get();
     IS_APP_OWNER=!!snap.exists && snap.data()?.active===true;
   }catch(err){ console.warn('Owner access check failed',err); }
+  const dashTab=document.getElementById('ownerDashboardTab'); if(dashTab) dashTab.style.display=IS_APP_OWNER?'':'none';
   const tab=document.getElementById('ownerParserTab'); if(tab) tab.style.display=IS_APP_OWNER?'':'none';
-  const usersTab=document.getElementById('ownerUsersTab'); if(usersTab) usersTab.style.display=IS_APP_OWNER?'':'none';
   const status=document.getElementById('accountOwnerStatus'); if(status) status.textContent=IS_APP_OWNER?'App Owner':'User';
   return IS_APP_OWNER;
 }
@@ -938,7 +938,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 4.8D.0 Name Final Report JPG',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 4.9A.0 Owner Dashboard',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -4069,6 +4069,7 @@ const I18N={
 };
 
 const UI_PHRASE_PAIRS=[
+  ['App Owner Dashboard','App Owner Dashboard'],['Account Overview','Account အကျဉ်းချုပ်'],['Parser Overview','Parser အကျဉ်းချုပ်'],['Expiring Soon','မကြာမီသက်တမ်းကုန်'],['Next 7 days','နောက် ၇ ရက်'],['All accounts','အကောင့်အားလုံး'],['Available now','လက်ရှိအသုံးပြုနိုင်'],['Owner disabled','Owner ပိတ်ထား'],['Past expiry','သက်တမ်းကျော်'],['Needs review','စစ်ဆေးရန်လို'],['Being checked','စစ်ဆေးနေဆဲ'],['Runtime enabled','လက်ရှိအသုံးပြုနေ'],['Not activated','မဖွင့်ရသေး'],['User Management','User စီမံခန့်ခွဲမှု'],['Refresh All','အားလုံးပြန်ဖော်ပြ'],['Open Owner Parser','Owner Parser ဖွင့်မည်'],['Open Parser','Parser ဖွင့်မည်'],['Parser Attention','Parser စစ်ဆေးရန်'],['No expiring users.','မကြာမီသက်တမ်းကုန် User မရှိပါ။'],['No pending parser reports.','စောင့်နေသော Parser Report မရှိပါ။'],['All Plans','Plan အားလုံး'],
   ['App Owner User & License Management','App Owner User နှင့် License စီမံခန့်ခွဲမှု'],['Registered User List','Register လုပ်ထားသော User စာရင်း'],['User Detail & License','User အသေးစိတ်နှင့် License'],['Registered Users','Register လုပ်ထားသော Users'],['Active','အသုံးပြုနိုင်'],['Disabled','ပိတ်ထား'],['Expired','သက်တမ်းကုန်'],['Account Access','အကောင့်အသုံးပြုခွင့်'],['Plan','Plan'],['Expiry Date & Time','သက်တမ်းကုန်ရက်နှင့်အချိန်'],['Custom Expiry Notice','သက်တမ်းကုန် Notice စာသား'],['Custom Disabled Notice','ပိတ်ထားသည့် Notice စာသား'],['Save Access Settings','Access Settings သိမ်းမည်'],['No Expiry','သက်တမ်းမကန့်သတ်'],['Activate','အသုံးပြုခွင့်ဖွင့်မည်'],['Disable','အသုံးပြုခွင့်ပိတ်မည်'],['Created','ဖွင့်ထားသည့်ရက်'],['Last Login','နောက်ဆုံး Login'],['User UID','User UID'],['Shop / Workspace','Shop / Workspace'],['No user','User မရွေးရသေး'],['User တစ်ယောက်ရွေးပါ။','User တစ်ယောက်ရွေးပါ။'],
   ['App Owner Parser Control Center','App Owner Parser ထိန်းချုပ်စင်တာ'],['Parser Issue Reports','Parser ပြဿနာ Reports'],['Selected Report','ရွေးထားသော Report'],['Parser Rule Studio','Parser Rule စီမံခန့်ခွဲမှု'],['Rule Name','Rule အမည်'],['Rule Type','Rule အမျိုးအစား'],['Scope','အသုံးပြုမည့်အကန့်အသတ်'],['This User Workspace','ဒီ User Workspace သာ'],['All App Users','App User အားလုံး'],['Target User UID','Target User UID'],['Entry Name Filter (optional)','Entry Name Filter (မဖြည့်လည်းရ)'],['Writer Filter','Writer Filter'],['All Writers','Writer အားလုံး'],['Exact Card Body to Match','တိတိကျကျကိုက်ညီရမည့် Card Body'],['Literal Replacements — one per line: find => replace','စာသားအစားထိုးမှု — တစ်ကြောင်းစီ find => replace'],['Trailing Note Delimiter (optional)','နောက်ဆက် Note ခွဲခြားသင်္ကေတ (မဖြည့်လည်းရ)'],['Exact Line','တိတိကျကျ Line'],['Rewrite As','အစားထိုးရေးသားရန်'],['Expected Correct Records used for Test','Test အတွက် အမှန် Records'],['Priority','ဦးစားပေးအဆင့်'],['Selected Rule ID','ရွေးထားသော Rule ID'],['Rule Status','Rule အခြေအနေ'],['New Rule','Rule အသစ်'],['1. Test Rule','၁။ Rule စမ်းသပ်မည်'],['2. Conflict Check','၂။ Conflict စစ်မည်'],['Save Draft','Draft သိမ်းမည်'],['3. Activate Rule','၃။ Rule အသုံးပြုမည်'],['Parser Rules','Parser Rules'],['Active / Draft / Disabled rules','Active / Draft / Disabled Rules'],['Mark In Review','စစ်ဆေးနေဆဲအဖြစ်မှတ်မည်'],['Resolve Report','Report ဖြေရှင်းပြီး'],['Dismiss','ပယ်မည်'],['Auto Suggest','Auto အကြံပြု'],['Disable','ပိတ်ထားမည်'],['New Reports','Report အသစ်'],['In Review','စစ်ဆေးနေဆဲ'],['Active Rules','အသုံးပြုနေသော Rules'],['Draft Rules','Draft Rules'],['Owner access checking…','Owner Access စစ်နေသည်…'],['App Owner Verified','App Owner အတည်ပြုပြီး'],['Owner access required','Owner Access လိုအပ်သည်'],['No report','Report မရွေးရသေး'],['Report တစ်ခုရွေးပါ။','Report တစ်ခုရွေးပါ။'],
     ['Dashboard','ပင်မ'],['Entry','စာရင်းသွင်း'],['Entry Records','စာရင်းမှတ်တမ်း'],['Limit Board','ကန့်သတ်ဘုတ်'],['Over','ကျော်နေသောစာရင်း'],['Reports','အစီရင်ခံစာ'],['Image','ပုံ / မျှဝေ'],['Settings','ဆက်တင်'],['History','မှတ်တမ်း / Undo'],['Tests','Parser စမ်းသပ်မှု'],['Diagnostics','Error / Version'],
@@ -4166,7 +4167,7 @@ function translateUiTree(root=document){
 }
 function renderLanguageTabs(){
   const lang=currentUiLang(); const labels={
-    dashboard:['Dashboard','ပင်မ'],entry:['Entry','စာရင်းသွင်း'],records:['Entry Records','စာရင်းမှတ်တမ်း'],limit:['Limit Board','ကန့်သတ်ဘုတ်'],over:['Over','ကျော်နေသောစာရင်း'],reports:['Reports','အစီရင်ခံစာ'],image:['Image','ပုံ / မျှဝေ'],settings:['Settings','ဆက်တင်'],ownerParser:['Owner Parser','Owner Parser Control'],ownerUsers:['Owner Users','Owner User Control'],audit:['History','မှတ်တမ်း / Undo'],tests:['Tests','Parser စမ်းသပ်မှု'],diagnostics:['Diagnostics','Error / Version']
+    dashboard:['Dashboard','ပင်မ'],entry:['Entry','စာရင်းသွင်း'],records:['Entry Records','စာရင်းမှတ်တမ်း'],limit:['Limit Board','ကန့်သတ်ဘုတ်'],over:['Over','ကျော်နေသောစာရင်း'],reports:['Reports','အစီရင်ခံစာ'],image:['Image','ပုံ / မျှဝေ'],settings:['Settings','ဆက်တင်'],ownerDashboard:['Owner Dashboard','Owner Dashboard'],ownerParser:['Owner Parser','Owner Parser Control'],audit:['History','မှတ်တမ်း / Undo'],tests:['Tests','Parser စမ်းသပ်မှု'],diagnostics:['Diagnostics','Error / Version']
   };
   document.querySelectorAll('#tabs .tab[data-id]').forEach(btn=>{const pair=labels[btn.dataset.id]; if(!pair)return; btn.innerHTML=lang==='en'?pair[0]:pair[1];});
   document.querySelectorAll('.compactNavBtn[data-id]').forEach(btn=>{const pair=labels[btn.dataset.id]; if(!pair)return; btn.textContent=lang==='en'?pair[0]:pair[1];});
@@ -4602,7 +4603,7 @@ function copyEntryRecordsText(){
 
 
 const APP_VERSION='4.8C.0';
-const APP_VERSION_LABEL='Stage 4.8D.0 Name Final Report JPG';
+const APP_VERSION_LABEL='Stage 4.9A.0 Owner Dashboard';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -4933,6 +4934,7 @@ function ownerRefreshStats(){
   setText('ownerReviewReportCount',ownerParserReports.filter(x=>x.status==='in_review').length);
   setText('ownerActiveRuleCount',ownerParserRules.filter(x=>x.status==='active').length);
   setText('ownerDraftRuleCount',ownerParserRules.filter(x=>x.status==='draft').length);
+  renderOwnerDashboardOverview();
 }
 function renderOwnerParserReports(){
   const box=document.getElementById('ownerParserReportList'); if(!box) return;
@@ -5075,11 +5077,12 @@ function startOwnerParserControlCenter(){
 async function ownerRefreshControlCenter(){ if(!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;} startOwnerParserControlCenter(); await loadActiveParserRulesOnce(); }
 
 
-function renderAll(){renderDashboard();renderPreview();renderEntryLive();renderLimit();renderOver();renderReports();renderImageText();renderEntryRecords();renderAuditTrail();renderDiagnostics();if(IS_APP_OWNER){renderOwnerParserReports();renderOwnerParserRules();} if(!window.__V2D_TRANSLATING_UI){window.__V2D_TRANSLATING_UI=true;try{translateUiTree(document);}finally{window.__V2D_TRANSLATING_UI=false;}}}
+function renderAll(){renderDashboard();renderPreview();renderEntryLive();renderLimit();renderOver();renderReports();renderImageText();renderEntryRecords();renderAuditTrail();renderDiagnostics();if(IS_APP_OWNER){renderOwnerParserReports();renderOwnerParserRules();renderOwnerDashboardOverview();} if(!window.__V2D_TRANSLATING_UI){window.__V2D_TRANSLATING_UI=true;try{translateUiTree(document);}finally{window.__V2D_TRANSLATING_UI=false;}}}
 function setText(id,v){const el=document.getElementById(id); if(el) el.textContent=v;}
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function go(id){
-  if(id==='ownerParser'&&!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
+  if(id==='ownerUsers') id='ownerDashboard'; // backward-compatible alias from Stage 4.5
+  if((id==='ownerParser'||id==='ownerDashboard')&&!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
@@ -5120,6 +5123,64 @@ function saveOverImage(){
   applyOverDeduction(date,session,name,rows,'saveImage');
 }
 
+// Stage 4.9A.0 — Owner Dashboard Overview + User Management Consolidation
+function ownerDashboardUpdatedText(){
+  const el=document.getElementById('ownerDashboardUpdated');
+  if(el) el.textContent=`Realtime · ${new Date().toLocaleTimeString()}`;
+}
+function ownerDashboardSetUserFilter(status){
+  if(!IS_APP_OWNER)return;
+  go('ownerDashboard');
+  setVal('ownerUserStatusFilter',status||'ALL');
+  renderOwnerUsers();
+  setTimeout(()=>document.getElementById('ownerUserManagementAnchor')?.scrollIntoView?.({behavior:'smooth',block:'start'}),80);
+}
+function ownerDashboardOpenUser(uid){
+  if(!IS_APP_OWNER)return;
+  go('ownerDashboard'); ownerSelectUser(uid);
+  setTimeout(()=>document.getElementById('ownerUserDetail')?.scrollIntoView?.({behavior:'smooth',block:'start'}),80);
+}
+function ownerDashboardOpenParser(reportStatus='',ruleStatus=''){
+  if(!IS_APP_OWNER)return;
+  go('ownerParser');
+  if(reportStatus){setVal('ownerReportStatusFilter',reportStatus);renderOwnerParserReports();}
+  if(ruleStatus){
+    const candidate=ownerParserRules.find(r=>r.status===ruleStatus);
+    if(candidate) ownerSelectRule(candidate.__collection,candidate.id);
+  }
+}
+function ownerDashboardOpenParserReport(id){
+  if(!IS_APP_OWNER)return;
+  go('ownerParser');
+  setTimeout(()=>ownerSelectReport(id),40);
+}
+function renderOwnerDashboardOverview(){
+  if(!IS_APP_OWNER)return;
+  setText('ownerDashNewReportCount',ownerParserReports.filter(x=>(x.status||'new')==='new').length);
+  setText('ownerDashReviewReportCount',ownerParserReports.filter(x=>x.status==='in_review').length);
+  setText('ownerDashActiveRuleCount',ownerParserRules.filter(x=>x.status==='active').length);
+  setText('ownerDashDraftRuleCount',ownerParserRules.filter(x=>x.status==='draft').length);
+  const expBox=document.getElementById('ownerDashboardExpiringList');
+  if(expBox){
+    const rows=ownerUsers.filter(u=>ownerUserExpiringSoon(u)).sort((a,b)=>ownerUserTimestamp(a.expiresAt)-ownerUserTimestamp(b.expiresAt)).slice(0,8);
+    expBox.innerHTML=rows.length?rows.map(u=>{const exp=ownerUserTimestamp(u.expiresAt);const days=Math.max(1,Math.ceil((exp-Date.now())/86400000));return `<div class="ownerAttentionItem"><div><b>${escapeHtml(u.displayName||u.email||'User')}</b><small>${escapeHtml(u.email||'')} · ${days} day${days===1?'':'s'} left · ${escapeHtml(u.plan||'standard')}</small></div><button class="btn gray small ownerAttentionAction" onclick="ownerDashboardOpenUser('${jsArg(u.uid)}')">Open</button></div>`;}).join(''):'<div class="muted ownerEmpty">No expiring users in the next 7 days.</div>';
+  }
+  const reportBox=document.getElementById('ownerDashboardParserAttentionList');
+  if(reportBox){
+    const rows=ownerParserReports.filter(r=>['new','in_review'].includes(r.status||'new')).sort((a,b)=>ownerTimestampValue(b.createdAt)-ownerTimestampValue(a.createdAt)).slice(0,8);
+    reportBox.innerHTML=rows.length?rows.map(r=>`<div class="ownerAttentionItem"><div><b>${escapeHtml(r.entryName||r.workspaceName||r.userEmail||'Parser report')}</b><small>${escapeHtml(r.status||'new')} · ${escapeHtml(r.userEmail||r.userUid||'')} · ${escapeHtml(ownerReportTime(r))}</small></div><button class="btn gray small ownerAttentionAction" onclick="ownerDashboardOpenParserReport('${jsArg(r.id)}')">Open</button></div>`).join(''):'<div class="muted ownerEmpty">No pending parser reports.</div>';
+  }
+  const badge=document.getElementById('ownerDashboardAccessBadge'); if(badge)badge.textContent='App Owner Verified';
+  ownerDashboardUpdatedText();
+  if(window.__V2D_TRANSLATING_UI!==true){ try{translateUiTree(document.getElementById('ownerDashboard')||document);}catch(_e){} }
+}
+async function ownerRefreshDashboard(){
+  if(!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
+  startOwnerUserControlCenter(); startOwnerParserControlCenter();
+  try{await loadActiveParserRulesOnce();}catch(_e){}
+  renderOwnerDashboardOverview(); showToast(ownerL('Owner Dashboard ပြန်ဖော်ပြပြီးပါပြီ','Owner Dashboard refreshed'),'success');
+}
+
 // Stage 4.5.0 — App Owner User & License Management
 function ownerUserTimestamp(v){
   try{ if(v?.toDate) return v.toDate().getTime(); }catch(_e){}
@@ -5131,6 +5192,14 @@ function ownerUserEffectiveStatus(u){
   if(exp && Date.now()>=exp) return 'expired';
   return 'active';
 }
+function ownerUserExpiringSoon(u,days=7){
+  if(ownerUserEffectiveStatus(u)!=='active') return false;
+  const exp=ownerUserTimestamp(u?.expiresAt);
+  if(!exp) return false;
+  const left=exp-Date.now();
+  return left>0 && left<=Number(days||7)*86400000;
+}
+function ownerUserStatusForDisplay(u){ return ownerUserExpiringSoon(u)?'expiring':ownerUserEffectiveStatus(u); }
 function ownerUserDateText(v){ const ms=ownerUserTimestamp(v); return ms?new Date(ms).toLocaleString():'-'; }
 function ownerDateTimeLocalValue(v){
   const ms=ownerUserTimestamp(v); if(!ms)return '';
@@ -5144,18 +5213,28 @@ function ownerRefreshUserStats(){
   setText('ownerUserActiveCount',ownerUsers.filter(u=>ownerUserEffectiveStatus(u)==='active').length);
   setText('ownerUserDisabledCount',ownerUsers.filter(u=>ownerUserEffectiveStatus(u)==='disabled').length);
   setText('ownerUserExpiredCount',ownerUsers.filter(u=>ownerUserEffectiveStatus(u)==='expired').length);
+  setText('ownerUserExpiringCount',ownerUsers.filter(u=>ownerUserExpiringSoon(u)).length);
+  renderOwnerDashboardOverview();
 }
 function renderOwnerUsers(){
   const box=document.getElementById('ownerUserList'); if(!box)return;
-  const filter=val('ownerUserStatusFilter')||'ALL'; const q=String(val('ownerUserSearch')||'').trim().toLowerCase();
-  const rows=ownerUsers.filter(u=>filter==='ALL'||ownerUserEffectiveStatus(u)===filter).filter(u=>!q||[u.email,u.displayName,u.shopName,u.uid,u.plan].some(v=>String(v||'').toLowerCase().includes(q)));
-  box.innerHTML=rows.length?rows.map(u=>{const st=ownerUserEffectiveStatus(u);return `<button class="ownerUserItem ${u.uid===ownerSelectedUserUid?'selected':''}" onclick="ownerSelectUser('${jsArg(u.uid)}')"><span class="ownerUserItemTop"><b>${escapeHtml(u.displayName||u.email||'User')}</b><span class="licenseStatusBadge ${st}">${st}</span></span><span class="ownerUserItemSub">${escapeHtml(u.email||'')}</span><span class="ownerUserItemSub">${escapeHtml(u.shopName||'-')} · ${escapeHtml(u.plan||'standard')}</span></button>`;}).join(''):'<div class="muted ownerEmpty">User မတွေ့ပါ။</div>';
+  const filter=val('ownerUserStatusFilter')||'ALL'; const plan=String(val('ownerUserPlanFilter')||'ALL').toLowerCase(); const q=String(val('ownerUserSearch')||'').trim().toLowerCase();
+  const rows=ownerUsers.filter(u=>{
+    const st=ownerUserEffectiveStatus(u);
+    if(filter==='expiring') return ownerUserExpiringSoon(u);
+    return filter==='ALL'||st===filter;
+  }).filter(u=>plan==='all'||String(u.plan||'standard').toLowerCase()===plan)
+    .filter(u=>!q||[u.email,u.displayName,u.shopName,u.uid,u.plan].some(v=>String(v||'').toLowerCase().includes(q)));
+  box.innerHTML=rows.length?rows.map(u=>{
+    const st=ownerUserStatusForDisplay(u); const exp=ownerUserTimestamp(u.expiresAt); const expiryText=exp?new Date(exp).toLocaleString():'No expiry'; const last=ownerUserTimestamp(u.lastLoginAt); const lastText=last?new Date(last).toLocaleString():'-';
+    return `<button class="ownerUserItem ${u.uid===ownerSelectedUserUid?'selected':''}" onclick="ownerSelectUser('${jsArg(u.uid)}')"><span class="ownerUserItemTop"><b>${escapeHtml(u.displayName||u.email||'User')}</b><span class="licenseStatusBadge ${st}">${st}</span></span><span class="ownerUserItemSub">${escapeHtml(u.email||'')}</span><span class="ownerUserItemSub">${escapeHtml(u.shopName||'-')} · ${escapeHtml(u.plan||'standard')}</span><span class="ownerUserItemMeta"><span>Expiry: ${escapeHtml(expiryText)}</span><span>Last: ${escapeHtml(lastText)}</span></span></button>`;
+  }).join(''):'<div class="muted ownerEmpty">User မတွေ့ပါ။</div>';
   ownerRefreshUserStats();
 }
 function ownerSelectUser(uid){
   ownerSelectedUserUid=String(uid||''); const u=ownerSelectedUser(); if(!u)return;
   document.getElementById('ownerUserEmpty').style.display='none'; document.getElementById('ownerUserDetail').style.display='block';
-  setText('ownerSelectedUserBadge',ownerUserEffectiveStatus(u)); setText('ownerUserEmail',u.email||'-');setText('ownerUserName',u.displayName||'-');setText('ownerUserShop',u.shopName||'-');setText('ownerUserUid',u.uid||'-');setText('ownerUserCreated',ownerUserDateText(u.createdAt));setText('ownerUserLastLogin',ownerUserDateText(u.lastLoginAt));
+  setText('ownerSelectedUserBadge',ownerUserStatusForDisplay(u)); setText('ownerUserEmail',u.email||'-');setText('ownerUserName',u.displayName||'-');setText('ownerUserShop',u.shopName||'-');setText('ownerUserUid',u.uid||'-');setText('ownerUserCreated',ownerUserDateText(u.createdAt));setText('ownerUserLastLogin',ownerUserDateText(u.lastLoginAt));
   setVal('ownerLicenseStatus',String(u.licenseStatus||'active').toLowerCase()==='disabled'?'disabled':'active');
   setVal('ownerLicensePlan',u.plan||'standard'); setVal('ownerLicenseExpiry',ownerDateTimeLocalValue(u.expiresAt));setVal('ownerExpiryNotice',u.expiryNotice||'');setVal('ownerDisabledNotice',u.disabledNotice||'');
   ownerSetUserResult('Changes မသိမ်းရသေးပါ။'); renderOwnerUsers();
@@ -5182,20 +5261,20 @@ function ownerSetUserActive(active){setVal('ownerLicenseStatus',active?'active':
 function stopOwnerUserControlCenter(){try{ownerUsersUnsub?.();}catch(_e){}ownerUsersUnsub=null;ownerUsers=[];ownerSelectedUserUid='';}
 function startOwnerUserControlCenter(){
   if(!IS_APP_OWNER||!db)return;
-  const badge=document.getElementById('ownerUsersAccessBadge');if(badge)badge.textContent='App Owner Verified';
+  const badge=document.getElementById('ownerDashboardAccessBadge');if(badge)badge.textContent='App Owner Verified';
   stopOwnerUserControlCenter();
   ownerUsersUnsub=db.collection('users').onSnapshot(snap=>{
     ownerUsers=snap.docs.map(d=>({uid:d.id,...(d.data()||{})})).sort((a,b)=>ownerUserTimestamp(b.createdAt)-ownerUserTimestamp(a.createdAt));
     if(ownerSelectedUserUid&&!ownerUsers.some(u=>u.uid===ownerSelectedUserUid))ownerSelectedUserUid='';
     renderOwnerUsers(); if(ownerSelectedUserUid)ownerSelectUser(ownerSelectedUserUid);
-  },err=>{console.error('Owner users realtime failed',err);const b=document.getElementById('ownerUsersAccessBadge');if(b)b.textContent='Permission Error';});
+  },err=>{console.error('Owner users realtime failed',err);const b=document.getElementById('ownerDashboardAccessBadge');if(b)b.textContent='Permission Error';});
 }
 function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCenter(); }
 
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 4.8D.0 Name Final Report JPG',
+    version:'Stage 4.9A.0 Owner Dashboard',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,
@@ -5327,7 +5406,7 @@ function init(){
   const authEmail=document.getElementById('authUserEmail');
   if(authName) authName.textContent=CURRENT_USER.displayName||window.V2D_CURRENT_PROFILE?.displayName||'User';
   if(authEmail) authEmail.textContent=CURRENT_USER.email||'';
-  setVal('accountUidDisplay',CURRENT_UID); const ownerStatus=document.getElementById('accountOwnerStatus'); if(ownerStatus) ownerStatus.textContent=IS_APP_OWNER?'App Owner':'User'; const ownerTab=document.getElementById('ownerParserTab'); if(ownerTab) ownerTab.style.display=IS_APP_OWNER?'':'none'; const ownerUsersTab=document.getElementById('ownerUsersTab'); if(ownerUsersTab) ownerUsersTab.style.display=IS_APP_OWNER?'':'none';
+  setVal('accountUidDisplay',CURRENT_UID); const ownerStatus=document.getElementById('accountOwnerStatus'); if(ownerStatus) ownerStatus.textContent=IS_APP_OWNER?'App Owner':'User'; const ownerDashTab=document.getElementById('ownerDashboardTab'); if(ownerDashTab) ownerDashTab.style.display=IS_APP_OWNER?'':'none'; const ownerTab=document.getElementById('ownerParserTab'); if(ownerTab) ownerTab.style.display=IS_APP_OWNER?'':'none';
   document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active', t.dataset.id==='dashboard'));
   ['entryDate','recordDate','limitDate','overDate','reportDate','imageDate'].forEach(id=>setVal(id,today()));
   settings={shopName:(initialRegisteredShopName||'Viber 2D Desk'),commissionRate:20,payoutRate:80,defaultLimit:10000,amClose:'12:00',pmClose:'16:30',names:['Default'],nameRates:{Default:20},lang:'my',...settings}; if(!Array.isArray(settings.names)||!settings.names.length) settings.names=['Default']; if(!settings.nameRates) settings.nameRates={}; settings.names.forEach(n=>{if(settings.nameRates[n]==null) settings.nameRates[n]=settings.commissionRate||20;});

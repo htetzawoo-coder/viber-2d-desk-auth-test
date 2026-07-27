@@ -1,0 +1,39 @@
+Stage 5.0A.1 — Rule Version History + Safe Rollback + Mobile Report Integration
+
+PASS  Syntax js/app.js
+PASS  Syntax js/auth.js
+PASS  Syntax js/firebase-bootstrap.js
+PASS  Syntax js/pwa.js
+PASS  Syntax service-worker.js
+PASS  Project/online app.js match
+PASS  Project/online css match
+PASS  Project/online index match
+PASS  Stage label 5.0A.1
+PASS  APP_VERSION 5.0A.1
+PASS  History globals
+PASS  Archive metadata
+PASS  History query new
+PASS  History query legacy
+PASS  Rollback function
+PASS  Rollback regression safety
+PASS  Rollback conflict safety
+PASS  Rollback archives current
+PASS  Rollback creates new version
+PASS  Rule History button
+PASS  Mobile Card JPG retained
+PASS  Mobile P JPG retained
+PASS  Mobile Final JPG retained
+PASS  Mobile Share retained
+PASS  Download All Mobile retained
+PASS  Owner Dashboard retained
+PASS  Cloud conflict retained
+PASS  History UI hook
+PASS  History CSS
+PASS  Owner-only rules history
+PASS  PWA cache bumped
+PASS  Auth asset version bumped
+PASS  PWA registration version bumped
+
+TOTAL: 33/33 PASS
+
+Live Firebase history/rollback behavior must be verified in the user Firebase project.

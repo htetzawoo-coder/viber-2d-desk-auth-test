@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 4.9A.0 Owner Dashboard</title>
+  <title>Viber 2D Desk - Stage 5.0A.1 Rule History + Rollback + Mobile Report</title>
   <meta name="theme-color" content="#0b1f3a" id="themeColorMeta" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -24,7 +24,7 @@
       <div class="authLogo pwaBrandLogo"><img src="icons/icon-192.png" alt="Viber 2D Desk logo"></div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 4.9A.0 · Owner Dashboard</div>
+        <div class="muted">Stage 5.0A.1 · Rule History + Rollback · Mobile Report</div>
       </div>
     </div>
 
@@ -99,8 +99,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 4.9A.0 Owner Dashboard + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 4.9A.0: Owner Dashboard · User Management · Parser Overview · License Control</div></div>
+        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 5.0A.1 Rule History + Rollback + Mobile Report + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 5.0A.1: Owner Dashboard · Mobile Report JPG · Parser Rule Version History · Safe Rollback</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -632,8 +632,8 @@
       </div>
       <div id="reportTotalBreakdown" class="reportDrillPanel" hidden></div>
       <div id="reportPBreakdown" class="reportDrillPanel" hidden></div>
-      <div class="muted reportDrillHint">Total Amount ▼ သို့မဟုတ် P Amount ▼ ကိုနှိပ်ပြီး Card # / Time / Amount အလိုက် စစ်နိုင်ပါတယ်။ Name Summary မှ Card JPG / P JPG သိမ်းနိုင်ပြီး Share ဖြင့် Card Breakdown Image ကို မျှဝေနိုင်ပါတယ်။ Download All Names ဖြင့် လက်ရှိ Date / Session ရဲ့ Name အားလုံး Card JPG ကို တစ်ချက်တည်း သိမ်းနိုင်ပါတယ်။</div>
-      <div class="reportBulkActions"><button class="reportDownloadAllBtn" type="button" onclick="downloadAllNameCardBreakdownJpg()">Download All Names</button><span class="muted small">Browser က multiple downloads ခွင့်တောင်းလျှင် Allow ကိုရွေးပါ။</span></div>
+      <div class="muted reportDrillHint">Desktop JPG များကို မူရင်းပုံစံအတိုင်း ဆက်သုံးနိုင်ပါတယ်။ 📱 Mobile JPG မှ Card / P / Final ကို 1080×1920 Portrait၊ စာလုံးကြီး၊ Full Source နဲ့ ထုတ်နိုင်ပါတယ်။ Share က Mobile Card JPG ကို default မျှဝေပါတယ်။</div>
+      <div class="reportBulkActions"><button class="reportDownloadAllBtn" type="button" onclick="downloadAllNameCardBreakdownJpg()">Download All Names</button><button class="reportDownloadAllMobileBtn" type="button" onclick="downloadAllNameMobileCardJpg()">📱 Download All Mobile</button><span class="muted small">Mobile JPG = 1080×1920 Portrait · Browser က multiple downloads ခွင့်တောင်းလျှင် Allow ကိုရွေးပါ။</span></div>
       <h3 style="margin-top:12px">Name Summary / နာမည်အလိုက်</h3>
       <div class="scroll"><table id="reportNameRowsTable"><thead><tr><th>Name</th><th class="right">Total</th><th class="right">P Amount</th><th class="right">Payout</th><th class="right">Cor %</th><th class="right">Cor</th><th class="right">Final</th><th class="center">JPG Export</th></tr></thead><tbody id="reportNameRows"></tbody></table></div>
       <h3 style="margin-top:14px">Number Summary / နံပါတ်အလိုက်</h3>
@@ -837,6 +837,15 @@
       <div class="card" style="margin-top:12px">
         <div class="ownerPaneTitle"><h3>Parser Rules</h3><div class="muted">Active / Draft / Disabled rules</div></div>
         <div id="ownerParserRuleList" class="ownerRuleList"></div>
+      </div>
+      <div class="card ownerRuleHistoryCard" id="ownerRuleHistoryCard" style="display:none;margin-top:12px">
+        <div class="ownerPaneTitle">
+          <div><h3>Rule Version History</h3><div class="muted" id="ownerRuleHistoryTitle">No rule selected</div></div>
+          <button class="btn gray small" type="button" onclick="ownerCloseRuleHistory()">Close History</button>
+        </div>
+        <div class="ownerHistoryMeta muted" id="ownerRuleHistoryMeta"></div>
+        <div class="ownerHistoryNotice">Rollback does not delete history. The current rule is archived first, then the selected old content becomes a new version after regression/conflict safety checks.</div>
+        <div id="ownerRuleHistoryList" class="ownerRuleHistoryList"></div>
       </div>
     </div>
   </section>

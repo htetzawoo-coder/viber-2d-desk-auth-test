@@ -981,7 +981,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.3.1 Entry Focus + Batch Fix',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.1 Rule History + Rollback + Mobile Report',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -1339,68 +1339,6 @@ async function fetchCloudStateOnly({serverFirst=true}={}){
     return null;
   }
 }
-async function fetchStructuredCloudFromIndexedDbCache(remoteState){
-  const recordsRef=currentCloudRecordsRef();
-  if(!recordsRef||!remoteState) return null;
-
-  try{
-    // Firestore IndexedDB cache only: this does not request record documents
-    // from the server and therefore does not consume server document reads.
-    const rowsSnap=await recordsRef.get({source:'cache'});
-    const rows=[];
-    const mirror=new Map();
-    const revisionMirror=new Map();
-
-    rowsSnap.forEach(doc=>{
-      const data=doc.data()||{};
-      const row=appRecordFromCloud(data,doc.id);
-
-      // Stage 5.0A.2.1:
-      // Recalculate the business-data hash from the cached row instead of
-      // trusting an older stored _recordHash metadata value. Older documents
-      // can contain a valid record with a stale metadata hash, which would
-      // otherwise force a full server fallback on every startup.
-      const hash=cloudRecordHash(row);
-
-      rows.push(row);
-      mirror.set(doc.id,hash);
-      revisionMirror.set(doc.id,Number(data._revision||0)||0);
-    });
-
-    const expectedCount=Math.max(0,Number(remoteState.recordCount||0)||0);
-    const expectedManifest=String(remoteState.recordManifestHash||'');
-    const actualManifest=simpleHash(
-      [...mirror.entries()]
-        .map(([id,hash])=>`${id}:${hash}`)
-        .sort()
-        .join('|')
-    );
-
-    // Never trust a partial/stale query cache. Both count and manifest must
-    // exactly match the small server state document before using cached rows.
-    if(rows.length!==expectedCount || !expectedManifest || actualManifest!==expectedManifest){
-      console.info(
-        `[V2D] IndexedDB cache not verified `+
-        `(cached ${rows.length}/${expectedCount} records). Server records fallback required.`
-      );
-      return null;
-    }
-
-    return {
-      state:remoteState,
-      rows,
-      mirror,
-      revisionMirror,
-      fromCache:true
-    };
-  }catch(error){
-    console.info(
-      '[V2D] IndexedDB record cache unavailable. Server records fallback required.',
-      error?.code||error?.message||error
-    );
-    return null;
-  }
-}
 async function findLegacyWorkspace(){
   const direct=legacyWorkspaceRef();
   if(direct){
@@ -1457,28 +1395,41 @@ async function initializeCloudFirstSync(){
   let structured=null;
 
 if(!forceUpload){
-  // Stage 5.0A.2 Step 2C-2:
-  // 1) Read only the small server state document.
-  // 2) Try the Firestore IndexedDB records cache.
-  // 3) Use cached records only when recordCount + recordManifestHash match.
-  // 4) Otherwise fall back to the original safe full server read.
+  // Stage 5.0A.2:
+  // Read only the small workspace/state document first.
+  // If Local Cache already matches Cloud exactly, do NOT read
+  // the entire records collection again.
   const stateOnly=await fetchCloudStateOnly({serverFirst:true});
   const remoteState=stateOnly?.state||null;
+  const remoteHash=String(remoteState?.contentHash||'');
 
-  if(!localPending && remoteState){
-    structured=await fetchStructuredCloudFromIndexedDbCache(remoteState);
+  const localMap=buildCurrentRecordMap();
+  const localStateHash=workspaceStateHash();
+  const localContentHash=structuredContentHash(localStateHash,localMap);
 
-    if(structured){
-      console.info(
-        `[V2D] IndexedDB fast startup: verified ${structured.rows.length} records; `+
-        `full Firestore server records read skipped.`
-      );
-    }
-  }
+  const canUseVerifiedLocalCache=
+    !localPending &&
+    !!remoteState &&
+    !!remoteHash &&
+    localContentHash===remoteHash;
 
-  if(!structured){
-    // Cache missing/stale, local changes pending, or old state schema.
-    // Preserve the original safe Cloud behavior.
+  if(canUseVerifiedLocalCache){
+    structured={
+      state:remoteState,
+      rows:normalizeCloudRecords(records),
+      mirror:new Map(
+        [...localMap.entries()].map(([id,item])=>[id,item.hash])
+      ),
+      revisionMirror:new Map(),
+      fromCache:true
+    };
+
+    console.info(
+      `[V2D] Fast startup: verified Local Cache (${localMap.size} records); full Firestore records read skipped.`
+    );
+  }else{
+    // Cloud changed, cache is not verified, or local changes are pending.
+    // Fall back to the original safe full Cloud read.
     structured=await fetchStructuredCloud({serverFirst:true});
   }
 }
@@ -2694,7 +2645,7 @@ function buildParserIssueReportPayload(){
     reportScope:ctx.filtered?'issue-cards-only':'current-preview',
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'5.0A.3.1',
+    appVersion:'4.5.0',
     parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
@@ -2758,7 +2709,7 @@ function confirmSaveAction(){
     showToast('Confirm Save error: ' + (err?.message || err));
   }
 }
-function parseInput(options={}){
+function parseInput(){
   const writer = selectedWriterProfile();
   preview=parseMessage(val('entryText'), val('entryName')||'Default', writer);
 
@@ -2766,26 +2717,20 @@ function parseInput(options={}){
   const uniquePreviewBlockKeys = [...new Set((preview.detailRows||[]).map(r=>r.duplicateBlockKey).filter(Boolean))];
   const allDuplicate = uniquePreviewBlockKeys.length > 0 && summary.duplicateBlockKeys.length === uniquePreviewBlockKeys.length;
 
+  if(allDuplicate){
+    preview = {detailRows:[], totals:[], warnings:['All duplicate ဖြစ်နေပါတယ်။ Copy paste အသစ်ထည့်ပါ။'], issues:[], cards:[]};
+    renderPreview();
+    showToast('All duplicate ဖြစ်နေပါတယ်။ Copy paste အသစ်ထည့်ပါ။');
+    return;
+  }
+
   renderPreview();
-  const safety=getPreviewSafetyState();
-  if(safety.requiresReview){
-    setTimeout(()=>focusIssueFix(),100);
-    showToast(currentUiLang()==='en'?'Unread or uncertain lines were found. The correction panel is open.':'မဖတ်နိုင်/မသေချာသောစာတွေ့သဖြင့် ပြင်ဆင်ရန်နေရာသို့ ခေါ်ဆောင်ထားပါသည်။','warn',6500);
-    return;
-  }
-  if(summary.duplicateBlockKeys.length){
-    setTimeout(()=>focusDuplicateReview(),100);
-    showToast(currentUiLang()==='en'?(allDuplicate?'This entire message already exists. Review the duplicate choices.':'Duplicate messages were found. Review the duplicate choices.'):(allDuplicate?'ဒီ Message အားလုံး ထပ်နေပါသည်။ Duplicate ရွေးချယ်မှုနေရာတွင် စစ်ဆေးပါ။':'ထပ်နေသော Message တွေ့သဖြင့် သက်ဆိုင်ရာရွေးချယ်မှုနေရာသို့ ခေါ်ဆောင်ထားပါသည်။'),'warn',7000);
-    return;
-  }
-  setTimeout(()=>focusEntryPreview(),80);
   if(preview.matchedHeaderCount && preview.headerDates?.length===1 && preview.headerSessions?.length===1){
-    showToast((currentUiLang()==='en'?'The header time will save to ':'Header time အတိုင်း ')+preview.headerDates[0]+' / '+preview.headerSessions[0]+(currentUiLang()==='en'?'.':' ဖြင့် သိမ်းပါမယ်'));
+    showToast('Header time အတိုင်း ' + preview.headerDates[0] + ' / ' + preview.headerSessions[0] + ' ဖြင့် သိမ်းပါမယ်');
   }else{
-    showToast(currentUiLang()==='en'?'Preview is ready.':'Preview ပြီးပါပြီ');
+    showToast('Preview ပြီးပါပြီ');
   }
 }
-
 function computePreviewSaveSummary(){
   const selectedDate=val('entryDate')||today();
   const selectedSession=(val('entrySession')||'AM').toUpperCase().startsWith('P')?'PM':'AM';
@@ -2853,8 +2798,8 @@ function renderSaveFlowBox(){
   pendingDuplicateBlockLabels = summary.duplicateBlockLabels || [];
 
   if(!preview.detailRows.length){
-    left.innerHTML = `<div class="muted">${currentUiLang()==='en'?'No preview yet.':'Parse Preview မလုပ်ရသေးပါ'}</div>`;
-    right.innerHTML = `<div class="muted">${currentUiLang()==='en'?'No duplicate check yet.':'Duplicate check မရှိသေးပါ'}</div>`;
+    left.innerHTML = '<div class="muted">Parse Preview မလုပ်ရသေးပါ</div>';
+    right.innerHTML = '<div class="muted">Duplicate check မရှိသေးပါ</div>';
     actions.innerHTML = '';
     return;
   }
@@ -2869,14 +2814,14 @@ function renderSaveFlowBox(){
   ` : '<div class="muted">Detected target မရှိသေးပါ</div>';
 
   if(preview.needsNameSelection){
-    right.innerHTML = `<div class="dupNameWarn"><b>${currentUiLang()==='en'?'Name is not selected.':'Name မရွေးရသေးပါ'}</b><br>${currentUiLang()==='en'?'Select a name before confirming a typed entry.':'Typing save လုပ်မယ်ဆို Name ကို အရင်ရွေးပြီးမှ အတည်ပြုသိမ်းပါ။'}</div>`;
+    right.innerHTML = `<div class="dupNameWarn"><b>Name မရွေးရသေးပါ</b><br>Typing save လုပ်မယ်ဆို Name ကို အရင်ရွေးပြီးမှ Confirm Save လုပ်ပါ။</div>`;
     actions.innerHTML = '';
     return;
   }
 
   if(pendingDuplicateBlockKeys.length){
     right.innerHTML = `
-      <div class="dupWarn"><b>${currentUiLang()==='en'?`${pendingDuplicateBlockKeys.length} duplicate message block(s) found`:`Duplicate message block ${pendingDuplicateBlockKeys.length} ခုတွေ့ပါတယ်`}</b><br>${currentUiLang()==='en'?'An identical message exists in the same session. Choose the correct action below.':'တူညီသော Session ထဲမှာ Message ထပ်နေပါသည်။ အောက်မှ မှန်ကန်သောလုပ်ဆောင်ချက်ကို ရွေးပါ။'}</div>
+      <div class="dupWarn"><b>Duplicate message block ${pendingDuplicateBlockKeys.length} ခုတွေ့ပါတယ်</b><br>Same Session ထဲမှာ ထပ်တူ message block ရှိနေပါတယ်။</div>
       <table style="margin-top:8px">
         <thead><tr><th>Header</th><th>Date</th><th>Session</th><th class="right">Rows</th></tr></thead>
         <tbody>
@@ -2886,19 +2831,20 @@ function renderSaveFlowBox(){
     `;
     actions.innerHTML = `
       <div class="btnrow" style="margin-top:8px">
-        <button class="btn warn small" onclick="deleteDuplicatePreviewBlocks(true)">${currentUiLang()==='en'?'Replace Existing & Save':'အဟောင်းအစားထိုးပြီးသိမ်းမည်'}</button>
-        <button class="btn secondary small" onclick="savePreview(true,'skip')">${currentUiLang()==='en'?'Skip Duplicate Only':'ထပ်နေသည်ကိုသာကျော်မည်'}</button>
-        <button class="btn small" onclick="savePreview(true,'all')">${currentUiLang()==='en'?'Save Both Anyway':'နှစ်ခုလုံးသိမ်းမည်'}</button>
-        <button class="btn gray small" onclick="cancelDuplicateFlow()">${currentUiLang()==='en'?'Review Source':'မူရင်းစာပြန်စစ်မည်'}</button>
+        <button class="btn warn small" onclick="deleteDuplicatePreviewBlocks(true)">Delete Existing + Save</button>
+        <button class="btn secondary small" onclick="savePreview(true,'skip')">Skip Duplicate Only</button>
+        <button class="btn small" onclick="savePreview(true,'all')">Save All Anyway</button>
+        <button class="btn gray small" onclick="cancelDuplicateFlow()">Cancel</button>
       </div>
     `;
   }else{
-    right.innerHTML = `<div class="dupOk"><b>${currentUiLang()==='en'?'No duplicate':'ထပ်နေသော Message မရှိပါ'}</b><br>${currentUiLang()==='en'?'This preview can be saved safely to the selected target.':'ဒီ Preview ကို ရွေးထားသောနေရာတွင် လုံခြုံစွာသိမ်းနိုင်ပါသည်။'}</div>`;
+    right.innerHTML = `<div class="dupOk"><b>No duplicate</b><br>ဒီ preview ကို current target ထဲ safe save လုပ်လို့ရပါတယ်။</div>`;
     actions.innerHTML = '';
   }
 }
-function cancelDuplicateFlow(){focusEntryInput();showToast(currentUiLang()==='en'?'Review the original pasted message.':'မူရင်း Copy / Paste စာကို ပြန်စစ်ပါ။');}
-
+function cancelDuplicateFlow(){
+  showToast('Duplicate warning ကိုပြထားပါတယ်။ Header line ကို ပြန်စစ်နိုင်ပါတယ်');
+}
 function deleteDuplicatePreviewBlocks(saveAfter=false){
   if(!pendingDuplicateBlockKeys.length){
     showToast('ဖျက်ရန် duplicate message block မရှိပါ');
@@ -2942,11 +2888,6 @@ function renderPreview(){
   renderParserReportQueueStatus();
   renderEntryWorkspace();
 }
-function issueEditStats(){
-  const issues=Array.isArray(preview?.issues)?preview.issues:[];
-  const changed=issues.filter(it=>String(it.edited??it.line??'')!==String(it.line??'')).length;
-  return {total:issues.length,changed};
-}
 function renderIssueEditor(){
   const wrap=document.getElementById('issueEditorWrap');
   const list=document.getElementById('issueEditorList');
@@ -2958,39 +2899,35 @@ function renderIssueEditor(){
     if(currentIssueIndex >= preview.issues.length) currentIssueIndex = 0;
     wrap.style.display='block';
     editor.classList.add('entryError');
-    const stats=issueEditStats();
-    setText('issueBatchProgress',`${stats.changed} / ${stats.total}`);
 
-    list.innerHTML = preview.issues.map((it,i)=>{
-      const changed=String(it.edited??it.line??'')!==String(it.line??'');
-      return `<button class="issuePickBtn ${i===currentIssueIndex?'active':''} ${changed?'fixed':''}" onclick="selectIssue(${i})">
-        <span>${currentUiLang()==='en'?'Line':'စာကြောင်း'} ${it.lineNo}: ${escapeHtml(String(it.edited||it.line||'').slice(0,40))}</span><b>${changed?'✓':''}</b>
-      </button>`;
-    }).join('');
+    list.innerHTML = preview.issues.map((it,i)=>`
+      <button class="issuePickBtn ${i===currentIssueIndex?'active':''}" onclick="selectIssue(${i})">
+        Line ${it.lineNo}: ${escapeHtml(String(it.edited||it.line||'').slice(0,40))}
+      </button>
+    `).join('');
 
     const it = preview.issues[currentIssueIndex];
     detail.innerHTML = `
-      <div class="issueMsg">${currentUiLang()==='en'?'Line':'စာကြောင်း'} ${it.lineNo}: ${escapeHtml(it.message)}</div>
-      <textarea class="issueInput" id="issueLine_single" oninput="updateCurrentIssueText(this.value)">${escapeHtml(it.edited??it.line??'')}</textarea>
+      <div class="issueMsg">Line ${it.lineNo}: ${escapeHtml(it.message)}</div>
+      <textarea class="issueInput" id="issueLine_single" oninput="updateCurrentIssueText(this.value)">${escapeHtml(it.edited||it.line||'')}</textarea>
       <div class="issueQuickActions">
-        <button class="btn secondary small" onclick="findCurrentIssueInEditor()">${currentUiLang()==='en'?'Show in Paste':'Paste Box ထဲပြမည်'}</button>
-        <button class="btn secondary small" onclick="replaceCurrentIssueInEditor()">${currentUiLang()==='en'?'Apply This Fix':'ဤတစ်ခုကို အသုံးချမည်'}</button>
-        <button class="btn warn small" onclick="appendCurrentIssueToEditor()">${currentUiLang()==='en'?'Append Bottom':'အောက်ဆုံးထည့်မည်'}</button>
+        <button class="btn secondary small" onclick="findCurrentIssueInEditor()">Find in Paste</button>
+        <button class="btn secondary small" onclick="replaceCurrentIssueInEditor()">Replace in Paste Box</button>
+        <button class="btn warn small" onclick="appendCurrentIssueToEditor()">Append Bottom</button>
+        <button class="btn small" onclick="applyCurrentIssueAndReparse()">Apply & Reparse</button>
       </div>
-      <div class="issueOneHint">${currentUiLang()==='en'?'Move through every issue. Reparse only once with the main button above.':'Issue အားလုံးကို တစ်ခုချင်းပြင်ပါ။ အပေါ်က Button ဖြင့် တစ်ကြိမ်တည်း ပြန်ဖတ်ပါ။'}</div>
     `;
   }else{
     wrap.style.display='none';
     list.innerHTML='';
     detail.innerHTML='';
     editor.classList.remove('entryError');
-    setText('issueBatchProgress','0 / 0');
   }
 }
 
 function loadIssueLinesToEditor(){
   if(!preview.issues || !preview.issues.length){
-    showToast(currentUiLang()==='en'?'No issue lines.':'အနီစာ / Issue line မရှိပါ');
+    showToast('အနီစာ / Issue line မရှိပါ');
     return;
   }
   preview.issues.forEach(issue=>{
@@ -2998,7 +2935,7 @@ function loadIssueLinesToEditor(){
   });
   currentIssueIndex=0;
   renderIssueEditor();
-  showToast(currentUiLang()==='en'?`${preview.issues.length} issue line(s) are ready for correction.`:`Issue line ${preview.issues.length} ခုကို တစ်စုတည်းပြင်နိုင်ပါပြီ`);
+  showToast(`${preview.issues.length} issue lines ကို Fix Lines Editor ထဲ ဖော်ပြပြီးပါပြီ`);
 }
 
 function selectIssue(i){
@@ -3009,8 +2946,6 @@ function selectIssue(i){
 function updateCurrentIssueText(value){
   if(!preview.issues || !preview.issues[currentIssueIndex]) return;
   preview.issues[currentIssueIndex].edited = value;
-  const stats=issueEditStats();
-  setText('issueBatchProgress',`${stats.changed} / ${stats.total}`);
 }
 
 function findCurrentIssueInEditor(){
@@ -3022,10 +2957,9 @@ function findCurrentIssueInEditor(){
   let start=0;
   for(let n=0;n<Math.max(0,idx);n++) start += lines[n].length + 1;
   const target = (idx>=0 ? lines[idx] : (issue.line||''));
-  ta.scrollIntoView({behavior:'smooth',block:'center'});
   ta.focus();
   ta.setSelectionRange(start, start + String(target).length);
-  showToast(currentUiLang()==='en'?'The source line is selected in the Paste box.':'Paste Box ထဲ သက်ဆိုင်ရာစာကြောင်းကို ရွေးပြထားပါပြီ');
+  showToast('Paste Box ထဲ line ကို ရှာပေးပြီးပါပြီ');
 }
 
 function replaceCurrentIssueInEditor(){
@@ -3034,39 +2968,24 @@ function replaceCurrentIssueInEditor(){
   const ta=document.getElementById('entryText');
   const lines=ta.value.split('\n');
   const idx = issue.lineNo ? issue.lineNo-1 : lines.findIndex(x=>x.trim()===String(issue.line).trim());
-  if(idx>=0) lines[idx]=issue.edited??issue.line;
-  else lines.push(issue.edited??issue.line);
+  if(idx>=0) lines[idx]=issue.edited||issue.line;
+  else lines.push(issue.edited||issue.line);
   ta.value = lines.join('\n');
-  renderIssueEditor();
-  showToast(currentUiLang()==='en'?'This correction was applied. Continue fixing the remaining issues.':'ဒီတစ်ခုကို အသုံးချပြီးပါပြီ။ ကျန်တာတွေ ဆက်ပြင်ပါ။');
+  findCurrentIssueInEditor();
+  showToast('Paste Box ထဲ အစားထိုးပြီးပါပြီ');
 }
 
 function appendCurrentIssueToEditor(){
   if(!preview.issues || !preview.issues[currentIssueIndex]) return;
   const issue=preview.issues[currentIssueIndex];
   const ta=document.getElementById('entryText');
-  ta.value = ta.value.replace(/\s+$/,'') + '\n' + (issue.edited??issue.line);
-  showToast(currentUiLang()==='en'?'Added at the bottom.':'အောက်ဆုံးမှာ ထည့်ပြီးပါပြီ');
+  ta.value = ta.value.replace(/\s+$/,'') + '\n' + (issue.edited||issue.line);
+  showToast('အောက်ဆုံးမှာ ထည့်ပြီးပါပြီ');
 }
 
-function applyCurrentIssueAndReparse(){replaceCurrentIssueInEditor();parseInput();}
-function applyAllIssueEditsAndReparse(){
-  const issues=Array.isArray(preview?.issues)?preview.issues:[];
-  if(!issues.length){showToast(currentUiLang()==='en'?'No issue corrections to apply.':'အသုံးချရန် Issue မရှိပါ');return;}
-  const ta=document.getElementById('entryText');
-  if(!ta)return;
-  const lines=ta.value.split('\n');
-  let applied=0;
-  [...issues].sort((a,b)=>Number(a.lineNo||0)-Number(b.lineNo||0)).forEach(issue=>{
-    const replacement=String(issue.edited??issue.line??'');
-    let idx=Number(issue.lineNo||0)-1;
-    if(idx<0||idx>=lines.length) idx=lines.findIndex(x=>x.trim()===String(issue.line||'').trim());
-    if(idx>=0){if(lines[idx]!==replacement){lines[idx]=replacement;applied++;}}
-    else if(replacement){lines.push(replacement);applied++;}
-  });
-  ta.value=lines.join('\n');
-  showToast(currentUiLang()==='en'?`Applied ${applied} correction(s). Reparsing once…`:`ပြင်ဆင်ချက် ${applied} ခု အသုံးချပြီး တစ်ကြိမ်တည်း ပြန်ဖတ်နေပါသည်…`);
-  parseInput({fromBatchFix:true});
+function applyCurrentIssueAndReparse(){
+  replaceCurrentIssueInEditor();
+  parseInput();
 }
 
 function clearIssueEditor(){
@@ -4409,37 +4328,7 @@ function buildEntryWorkspaceCards(applySearch=true){
 }
 function selectedEntryWorkspaceCard(){return buildEntryWorkspaceCards(false).find(card=>card.cardId===entryWorkspaceSelectedCardId)||null;}
 function setEntryWorkspaceActions(enabled){['entryWsEditBtn','entryWsCopyBtn'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=!enabled;});}
-function entryAdvancedOpen(){return userGetItem('v2d_ui_entry_advanced_open')==='1';}
-function applyEntryFocusUiState(){
-  const layout=document.getElementById('entryDeskLayout');
-  const open=entryAdvancedOpen();
-  if(layout) layout.classList.toggle('entry-advanced-open',open);
-  const btn=document.getElementById('entryAdvancedToggleBtn');
-  if(btn){btn.textContent=open?tUi('hideAdvanced'):tUi('showAdvanced');btn.setAttribute('aria-expanded',open?'true':'false');}
-}
-function toggleEntryAdvanced(){
-  const willOpen=!entryAdvancedOpen();
-  userSetItem('v2d_ui_entry_advanced_open',willOpen?'1':'0');
-  if(willOpen) userSetItem('v2d_ui_entry_tools_collapsed','0');
-  applyEntryWorkspaceUiState();
-  if(willOpen){
-    requestAnimationFrame(()=>{
-      const board=document.getElementById('entryLimitBoardCard');
-      if(!board) return;
-      board.classList.add('attentionPulse');
-      board.scrollIntoView({behavior:'smooth',block:'start'});
-      setTimeout(()=>board.classList.remove('attentionPulse'),1800);
-    });
-  }
-}
-function ensureEntryToolsOpen(){if(userGetItem('v2d_ui_entry_tools_collapsed')==='1')userSetItem('v2d_ui_entry_tools_collapsed','0');applyEntryWorkspaceUiState();}
-function focusEntryInput(){ensureEntryToolsOpen();const el=document.getElementById('entryText');if(el){el.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>el.focus({preventScroll:true}),280);}}
-function focusEntryPreview(){ensureEntryToolsOpen();document.getElementById('entryPreviewCard')?.scrollIntoView({behavior:'smooth',block:'start'});}
-function focusEntryReview(){ensureEntryToolsOpen();const issue=document.getElementById('issueEditorWrap');const target=(issue&&issue.style.display!=='none')?issue:document.getElementById('saveFlowWrap');target?.scrollIntoView({behavior:'smooth',block:'center'});}
-function focusDuplicateReview(){ensureEntryToolsOpen();const target=document.getElementById('saveFlowWrap');if(!target)return;target.classList.add('attentionPulse');target.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>target.classList.remove('attentionPulse'),1800);}
-
 function applyEntryWorkspaceUiState(){
-  applyEntryFocusUiState();
   const board=document.querySelector('#entry .board-card');
   const boardCollapsed=userGetItem('v2d_ui_entry_board_collapsed')==='1';
   if(board) board.classList.toggle('workspace-collapsed',boardCollapsed);
@@ -4447,7 +4336,7 @@ function applyEntryWorkspaceUiState(){
   const tools=document.getElementById('entryToolsArea');
   const toolsCollapsed=userGetItem('v2d_ui_entry_tools_collapsed')==='1';
   if(tools) tools.classList.toggle('tools-collapsed',toolsCollapsed);
-  const toolsBtn=document.getElementById('entryToolsToggleBtn'); if(toolsBtn) toolsBtn.textContent=toolsCollapsed?tUi('showEntryWorkspace'):tUi('hideEntryWorkspace');
+  const toolsBtn=document.getElementById('entryToolsToggleBtn'); if(toolsBtn) toolsBtn.textContent=toolsCollapsed?'Show Tools ▼':'Hide Tools ▲';
 }
 function toggleEntryBoardCompact(){userSetItem('v2d_ui_entry_board_collapsed',userGetItem('v2d_ui_entry_board_collapsed')==='1'?'0':'1');applyEntryWorkspaceUiState();}
 function toggleEntryTools(){userSetItem('v2d_ui_entry_tools_collapsed',userGetItem('v2d_ui_entry_tools_collapsed')==='1'?'0':'1');applyEntryWorkspaceUiState();}
@@ -4500,11 +4389,7 @@ const I18N={
     boardNote:'Laptop screen အတွက် Board ကို အပေါ်ဆုံးမှာ သေသပ်ကျယ်ပြန့်စွာထားထားသည်။ Amount ကို Unit ဖြင့်ပြသည်။',
     refresh:'ပြန်ဖော်ပြ',date:'ရက်စွဲ',session:'Session',name:'အမည် / ကော်မရှင်',limitAmount:'Limit Amount',
     total:'စုစုပေါင်း',overTotal:'Over စုစုပေါင်း',overCount:'Over အရေအတွက်',recordRows:'Rows',
-    entryTitle:'စာကူးထည့်ရန်',parsePreview:'စစ်ဆေးကြည့်ရန်',confirmSave:'အတည်ပြုသိမ်းရန်',clearText:'စာသားရှင်းရန်',
-    entryFocusEyebrow:'လျင်မြန်သော စာရင်းသွင်းစနစ်',entryFocusTitle:'Copy / Paste နှင့် Preview ကို အဓိကထားသော စာရင်းသွင်းအလုပ်ခွင်',entryFocusHint:'စာထည့်၊ စစ်ဆေး၊ လိုအပ်သည့်နေရာပြင်ပြီး တစ်ကြိမ်တည်း အတည်ပြုသိမ်းနိုင်သည်။',
-    stepPaste:'စာကူးထည့်ရန်',stepPreview:'ရလဒ်စစ်ရန်',stepReviewSave:'ပြင်ဆင်ပြီးသိမ်းရန်',goCopyPaste:'စာကူးထည့်ရန် ↓',showAdvanced:'အပိုအလုပ်ခွင်များဖွင့်ရန်',hideAdvanced:'အပိုအလုပ်ခွင်များပိတ်ရန်',
-    copyPasteWorkspace:'Copy / Paste စာရင်းသွင်းအလုပ်ခွင်',copyPasteWorkspaceHint:'Entry နှင့် Preview ကို အဓိကထားပြီး အပိုအလုပ်ခွင်များကို လိုအပ်မှဖွင့်နိုင်သည်။',showEntryWorkspace:'စာထည့်အလုပ်ခွင်ဖွင့်ရန်',hideEntryWorkspace:'စာထည့်အလုပ်ခွင်ပိတ်ရန်',
-    writerLabel:'လက်ရေးပိုင်ရှင်',entryPastePlaceholder:'Viber Message သို့မဟုတ် စာရင်းကို ဤနေရာတွင် Copy / Paste လုပ်ပါ…',fixLinesTitle:'မဖတ်နိုင်သောစာများကို တစ်စုတည်းပြင်ရန်',fixLinesHint:'ပြင်ရန်ရှိသောစာအားလုံးကို တစ်ခုချင်းပြင်ပြီး နောက်ဆုံးတွင် တစ်ကြိမ်တည်း အသုံးချ၍ ပြန်ဖတ်နိုင်သည်။',issueBatchProgressLabel:' ပြင်ဆင်ချက်',applyAllReparse:'ပြင်ဆင်ချက်အားလုံး အသုံးချပြီး ပြန်ဖတ်မည်',
+    entryTitle:'စာရင်းထည့်ရန်',parsePreview:'စစ်ကြည့်မည်',confirmSave:'အတည်ပြုသိမ်းမည်',clearText:'စာသားရှင်းမည်',
     parserSafety:'Parser လုံခြုံရေးစစ်ဆေးမှု',fixIssues:'Issue များပြင်မည်',saveReviewed:'စစ်ပြီး Rows သိမ်းမည်',reportParserIssue:'Parser မှားယွင်းမှု Report',cancel:'မလုပ်တော့',safetyHelp:'Parser မဖတ်နိုင်/မသေချာသောစာရှိပါက အရင်ပြင်ပါ။ User က စစ်ပြီးမှ စစ်ပြီး Rows သိမ်းမည် ဖြင့် ဆက်သိမ်းနိုင်သည်။',
     parserReportTitle:'Parser မှားယွင်းမှု Report',parserReportHint:'မဖတ်နိုင်/Issue ဖြစ်သော Viber Card များနှင့် သက်ဆိုင်ရာ Parser Output ကိုသာ အလိုအလျောက်ပြထားသည်။ Correct Result နှင့် Note ကို ဖြည့်ပြီး App Owner ထံ ပို့ပါ။',originalMessage:'မူရင်း Viber Message',currentParserOutput:'လက်ရှိ Parser Output',expectedCorrectRecords:'အမှန်ဖြစ်ရမည့် Records',reportNote:'မှတ်ချက်',sendToOwner:'App Owner ထံပို့မည်',close:'ပိတ်မည်',
     previewRows:'Preview Rows',previewTotal:'Preview စုစုပေါင်း',warnings:'သတိပေးချက်',aggByNumber:'Number အလိုက်ပေါင်း',
@@ -4520,11 +4405,7 @@ const I18N={
     boardNote:'A clean wide board is placed first for laptop screens. Amounts are displayed in unit format.',
     refresh:'Refresh',date:'Date',session:'Session',name:'Name / Commission',limitAmount:'Limit Amount',
     total:'Total',overTotal:'Over Total',overCount:'Over Count',recordRows:'Rows',entryTitle:'Entry',
-    parsePreview:'Parse & Preview',confirmSave:'Confirm & Save',clearText:'Clear Text',
-    entryFocusEyebrow:'FAST ENTRY WORKFLOW',entryFocusTitle:'Copy / Paste and Preview focused entry workspace',entryFocusHint:'Paste, preview, correct every issue, then confirm and save in one clear workflow.',
-    stepPaste:'Paste Data',stepPreview:'Review Preview',stepReviewSave:'Fix & Save',goCopyPaste:'Copy / Paste Entry ↓',showAdvanced:'Open Additional Workspaces',hideAdvanced:'Hide Additional Workspaces',
-    copyPasteWorkspace:'Copy / Paste Entry Workspace',copyPasteWorkspaceHint:'Entry and Preview stay prominent. Open secondary workspaces only when needed.',showEntryWorkspace:'Open Entry Workspace',hideEntryWorkspace:'Hide Entry Workspace',
-    writerLabel:'Writer',entryPastePlaceholder:'Copy / paste a Viber message or entry data here…',fixLinesTitle:'Fix all unreadable lines together',fixLinesHint:'Correct each issue first, then apply every change and reparse once.',issueBatchProgressLabel:' changes',applyAllReparse:'Apply All Changes & Reparse',
+    parsePreview:'Parse Preview',confirmSave:'Confirm Save',clearText:'Clear Text',
     parserSafety:'Parser Safety Check',fixIssues:'Fix Issues',saveReviewed:'Save Reviewed Rows',reportParserIssue:'Report Parser Issue',cancel:'Cancel',safetyHelp:'Fix unread or uncertain text first. After review, the user may explicitly save the reviewed rows.',
     parserReportTitle:'Parser Issue Report',parserReportHint:'Only Viber cards with parser issues and their affected parser output are filled automatically. Add the correct result and a note, then send it to the App Owner.',originalMessage:'Original Viber Message',currentParserOutput:'Current Parser Output',expectedCorrectRecords:'Expected Correct Records',reportNote:'Note',sendToOwner:'Send to App Owner',close:'Close',previewRows:'Preview Rows',previewTotal:'Preview Total',
     warnings:'Warnings',aggByNumber:'Aggregated by Number',previewDetail:'Preview Detail',overLive:'Over',
@@ -4626,8 +4507,7 @@ function translateUiTree(root=document){
   const lang=currentUiLang();
   root.querySelectorAll?.('[data-i18n]').forEach(el=>{const key=el.dataset.i18n; const d=I18N[lang]||I18N.my; if(d[key]) el.textContent=d[key];});
   root.querySelectorAll?.('[data-i18n-option]').forEach(el=>{const key=el.dataset.i18nOption; const d=I18N[lang]||I18N.my; if(d[key]) el.textContent=d[key];});
-  root.querySelectorAll?.('[data-i18n-placeholder]').forEach(el=>{const key=el.dataset.i18nPlaceholder; const d=I18N[lang]||I18N.my; if(d[key]) el.setAttribute('placeholder',d[key]);});
-  root.querySelectorAll?.('input[placeholder],textarea[placeholder]').forEach(el=>{ if(el.dataset.noI18n==='true'||el.dataset.i18nPlaceholder) return; const next=translateLiteralText(el.getAttribute('placeholder')||'',lang); if(next) el.setAttribute('placeholder',next); });
+  root.querySelectorAll?.('input[placeholder],textarea[placeholder]').forEach(el=>{ if(el.dataset.noI18n==='true') return; const next=translateLiteralText(el.getAttribute('placeholder')||'',lang); if(next) el.setAttribute('placeholder',next); });
   const walker=document.createTreeWalker(root===document?document.body:root,NodeFilter.SHOW_TEXT);
   const nodes=[]; while(walker.nextNode()) nodes.push(walker.currentNode);
   nodes.forEach(node=>{ if(shouldSkipUiTranslation(node)) return; const next=translateLiteralText(node.nodeValue,lang); if(next!==node.nodeValue) node.nodeValue=next; });
@@ -5867,7 +5747,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 5.0A.3.1 Entry Focus + Batch Fix',
+    version:'Stage 5.0A.1 Rule History + Rollback + Mobile Report',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

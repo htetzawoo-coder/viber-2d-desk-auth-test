@@ -6,16 +6,56 @@ const USER_STORAGE_PREFIX=`v2d_user_${CURRENT_UID}__`;
 
 function userStorageKey(base){ return USER_STORAGE_PREFIX+base; }
 function userGetItem(base){ return localStorage.getItem(userStorageKey(base)); }
+const LOCAL_RECORD_CACHE_MAX_CHARS = 1000000;
+
 function userSetItem(base,value){
-  // Stage 4.7C: LocalStorage is cache/offline fallback only; a cache failure must never block Cloud save.
+  const text = String(value ?? "");
+
+  // Stage 5.0A.2:
+  // Records အလွန်ကြီးလျှင် localStorage ထဲ မသိမ်းတော့ပါ။
+  // Firestore Cloud + Firestore IndexedDB Cache ကို Main Source အဖြစ်ထားမယ်။
+  const skipLargeRecordCache =
+    base === "v2d_records" &&
+    text.length > LOCAL_RECORD_CACHE_MAX_CHARS;
+
   try{
-    localStorage.setItem(userStorageKey(base),value);
-    window.__V2D_LOCAL_CACHE_DEGRADED=false;
+    if(skipLargeRecordCache){
+      localStorage.removeItem(userStorageKey(base));
+      window.__V2D_RECORD_CACHE_SKIPPED = true;
+
+      console.info(
+        `[V2D] Large localStorage record cache skipped ` +
+        `(${Math.round(text.length / 1024)} KB). ` +
+        `Firestore remains the main source.`
+      );
+    }else{
+      localStorage.setItem(userStorageKey(base),text);
+    }
+    window.__V2D_LOCAL_CACHE_DEGRADED = false;
   }catch(error){
-    window.__V2D_LOCAL_CACHE_DEGRADED=true;
-    console.warn('Local cache write skipped; Cloud remains the main source',base,error);
+    window.__V2D_LOCAL_CACHE_DEGRADED = true;
+
+    // Quota ပြည့်ပြီးသား record cache အဟောင်းရှိလျှင် ဖယ်ရှားမယ်။
+    if(base === "v2d_records"){
+      try{
+        localStorage.removeItem(userStorageKey(base));
+      }catch(_e){}
+    }
+
+    console.warn(
+      "Local cache write skipped; Cloud remains the main source",
+      base,
+      error
+    );
   }
-  if(window.__V2D_CLOUD_SYNC_READY && !window.__V2D_APPLYING_REMOTE && typeof scheduleCloudSync==='function' && isCloudRelevantKey(base)){
+
+  // Local cache ကို skip လုပ်ခဲ့သော်လည်း Cloud Auto Sync ကို မပိတ်ပါ။
+  if(
+    window.__V2D_CLOUD_SYNC_READY &&
+    !window.__V2D_APPLYING_REMOTE &&
+    typeof scheduleCloudSync === "function" &&
+    isCloudRelevantKey(base)
+  ){
     scheduleCloudSync(base);
   }
 }
@@ -598,7 +638,7 @@ function saveRecords(){
 const CLOUD_SYNC_VERSION='4.8C.0';
 const CLOUD_STATE_DOC_ID='state';
 const LEGACY_CLOUD_WORKSPACE_DOC_ID='current_workspace';
-const CLOUD_SYNC_DEBOUNCE_MS=650;
+const CLOUD_SYNC_DEBOUNCE_MS=3000;
 const CLOUD_TRANSACTION_RECORD_LIMIT=350;
 const CLOUD_BATCH_WRITE_LIMIT=400;
 const CLOUD_RELEVANT_STORAGE_KEYS=new Set([
@@ -1265,6 +1305,102 @@ async function fetchStructuredCloud({serverFirst=true}={}){
   }
   try{return await read(null);}catch(_err){return null;}
 }
+async function fetchCloudStateOnly({serverFirst=true}={}){
+  const stateRef=currentCloudStateRef();
+  if(!stateRef) return null;
+
+  const read=async source=>{
+    const snap=source
+      ? await stateRef.get({source})
+      : await stateRef.get();
+
+    if(!snap.exists) return null;
+
+    return {
+      state:snap.data()||{},
+      fromCache:!!snap.metadata?.fromCache
+    };
+  };
+
+  if(serverFirst && navigator.onLine){
+    try{
+      return await read('server');
+    }catch(err){
+      console.warn(
+        'Cloud state-only server read failed; trying Firestore cache',
+        err
+      );
+    }
+  }
+
+  try{
+    return await read(null);
+  }catch(_err){
+    return null;
+  }
+}
+async function fetchStructuredCloudFromIndexedDbCache(remoteState){
+  const recordsRef=currentCloudRecordsRef();
+  if(!recordsRef||!remoteState) return null;
+
+  try{
+    // Firestore IndexedDB cache only: this does not request record documents
+    // from the server and therefore does not consume server document reads.
+    const rowsSnap=await recordsRef.get({source:'cache'});
+    const rows=[];
+    const mirror=new Map();
+    const revisionMirror=new Map();
+
+    rowsSnap.forEach(doc=>{
+      const data=doc.data()||{};
+      const row=appRecordFromCloud(data,doc.id);
+
+      // Stage 5.0A.2.1:
+      // Recalculate the business-data hash from the cached row instead of
+      // trusting an older stored _recordHash metadata value. Older documents
+      // can contain a valid record with a stale metadata hash, which would
+      // otherwise force a full server fallback on every startup.
+      const hash=cloudRecordHash(row);
+
+      rows.push(row);
+      mirror.set(doc.id,hash);
+      revisionMirror.set(doc.id,Number(data._revision||0)||0);
+    });
+
+    const expectedCount=Math.max(0,Number(remoteState.recordCount||0)||0);
+    const expectedManifest=String(remoteState.recordManifestHash||'');
+    const actualManifest=simpleHash(
+      [...mirror.entries()]
+        .map(([id,hash])=>`${id}:${hash}`)
+        .sort()
+        .join('|')
+    );
+
+    // Never trust a partial/stale query cache. Both count and manifest must
+    // exactly match the small server state document before using cached rows.
+    if(rows.length!==expectedCount || !expectedManifest || actualManifest!==expectedManifest){
+      console.info(
+        `[V2D] IndexedDB cache not verified `+
+        `(cached ${rows.length}/${expectedCount} records). Server records fallback required.`
+      );
+      return null;
+    }
+
+    return {
+      state:remoteState,
+      rows,
+      mirror,
+      revisionMirror,
+      fromCache:true
+    };
+  }catch(error){
+    console.info(
+      '[V2D] IndexedDB record cache unavailable. Server records fallback required.',
+      error?.code||error?.message||error
+    );
+    return null;
+  }
+}
 async function findLegacyWorkspace(){
   const direct=legacyWorkspaceRef();
   if(direct){
@@ -1319,8 +1455,33 @@ async function initializeCloudFirstSync(){
   const forceUpload=userGetItem('v2d_force_sync_on_boot')==='1';
   try{await Promise.resolve(window.v2dPersistenceReady);}catch(_e){}
   let structured=null;
-  if(!forceUpload) structured=await fetchStructuredCloud({serverFirst:true});
 
+if(!forceUpload){
+  // Stage 5.0A.2 Step 2C-2:
+  // 1) Read only the small server state document.
+  // 2) Try the Firestore IndexedDB records cache.
+  // 3) Use cached records only when recordCount + recordManifestHash match.
+  // 4) Otherwise fall back to the original safe full server read.
+  const stateOnly=await fetchCloudStateOnly({serverFirst:true});
+  const remoteState=stateOnly?.state||null;
+
+  if(!localPending && remoteState){
+    structured=await fetchStructuredCloudFromIndexedDbCache(remoteState);
+
+    if(structured){
+      console.info(
+        `[V2D] IndexedDB fast startup: verified ${structured.rows.length} records; `+
+        `full Firestore server records read skipped.`
+      );
+    }
+  }
+
+  if(!structured){
+    // Cache missing/stale, local changes pending, or old state schema.
+    // Preserve the original safe Cloud behavior.
+    structured=await fetchStructuredCloud({serverFirst:true});
+  }
+}
   if(structured && localPending){
     // Critical 4.7C rule: never overwrite unsynced local cache on startup.
     const remoteHash=structured.state?.contentHash||'';

@@ -2491,52 +2491,191 @@ function parseMessage(text, defaultName='Default', writerProfile='AUTO'){
 }
 
 let entryImageState={name:'',size:0,source:''};
+const OCR_QUEUE_DB_NAME='v2d_ocr_queue_local_v1';
+const OCR_QUEUE_DB_VERSION=1;
+const OCR_QUEUE_STORE='images';
+let ocrQueueDbPromise=null;
+let ocrQueueItems=[];
+let ocrQueueCurrentId='';
+let ocrQueueFilter='pending';
+let ocrQueueLoaded=false;
+let ocrQueueEditorDirty=false;
+let ocrQueueMainObjectUrl='';
+let ocrQueueListObjectUrls=[];
+const ocrQueueMemoryFallback=new Map();
 
-function handleEntryImage(evt, sourceType){
-  const file=evt && evt.target && evt.target.files && evt.target.files[0];
-  if(!file) return;
-  const img=document.getElementById('entryImgPreview');
-  const empty=document.getElementById('entryImgEmpty');
-  const meta=document.getElementById('entryImgMeta');
-  const reader=new FileReader();
-  entryImageState={name:file.name||'image',size:file.size||0,source:sourceType||'upload'};
-  reader.onload=function(e){
-    img.src=e.target.result;
-    img.style.display='block';
-    empty.style.display='none';
-    meta.textContent=`${entryImageState.name} • ${Math.round((entryImageState.size||0)/1024)} KB • ${entryImageState.source}`;
-    showToast('Image preview ready. OCR text ကို right box ထဲ paste/edit လုပ်ပါ။');
-  };
-  reader.readAsDataURL(file);
-  if(evt.target) evt.target.value='';
+function ocrQueueText(en,my){return currentUiLang()==='en'?en:my;}
+function ocrQueueStatusLabel(status){
+  const labels={pending:['Pending','စောင့်နေ'],needs_fix:['Needs Fix','ပြင်ရန်လို'],ready:['Ready','အဆင်သင့်'],completed:['Completed','ပြီးဆုံး']};
+  const pair=labels[status]||labels.pending; return currentUiLang()==='en'?pair[0]:pair[1];
 }
-
-function clearEntryImage(){
-  const img=document.getElementById('entryImgPreview');
-  const empty=document.getElementById('entryImgEmpty');
-  const meta=document.getElementById('entryImgMeta');
-  if(img){img.src=''; img.style.display='none';}
-  if(empty) empty.style.display='block';
-  if(meta) meta.textContent='No file';
-  entryImageState={name:'',size:0,source:''};
+function openOcrQueueDb(){
+  if(ocrQueueDbPromise) return ocrQueueDbPromise;
+  if(!window.indexedDB){ocrQueueDbPromise=Promise.resolve(null);return ocrQueueDbPromise;}
+  ocrQueueDbPromise=new Promise(resolve=>{
+    try{
+      const req=indexedDB.open(OCR_QUEUE_DB_NAME,OCR_QUEUE_DB_VERSION);
+      req.onupgradeneeded=()=>{
+        const db=req.result;
+        const store=db.objectStoreNames.contains(OCR_QUEUE_STORE)?req.transaction.objectStore(OCR_QUEUE_STORE):db.createObjectStore(OCR_QUEUE_STORE,{keyPath:'id'});
+        if(!store.indexNames.contains('uid')) store.createIndex('uid','uid',{unique:false});
+        if(!store.indexNames.contains('updatedAt')) store.createIndex('updatedAt','updatedAt',{unique:false});
+      };
+      req.onsuccess=()=>resolve(req.result);
+      req.onerror=()=>{console.warn('[V2D OCR] IndexedDB unavailable; using memory queue.',req.error);resolve(null);};
+      req.onblocked=()=>console.warn('[V2D OCR] IndexedDB open is blocked by another tab.');
+    }catch(error){console.warn('[V2D OCR] IndexedDB open failed.',error);resolve(null);}
+  });
+  return ocrQueueDbPromise;
 }
-
-function useOcrTextToEntry(mode){
-  const ocr=(document.getElementById('ocrPreviewText').value||'').trim();
-  if(!ocr){showToast('OCR box ထဲ text မရှိသေးပါ'); return;}
-  const ta=document.getElementById('entryText');
-  if(mode==='append' && (ta.value||'').trim()){
-    ta.value=(ta.value||'').replace(/\s+$/,'')+'\n'+ocr;
-  }else{
-    ta.value=ocr;
+function ocrIdbRequest(req){return new Promise((resolve,reject)=>{req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('IndexedDB request failed'));});}
+async function ocrQueueGetAll(){
+  const db=await openOcrQueueDb();
+  if(!db) return [...ocrQueueMemoryFallback.values()].filter(x=>x.uid===CURRENT_UID);
+  const tx=db.transaction(OCR_QUEUE_STORE,'readonly');
+  const store=tx.objectStore(OCR_QUEUE_STORE);
+  try{
+    const rows=store.indexNames.contains('uid')?await ocrIdbRequest(store.index('uid').getAll(CURRENT_UID)):await ocrIdbRequest(store.getAll());
+    return (rows||[]).filter(x=>x&&x.uid===CURRENT_UID);
+  }catch(error){console.warn('[V2D OCR] Queue read failed.',error);return [];}
+}
+async function ocrQueuePut(item){
+  const clean={...item,uid:CURRENT_UID,updatedAt:Date.now()};
+  const db=await openOcrQueueDb();
+  if(!db){ocrQueueMemoryFallback.set(clean.id,clean);return clean;}
+  const tx=db.transaction(OCR_QUEUE_STORE,'readwrite');
+  await ocrIdbRequest(tx.objectStore(OCR_QUEUE_STORE).put(clean));
+  return clean;
+}
+async function ocrQueueDelete(id){
+  const db=await openOcrQueueDb();
+  if(!db){ocrQueueMemoryFallback.delete(id);return;}
+  const tx=db.transaction(OCR_QUEUE_STORE,'readwrite');
+  await ocrIdbRequest(tx.objectStore(OCR_QUEUE_STORE).delete(id));
+}
+function currentOcrQueueItem(){return ocrQueueItems.find(x=>x.id===ocrQueueCurrentId)||null;}
+function visibleOcrQueueItems(){
+  const rows=[...ocrQueueItems].sort((a,b)=>Number(a.createdAt||0)-Number(b.createdAt||0));
+  return ocrQueueFilter==='all'?rows:rows.filter(x=>(x.status||'pending')===ocrQueueFilter);
+}
+function revokeOcrQueueUrls(){
+  if(ocrQueueMainObjectUrl){URL.revokeObjectURL(ocrQueueMainObjectUrl);ocrQueueMainObjectUrl='';}
+  ocrQueueListObjectUrls.forEach(url=>URL.revokeObjectURL(url));ocrQueueListObjectUrls=[];
+}
+function refreshOcrQueueNameSelects(){
+  const options=nameOptions(false);
+  ['ocrBatchName','ocrItemName'].forEach(id=>{const el=document.getElementById(id);if(!el)return;const old=el.value;el.innerHTML=options;if(old&&[...el.options].some(o=>o.value===old))el.value=old;});
+}
+function syncOcrBatchDefaultsFromEntry(force=false){
+  refreshOcrQueueNameSelects();
+  const name=document.getElementById('ocrBatchName'); const date=document.getElementById('ocrBatchDate'); const session=document.getElementById('ocrBatchSession');
+  if(name&&(force||!name.value)) name.value=val('entryName')||settings.names?.[0]||'Default';
+  if(date&&(force||!date.value)) date.value=val('entryDate')||today();
+  if(session&&(force||!session.value)) session.value=(val('entrySession')==='PM'?'PM':'AM');
+}
+async function initializeOcrQueue(){
+  syncOcrBatchDefaultsFromEntry();
+  ocrQueueItems=await ocrQueueGetAll();
+  ocrQueueLoaded=true;
+  if(!ocrQueueCurrentId&&ocrQueueItems.length) ocrQueueCurrentId=(ocrQueueItems.find(x=>(x.status||'pending')==='pending')||ocrQueueItems[0]).id;
+  renderOcrQueue();
+}
+function makeOcrQueueId(){return `${CURRENT_UID||'user'}-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;}
+async function handleEntryImage(evt,sourceType){
+  const files=[...(evt?.target?.files||[])].filter(file=>String(file.type||'').startsWith('image/'));
+  if(evt?.target) evt.target.value='';
+  if(!files.length){showToast(ocrQueueText('No image file was selected.','ပုံဖိုင် မရွေးရသေးပါ'));return;}
+  syncOcrBatchDefaultsFromEntry();
+  const defaults={name:val('ocrBatchName')||val('entryName')||'Default',date:val('ocrBatchDate')||val('entryDate')||today(),session:val('ocrBatchSession')||'AM'};
+  const added=[];
+  for(const file of files){
+    const item={id:makeOcrQueueId(),uid:CURRENT_UID,fileName:file.name||`image-${Date.now()}.jpg`,fileType:file.type||'image/jpeg',fileSize:Number(file.size||0),blob:file,source:sourceType||'upload',name:defaults.name,date:defaults.date,session:defaults.session,status:'pending',ocrText:'',createdAt:Date.now()+added.length,updatedAt:Date.now()};
+    try{await ocrQueuePut(item);ocrQueueItems.push(item);added.push(item);}catch(error){console.error('[V2D OCR] Image queue save failed',error);showToast(ocrQueueText('One image could not be saved locally.','ပုံတစ်ပုံကို Local မှာမသိမ်းနိုင်ပါ'),'error',5000);}
   }
-  showToast('OCR text ကို Entry box ထဲ ထည့်ပြီးပါပြီ');
+  if(added.length){ocrQueueFilter='pending';ocrQueueCurrentId=added[0].id;openOcrQueueWorkspace();renderOcrQueue();showToast(ocrQueueText(`${added.length} image(s) added to the local OCR queue.`,`${added.length} ပုံကို Local OCR စောင့်စာရင်းထဲ ထည့်ပြီးပါပြီ`),'success',4200);}
 }
-
+function clearEntryImage(){
+  ocrQueueCurrentId='';
+  renderOcrQueue();
+}
+function markOcrEditorDirty(){
+  ocrQueueEditorDirty=true;
+  const box=document.getElementById('ocrEditorSaveState');if(box){box.classList.add('dirty');box.textContent=ocrQueueText('Unsaved changes','မသိမ်းရသေးသော ပြင်ဆင်ချက်ရှိသည်');}
+}
+async function saveCurrentOcrQueueEdits(options={}){
+  const item=currentOcrQueueItem();
+  if(!item){if(!options.silent)showToast(ocrQueueText('Select an image first.','အရင်ဆုံး ပုံတစ်ပုံရွေးပါ'));return null;}
+  item.name=val('ocrItemName')||item.name||'Default';item.date=val('ocrItemDate')||item.date||today();item.session=val('ocrItemSession')||item.session||'AM';item.ocrText=document.getElementById('ocrPreviewText')?.value||'';
+  try{await ocrQueuePut(item);ocrQueueEditorDirty=false;const box=document.getElementById('ocrEditorSaveState');if(box){box.classList.remove('dirty');box.textContent=ocrQueueText('Changes saved','ပြင်ဆင်ချက်သိမ်းပြီး');}renderOcrQueue({keepEditor:true});if(!options.silent)showToast(ocrQueueText('Manual OCR corrections saved locally.','OCR စာပြင်ဆင်ချက်ကို Local မှာသိမ်းပြီးပါပြီ'),'success');return item;}catch(error){console.error(error);if(!options.silent)showToast(ocrQueueText('Could not save the correction.','စာပြင်ဆင်ချက် မသိမ်းနိုင်ပါ'),'error');return null;}
+}
+async function selectOcrQueueItem(id){
+  if(ocrQueueEditorDirty) await saveCurrentOcrQueueEdits({silent:true});
+  ocrQueueCurrentId=String(id||'');ocrQueueEditorDirty=false;renderOcrQueue();
+}
+async function navigateOcrQueue(delta){
+  if(ocrQueueEditorDirty) await saveCurrentOcrQueueEdits({silent:true});
+  const rows=visibleOcrQueueItems();if(!rows.length)return;
+  let idx=rows.findIndex(x=>x.id===ocrQueueCurrentId);if(idx<0)idx=0;const next=Math.max(0,Math.min(rows.length-1,idx+Number(delta||0)));ocrQueueCurrentId=rows[next].id;ocrQueueEditorDirty=false;renderOcrQueue();
+}
+async function setOcrQueueFilter(filter){
+  if(ocrQueueEditorDirty) await saveCurrentOcrQueueEdits({silent:true});
+  ocrQueueFilter=['pending','needs_fix','ready','completed','all'].includes(filter)?filter:'pending';
+  const rows=visibleOcrQueueItems();if(!rows.some(x=>x.id===ocrQueueCurrentId))ocrQueueCurrentId=rows[0]?.id||'';renderOcrQueue();
+}
+async function setCurrentOcrStatus(status){
+  const item=await saveCurrentOcrQueueEdits({silent:true});if(!item)return;
+  item.status=['pending','needs_fix','ready','completed'].includes(status)?status:'pending';await ocrQueuePut(item);
+  if(status==='completed'&&ocrQueueFilter!=='completed'&&ocrQueueFilter!=='all'){
+    const next=visibleOcrQueueItems().find(x=>x.id!==item.id);ocrQueueCurrentId=next?.id||'';
+  }
+  renderOcrQueue();showToast(status==='completed'?ocrQueueText('Image moved to Completed Archive.','ပုံကို Completed Archive သို့ရွှေ့ပြီးပါပြီ'):ocrQueueText(`Status changed to ${ocrQueueStatusLabel(status)}.`,`${ocrQueueStatusLabel(status)} အဖြစ်ပြောင်းပြီးပါပြီ`),'success');
+}
+async function deleteCurrentOcrQueueImage(){
+  const item=currentOcrQueueItem();if(!item){showToast(ocrQueueText('Select an image first.','အရင်ဆုံး ပုံတစ်ပုံရွေးပါ'));return;}
+  if(!confirm(ocrQueueText('Permanently delete this local image and its OCR text?','ဒီ Local ပုံနှင့် OCR စာကို အပြီးဖျက်မလား?')))return;
+  await ocrQueueDelete(item.id);ocrQueueItems=ocrQueueItems.filter(x=>x.id!==item.id);ocrQueueCurrentId=visibleOcrQueueItems()[0]?.id||ocrQueueItems[0]?.id||'';ocrQueueEditorDirty=false;renderOcrQueue();showToast(ocrQueueText('Image permanently deleted from the local queue.','Local စောင့်စာရင်းမှ ပုံကို အပြီးဖျက်ပြီးပါပြီ'));
+}
+async function useOcrQueueTextToEntry(mode){
+  await saveCurrentOcrQueueEdits({silent:true});useOcrTextToEntry(mode);
+  const ta=document.getElementById('entryText');if(ta)ta.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function useOcrTextToEntry(mode){
+  const ocr=(document.getElementById('ocrPreviewText')?.value||'').trim();
+  if(!ocr){showToast(ocrQueueText('There is no text in the OCR box yet.','OCR Box ထဲမှာ စာမရှိသေးပါ'));return;}
+  const ta=document.getElementById('entryText');
+  if(mode==='append'&&(ta.value||'').trim())ta.value=(ta.value||'').replace(/\s+$/,'')+'\n'+ocr;else ta.value=ocr;
+  showToast(ocrQueueText('OCR text was added to the Entry box.','OCR စာကို Entry Box ထဲထည့်ပြီးပါပြီ'),'success');
+}
+function renderOcrQueue(options={}){
+  if(!ocrQueueLoaded&&document.getElementById('ocrQueueList')){document.getElementById('ocrStorageStatus').textContent=ocrQueueText('Opening local queue…','Local Queue ဖွင့်နေသည်…');}
+  revokeOcrQueueUrls();refreshOcrQueueNameSelects();
+  const counts={pending:0,needs_fix:0,ready:0,completed:0};ocrQueueItems.forEach(x=>counts[x.status||'pending']=(counts[x.status||'pending']||0)+1);
+  setText('ocrQueueCount',ocrQueueItems.length);setText('ocrQueuePendingCount',counts.pending);setText('ocrQueueNeedsFixCount',counts.needs_fix);setText('ocrQueueReadyCount',counts.ready);setText('ocrQueueCompletedCount',counts.completed);
+  const cap=s=>s.replace('_','');['pending','needs_fix','ready','completed','all'].forEach(status=>document.getElementById(`ocrFilter${status==='needs_fix'?'NeedsFix':status.charAt(0).toUpperCase()+status.slice(1)}`)?.classList.toggle('active',ocrQueueFilter===status));
+  const rows=visibleOcrQueueItems();
+  if(!rows.some(x=>x.id===ocrQueueCurrentId))ocrQueueCurrentId=rows[0]?.id||'';
+  const list=document.getElementById('ocrQueueList');
+  if(list){
+    if(!rows.length)list.innerHTML=`<div class="ocrQueueEmpty">${escapeHtml(ocrQueueText('No images in this section.','ဤအပိုင်းတွင် ပုံမရှိသေးပါ'))}</div>`;
+    else list.innerHTML=rows.map((item,index)=>{let url='';try{url=URL.createObjectURL(item.blob);ocrQueueListObjectUrls.push(url);}catch(e){}const folder=`${item.name||'Default'} / ${item.date||'-'} / ${item.session||'-'}`;return `<button type="button" class="ocrQueueItem ${item.id===ocrQueueCurrentId?'selected':''}" onclick="selectOcrQueueItem('${jsArg(item.id)}')"><span class="ocrThumb">${url?`<img src="${url}" alt="">`:'IMG'}</span><span class="ocrQueueItemText"><b>${escapeHtml(item.fileName||`Image ${index+1}`)}</b><small>${escapeHtml(folder)}</small><em class="ocrStatus ${escapeHtml(item.status||'pending')}">${escapeHtml(ocrQueueStatusLabel(item.status||'pending'))}</em></span></button>`;}).join('');
+  }
+  const item=currentOcrQueueItem();const img=document.getElementById('entryImgPreview');const empty=document.getElementById('entryImgEmpty');const meta=document.getElementById('entryImgMeta');
+  if(item){
+    try{ocrQueueMainObjectUrl=URL.createObjectURL(item.blob);if(img){img.src=ocrQueueMainObjectUrl;img.style.display='block';}if(empty)empty.style.display='none';}catch(error){if(img)img.style.display='none';if(empty)empty.style.display='grid';}
+    if(meta)meta.textContent=`${item.fileName} • ${Math.round(Number(item.fileSize||0)/1024)} KB • ${ocrQueueStatusLabel(item.status||'pending')}`;
+    if(!options.keepEditor){setVal('ocrItemName',item.name||'Default');setVal('ocrItemDate',item.date||today());setVal('ocrItemSession',item.session||'AM');const ta=document.getElementById('ocrPreviewText');if(ta)ta.value=item.ocrText||'';ocrQueueEditorDirty=false;const state=document.getElementById('ocrEditorSaveState');if(state){state.classList.remove('dirty');state.textContent=ocrQueueText('Changes saved','ပြင်ဆင်ချက်သိမ်းပြီး');}}
+    setText('ocrFolderPath',`${item.name||'Default'} / ${item.date||'-'} / ${item.session||'-'} / ${ocrQueueStatusLabel(item.status||'pending')}`);
+    const pos=rows.findIndex(x=>x.id===item.id);setText('ocrQueuePosition',`${pos>=0?pos+1:0} / ${rows.length}`);
+  }else{
+    if(img){img.src='';img.style.display='none';}if(empty){empty.style.display='grid';empty.textContent=ocrQueueText('Select an image from the queue.','စောင့်စာရင်းမှ ပုံတစ်ပုံရွေးပါ');}if(meta)meta.textContent=ocrQueueText('No file','ပုံမရွေးရသေး');setText('ocrQueuePosition',`0 / ${rows.length}`);setText('ocrFolderPath','Name / Date / Session');if(!options.keepEditor){const ta=document.getElementById('ocrPreviewText');if(ta)ta.value='';}
+  }
+  const storage=document.getElementById('ocrStorageStatus');if(storage)storage.textContent=window.indexedDB?ocrQueueText('Local IndexedDB · No Firestore quota','Local IndexedDB · Firestore quota မသုံး') : ocrQueueText('Memory only','Memory သာ');
+}
+function openOcrQueueWorkspace(){
+  const box=document.getElementById('imgToolBox');if(!box)return;box.classList.add('compact-open');syncOcrBatchDefaultsFromEntry();if(!ocrQueueLoaded)initializeOcrQueue();box.scrollIntoView({behavior:'smooth',block:'start'});
+}
 function toggleImageTools(){
-  const box=document.getElementById('imgToolBox');
-  if(!box) return;
-  box.classList.toggle('compact-open');
+  const box=document.getElementById('imgToolBox');if(!box)return;box.classList.toggle('compact-open');if(box.classList.contains('compact-open')){syncOcrBatchDefaultsFromEntry();if(!ocrQueueLoaded)initializeOcrQueue();setTimeout(()=>box.scrollIntoView({behavior:'smooth',block:'start'}),80);}
 }
 
 const PARSER_REPORT_QUEUE_KEY='v2d_parser_report_queue';
@@ -4509,7 +4648,7 @@ const I18N={
     parserReportTitle:'Parser မှားယွင်းမှု Report',parserReportHint:'မဖတ်နိုင်/Issue ဖြစ်သော Viber Card များနှင့် သက်ဆိုင်ရာ Parser Output ကိုသာ အလိုအလျောက်ပြထားသည်။ Correct Result နှင့် Note ကို ဖြည့်ပြီး App Owner ထံ ပို့ပါ။',originalMessage:'မူရင်း Viber Message',currentParserOutput:'လက်ရှိ Parser Output',expectedCorrectRecords:'အမှန်ဖြစ်ရမည့် Records',reportNote:'မှတ်ချက်',sendToOwner:'App Owner ထံပို့မည်',close:'ပိတ်မည်',
     previewRows:'Preview Rows',previewTotal:'Preview စုစုပေါင်း',warnings:'သတိပေးချက်',aggByNumber:'Number အလိုက်ပေါင်း',
     previewDetail:'Preview အသေးစိတ်',overLive:'Over / ကျော်စာရင်း',overNote:'အပေါ်က ရက်စွဲ / Session / Name အတိုင်း Over တွက်ထားသည်။',
-    uploadImage:'ပုံတင်မည်',cameraBtn:'ကင်မရာ',clearImage:'ပုံရှင်းမည်',
+    uploadImage:'ပုံတင်မည်',uploadImages:'ပုံများတင်မည်',cameraBtn:'ကင်မရာ',clearImage:'ပုံရှင်းမည်',ocrQueueTitle:'ပုံအများအပြား OCR စစ်ဆေးအလုပ်ခွင်',ocrQueueHint:'ပုံများကို တစ်ကြိမ်တည်းတင်ပြီး တစ်ပုံချင်းစစ်၊ စာပြင်၊ Entry ထဲသို့ထည့်ပြီး Completed Archive သို့ရွှေ့နိုင်သည်။ ပုံများကို Browser IndexedDB ထဲတွင်သာ ယာယီသိမ်းသောကြောင့် Firestore quota မသုံးပါ။',toggleOcrTools:'OCR အလုပ်ခွင် ဖွင့်/ပိတ်',batchName:'ပုံအုပ်စု အမည်',batchDate:'ပုံအုပ်စု ရက်စွဲ',batchSession:'ပုံအုပ်စု Session',pending:'စောင့်နေ',needsFix:'ပြင်ရန်လို',ready:'အဆင်သင့်',completed:'ပြီးဆုံး',allImages:'ပုံအားလုံး',imageQueue:'ပုံစောင့်စာရင်း',noQueuedImages:'ပုံမရှိသေးပါ',noImageSelected:'စစ်ဆေးရန်ပုံ မရွေးရသေးပါ',previousImage:'← ယခင်ပုံ',nextImage:'နောက်ပုံ →',ocrPreviewManualFix:'OCR Preview / ကိုယ်တိုင်စာပြင်ရန်',changesSaved:'ပြင်ဆင်ချက်သိမ်းပြီး',saveManualFix:'စာပြင်ဆင်ချက်သိမ်းမည်',replaceEntry:'Entry ကို အစားထိုးမည်',appendEntry:'Entry အောက်တွင်ဆက်ထည့်မည်',markNeedsFix:'ပြင်ရန်လိုအဖြစ်မှတ်မည်',markReady:'အဆင်သင့်အဖြစ်မှတ်မည်',markCompleted:'ပြီးဆုံး Archive သို့ရွှေ့မည်',deleteImage:'ပုံကိုအပြီးဖျက်မည်',openOcrQueue:'OCR စောင့်စာရင်းဖွင့်မည်',
     cloudLoading:'Cloud ဖွင့်နေသည်…',saving:'သိမ်းနေသည်…',cloudSynced:'Cloud သိမ်းပြီး',offlineWaiting:'Offline — စောင့်ဆိုင်းနေသည်',
     syncConflict:'Sync ပဋိပက္ခ',syncError:'Sync အမှား',last:'နောက်ဆုံး',autoSyncWhenOnline:'Internet ပြန်ရလျှင် Auto Sync',
     newerDataOtherDevice:'တခြားစက်မှာ Data အသစ်ရှိသည်',checkingAccountData:'Account data စစ်နေသည်'
@@ -4528,7 +4667,7 @@ const I18N={
     parserSafety:'Parser Safety Check',fixIssues:'Fix Issues',saveReviewed:'Save Reviewed Rows',reportParserIssue:'Report Parser Issue',cancel:'Cancel',safetyHelp:'Fix unread or uncertain text first. After review, the user may explicitly save the reviewed rows.',
     parserReportTitle:'Parser Issue Report',parserReportHint:'Only Viber cards with parser issues and their affected parser output are filled automatically. Add the correct result and a note, then send it to the App Owner.',originalMessage:'Original Viber Message',currentParserOutput:'Current Parser Output',expectedCorrectRecords:'Expected Correct Records',reportNote:'Note',sendToOwner:'Send to App Owner',close:'Close',previewRows:'Preview Rows',previewTotal:'Preview Total',
     warnings:'Warnings',aggByNumber:'Aggregated by Number',previewDetail:'Preview Detail',overLive:'Over',
-    overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',cameraBtn:'Camera',clearImage:'Clear Image',
+    overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',uploadImages:'Upload Images',cameraBtn:'Camera',clearImage:'Clear Image',ocrQueueTitle:'Multi-Image OCR Review Workspace',ocrQueueHint:'Upload multiple images once, review each image, correct its text, send it to Entry, and move completed work to the local archive. Images stay in browser IndexedDB, so this queue does not use Firestore quota.',toggleOcrTools:'Open / Close OCR Workspace',batchName:'Batch Name',batchDate:'Batch Date',batchSession:'Batch Session',pending:'Pending',needsFix:'Needs Fix',ready:'Ready',completed:'Completed',allImages:'All Images',imageQueue:'Image Queue',noQueuedImages:'No queued images',noImageSelected:'No image selected for review',previousImage:'← Previous Image',nextImage:'Next Image →',ocrPreviewManualFix:'OCR Preview / Manual Fix',changesSaved:'Changes saved',saveManualFix:'Save Manual Fix',replaceEntry:'Replace Entry',appendEntry:'Append to Entry',markNeedsFix:'Mark Needs Fix',markReady:'Mark Ready',markCompleted:'Move to Completed Archive',deleteImage:'Permanently Delete Image',openOcrQueue:'Open OCR Queue',
     cloudLoading:'Opening Cloud…',saving:'Saving…',cloudSynced:'Cloud Synced',offlineWaiting:'Offline — Waiting to sync',
     syncConflict:'Sync Conflict',syncError:'Sync Error',last:'Last',autoSyncWhenOnline:'Auto sync when internet returns',
     newerDataOtherDevice:'Newer data exists on another device',checkingAccountData:'Checking account data'
@@ -5670,7 +5809,7 @@ function startOwnerParserControlCenter(){
 async function ownerRefreshControlCenter(){ if(!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;} startOwnerParserControlCenter(); await loadActiveParserRulesOnce(); }
 
 
-function renderAll(){renderDashboard();renderPreview();renderEntryLive();renderLimit();renderOver();renderReports();renderImageText();renderEntryRecords();renderAuditTrail();renderDiagnostics();if(IS_APP_OWNER){renderOwnerParserReports();renderOwnerParserRules();renderOwnerDashboardOverview();} if(!window.__V2D_TRANSLATING_UI){window.__V2D_TRANSLATING_UI=true;try{translateUiTree(document);}finally{window.__V2D_TRANSLATING_UI=false;}}}
+function renderAll(){renderDashboard();renderPreview();renderEntryLive();renderLimit();renderOver();renderReports();renderImageText();renderEntryRecords();renderAuditTrail();renderDiagnostics();renderOcrQueue();if(IS_APP_OWNER){renderOwnerParserReports();renderOwnerParserRules();renderOwnerDashboardOverview();} if(!window.__V2D_TRANSLATING_UI){window.__V2D_TRANSLATING_UI=true;try{translateUiTree(document);}finally{window.__V2D_TRANSLATING_UI=false;}}}
 function setText(id,v){const el=document.getElementById(id); if(el) el.textContent=v;}
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function go(id){
@@ -5976,7 +6115,7 @@ function nameOptions(includeAll=false){
   return (includeAll?['ALL',...names]:names).map(n=>`<option value="${escapeHtml(n)}">${n==='ALL'?'All Names':escapeHtml(n)}</option>`).join('');
 }
 function refreshNameSelects(){
-  ['entryName','entryBoardName'].forEach(id=>{const el=document.getElementById(id); if(el){const old=el.value; el.innerHTML=nameOptions(false); if(old) el.value=old;}});
+  ['entryName','entryBoardName','ocrBatchName','ocrItemName'].forEach(id=>{const el=document.getElementById(id); if(el){const old=el.value; el.innerHTML=nameOptions(false); if(old&&[...el.options].some(o=>o.value===old)) el.value=old;}});
   ['recordName','limitName','overName','reportName','imageName'].forEach(id=>{const el=document.getElementById(id); if(el){const old=el.value; el.innerHTML=nameOptions(true); if(old) el.value=old;}});
   const box=document.getElementById('nameList'); if(box){box.innerHTML=(settings.names||['Default']).map(n=>`<div class="nameRateRow"><b>${escapeHtml(n)}</b><input type="number" value="${settings.nameRates?.[n]??settings.commissionRate??20}" onchange="setNameRate('${String(n).replace(/'/g,"\'")}', this.value)" title="Cor %"><button class="btn danger small" onclick="removeName('${String(n).replace(/'/g,"\'")}')">Remove</button></div>`).join('');}
 }
@@ -6001,7 +6140,7 @@ function init(){
   if(authEmail) authEmail.textContent=CURRENT_USER.email||'';
   setVal('accountUidDisplay',CURRENT_UID); const ownerStatus=document.getElementById('accountOwnerStatus'); if(ownerStatus) ownerStatus.textContent=IS_APP_OWNER?'App Owner':'User'; const ownerDashTab=document.getElementById('ownerDashboardTab'); if(ownerDashTab) ownerDashTab.style.display=IS_APP_OWNER?'':'none'; const ownerTab=document.getElementById('ownerParserTab'); if(ownerTab) ownerTab.style.display=IS_APP_OWNER?'':'none';
   document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active', t.dataset.id==='dashboard'));
-  ['entryDate','recordDate','limitDate','overDate','reportDate','imageDate'].forEach(id=>setVal(id,today()));
+  ['entryDate','recordDate','limitDate','overDate','reportDate','imageDate','ocrBatchDate'].forEach(id=>setVal(id,today()));
   settings={shopName:(initialRegisteredShopName||'Viber 2D Desk'),commissionRate:20,payoutRate:80,defaultLimit:10000,amClose:'12:00',pmClose:'16:30',names:['Default'],nameRates:{Default:20},lang:'my',...settings}; if(!Array.isArray(settings.names)||!settings.names.length) settings.names=['Default']; if(!settings.nameRates) settings.nameRates={}; settings.names.forEach(n=>{if(settings.nameRates[n]==null) settings.nameRates[n]=settings.commissionRate||20;});
   setVal('shopName',settings.shopName); setVal('commissionRate',settings.commissionRate); setVal('payoutRate',settings.payoutRate); setVal('defaultLimit',settings.defaultLimit); setVal('amClose',settings.amClose); setVal('pmClose',settings.pmClose); syncLimitInputs();
   setVal('settingsPDate', today()); setVal('settingsPSession', 'AM'); loadSettingsPNumber(); loadManualDealerInputs();
@@ -6014,6 +6153,7 @@ function init(){
   renderMiniTopInfo();
   renderAll();
   renderDiagnostics();
+  initializeOcrQueue().catch(error=>{console.warn('[V2D OCR] Queue startup failed.',error);renderOcrQueue();});
 }
 async function bootstrapCloudFirstApp(){
   await initializeCloudFirstSync();

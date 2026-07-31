@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 5.0A.3.2 Entry Focus UI</title>
+  <title>Viber 2D Desk - Stage 5.0A.3.3 Multi-Image OCR Queue</title>
   <meta name="theme-color" content="#0b1f3a" id="themeColorMeta" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -14,8 +14,8 @@
   <link rel="icon" href="icons/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/styles.css?v=5.0A.3.2">
-  <link rel="stylesheet" href="css/stage-5.0A.3.2.css?v=5.0A.3.2">
+  <link rel="stylesheet" href="css/styles.css?v=5.0A.3.3">
+  <link rel="stylesheet" href="css/stage-5.0A.3.3.css?v=5.0A.3.3">
 </head>
 <body>
 
@@ -25,7 +25,7 @@
       <div class="authLogo pwaBrandLogo"><img src="icons/icon-192.png" alt="Viber 2D Desk logo"></div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 5.0A.3.2 · Entry Focus · Batch Fix · Bilingual UI</div>
+        <div class="muted">Stage 5.0A.3.3 · Multi-Image Queue · Manual OCR Review</div>
       </div>
     </div>
 
@@ -101,7 +101,7 @@
     <div class="title">
       <div>
         <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 5.0A.3.2 Entry Focus + Batch Fix + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 5.0A.3.2: Entry Focus · Issue Batch Fix · Duplicate Review · Bilingual UI</div></div>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 5.0A.3.3: Entry Focus · Multi-Image OCR Queue · Local Archive</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -349,44 +349,92 @@
 77=500
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.5.0</span></h3>
-              <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
+            <div class="ocrQueueHead">
+              <div>
+                <div class="workspaceEyebrow">STAGE 5.0A.3.3 · LOCAL OCR WORK QUEUE</div>
+                <h3 data-i18n="ocrQueueTitle">ပုံအများအပြား OCR စစ်ဆေးအလုပ်ခွင်</h3>
+                <div class="muted" data-i18n="ocrQueueHint">ပုံများကို တစ်ကြိမ်တည်းတင်ပြီး တစ်ပုံချင်းစစ်၊ စာပြင်၊ Entry ထဲသို့ထည့်ပြီး Completed Archive သို့ရွှေ့နိုင်သည်။ ပုံများကို Browser IndexedDB ထဲတွင်သာ ယာယီသိမ်းသောကြောင့် Firestore quota မသုံးပါ။</div>
+              </div>
+              <button class="btn gray small" type="button" onclick="toggleImageTools()" data-i18n="toggleOcrTools">OCR အလုပ်ခွင် ဖွင့်/ပိတ်</button>
             </div>
-            <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
-            <input id="entryImageUpload" type="file" accept="image/*" style="display:none" onchange="handleEntryImage(event,'upload')">
+
+            <input id="entryImageUpload" type="file" accept="image/*" multiple style="display:none" onchange="handleEntryImage(event,'upload')">
             <input id="entryImageCamera" type="file" accept="image/*" capture="environment" style="display:none" onchange="handleEntryImage(event,'camera')">
-            <div class="btnrow">
+
+            <div class="btnrow entryPrimaryButtons">
               <button class="btn entryPrimaryAction" onclick="parseInput()" data-i18n="parsePreview">စစ်ဆေးကြည့်ရန်</button>
               <button class="btn secondary entryPrimaryAction" onclick="confirmSaveAction()" data-i18n="confirmSave">အတည်ပြုသိမ်းရန်</button>
               <button class="btn warn small" onclick="openParserIssueReport()" data-i18n="reportParserIssue">Parser မှားယွင်းမှုတင်ပြရန်</button>
               <button class="btn gray small" onclick="document.getElementById('entryText').value=''; clearIssueEditor(); closeEntrySafetyGate(); closeParserIssueReport()" data-i18n="clearText">စာသားရှင်းရန်</button>
             </div>
-            <div class="imgToolGrid" style="margin-top:10px">
-              <div>
-                <div class="imgPreviewPane" id="entryImgPane">
-                  <div class="imgPreviewEmpty" id="entryImgEmpty">No image selected yet.<br>ပုံရွေးပြီး preview ကြည့်ပါ။</div>
-                  <img id="entryImgPreview" alt="Entry Preview" style="display:none">
+
+            <div class="ocrQueueWorkspace">
+              <div class="ocrBatchSetup">
+                <div><label data-i18n="batchName">ပုံအုပ်စု အမည်</label><select id="ocrBatchName"></select></div>
+                <div><label data-i18n="batchDate">ပုံအုပ်စု ရက်စွဲ</label><input id="ocrBatchDate" type="date"></div>
+                <div><label data-i18n="batchSession">ပုံအုပ်စု Session</label><select id="ocrBatchSession"><option>AM</option><option>PM</option></select></div>
+                <div class="ocrBatchActions">
+                  <button class="btn secondary" type="button" onclick="document.getElementById('entryImageUpload').click()" data-i18n="uploadImages">ပုံများတင်မည်</button>
+                  <button class="btn warn" type="button" onclick="document.getElementById('entryImageCamera').click()" data-i18n="cameraBtn">ကင်မရာ</button>
                 </div>
-                <div class="imgMeta" id="entryImgMeta">No file</div>
               </div>
-              <div>
-                <label>OCR Text Preview / Manual Fix / စာပြင်ရန်</label>
-                <textarea id="ocrPreviewText" class="ocrBox" placeholder="Stage 3.8.0 မှာ auto OCR မပါသေးပါ။
-ပုံကြည့်ပြီး ဒီ box ထဲ OCR text ကို paste / edit လုပ်ပါ။
-ပြီးရင် အောက်က Use OCR Text → Entry ကိုနှိပ်ပါ။"></textarea>
-                <div class="btnrow">
-                  <button class="btn secondary small" onclick="useOcrTextToEntry('replace')">Use OCR Text → Replace Entry</button>
-                  <button class="btn small" onclick="useOcrTextToEntry('append')">Use OCR Text → Append Entry</button>
-                  <button class="btn gray small" onclick="document.getElementById('ocrPreviewText').value=''">Clear OCR Box</button>
-                </div>
+
+              <div class="ocrQueueStats">
+                <button class="ocrStat active" id="ocrFilterPending" type="button" onclick="setOcrQueueFilter('pending')"><span data-i18n="pending">စောင့်နေ</span><b id="ocrQueuePendingCount">0</b></button>
+                <button class="ocrStat" id="ocrFilterNeedsFix" type="button" onclick="setOcrQueueFilter('needs_fix')"><span data-i18n="needsFix">ပြင်ရန်လို</span><b id="ocrQueueNeedsFixCount">0</b></button>
+                <button class="ocrStat" id="ocrFilterReady" type="button" onclick="setOcrQueueFilter('ready')"><span data-i18n="ready">အဆင်သင့်</span><b id="ocrQueueReadyCount">0</b></button>
+                <button class="ocrStat" id="ocrFilterCompleted" type="button" onclick="setOcrQueueFilter('completed')"><span data-i18n="completed">ပြီးဆုံး</span><b id="ocrQueueCompletedCount">0</b></button>
+                <button class="ocrStat" id="ocrFilterAll" type="button" onclick="setOcrQueueFilter('all')"><span data-i18n="allImages">ပုံအားလုံး</span><b id="ocrQueueCount">0</b></button>
+              </div>
+
+              <div class="ocrQueueLayout">
+                <aside class="ocrQueueListPanel">
+                  <div class="ocrPanelTitle"><b data-i18n="imageQueue">ပုံစောင့်စာရင်း</b><small id="ocrStorageStatus">Local IndexedDB</small></div>
+                  <div id="ocrQueueList" class="ocrQueueList"><div class="ocrQueueEmpty" data-i18n="noQueuedImages">ပုံမရှိသေးပါ</div></div>
+                </aside>
+
+                <section class="ocrImageReviewPanel">
+                  <div class="ocrImageNav">
+                    <button class="btn gray small" type="button" onclick="navigateOcrQueue(-1)" data-i18n="previousImage">← ယခင်ပုံ</button>
+                    <b id="ocrQueuePosition">0 / 0</b>
+                    <button class="btn gray small" type="button" onclick="navigateOcrQueue(1)" data-i18n="nextImage">နောက်ပုံ →</button>
+                  </div>
+                  <div class="imgPreviewPane ocrMainPreview" id="entryImgPane">
+                    <div class="imgPreviewEmpty" id="entryImgEmpty" data-i18n="noImageSelected">စစ်ဆေးရန်ပုံ မရွေးရသေးပါ</div>
+                    <img id="entryImgPreview" alt="Entry Preview" style="display:none">
+                  </div>
+                  <div class="imgMeta" id="entryImgMeta">No file</div>
+                </section>
+
+                <section class="ocrEditorPanel">
+                  <div class="ocrItemMetaGrid">
+                    <div><label data-i18n="name">အမည်</label><select id="ocrItemName" onchange="markOcrEditorDirty()"></select></div>
+                    <div><label data-i18n="date">ရက်စွဲ</label><input id="ocrItemDate" type="date" onchange="markOcrEditorDirty()"></div>
+                    <div><label data-i18n="session">Session</label><select id="ocrItemSession" onchange="markOcrEditorDirty()"><option>AM</option><option>PM</option></select></div>
+                  </div>
+                  <label data-i18n="ocrPreviewManualFix">OCR Preview / ကိုယ်တိုင်စာပြင်ရန်</label>
+                  <textarea id="ocrPreviewText" class="ocrBox" data-no-i18n="true" oninput="markOcrEditorDirty()" placeholder="ပုံမှဖတ်ထားသောစာကို ဒီနေရာတွင် Paste / ပြင်ပါ။"></textarea>
+                  <div id="ocrEditorSaveState" class="ocrEditorSaveState" data-i18n="changesSaved">ပြင်ဆင်ချက်သိမ်းပြီး</div>
+                  <div class="btnrow ocrEditorActions">
+                    <button class="btn secondary small" type="button" onclick="saveCurrentOcrQueueEdits()" data-i18n="saveManualFix">စာပြင်ဆင်ချက်သိမ်းမည်</button>
+                    <button class="btn small" type="button" onclick="useOcrQueueTextToEntry('replace')" data-i18n="replaceEntry">Entry ကို အစားထိုးမည်</button>
+                    <button class="btn small" type="button" onclick="useOcrQueueTextToEntry('append')" data-i18n="appendEntry">Entry အောက်တွင်ဆက်ထည့်မည်</button>
+                  </div>
+                  <div class="btnrow ocrStatusActions">
+                    <button class="btn warn small" type="button" onclick="setCurrentOcrStatus('needs_fix')" data-i18n="markNeedsFix">ပြင်ရန်လိုအဖြစ်မှတ်မည်</button>
+                    <button class="btn secondary small" type="button" onclick="setCurrentOcrStatus('ready')" data-i18n="markReady">အဆင်သင့်အဖြစ်မှတ်မည်</button>
+                    <button class="btn small" type="button" onclick="setCurrentOcrStatus('completed')" data-i18n="markCompleted">ပြီးဆုံး Archive သို့ရွှေ့မည်</button>
+                    <button class="btn danger small" type="button" onclick="deleteCurrentOcrQueueImage()" data-i18n="deleteImage">ပုံကိုအပြီးဖျက်မည်</button>
+                  </div>
+                  <div class="ocrFolderPath" id="ocrFolderPath">Name / Date / Session</div>
+                </section>
               </div>
             </div>
           </div>
           <div class="btnrow imgActionRowSwap">
-            <button class="btn secondary" onclick="document.getElementById('entryImageUpload').click()" data-i18n="uploadImage">Upload Image</button>
-            <button class="btn warn" onclick="document.getElementById('entryImageCamera').click()" data-i18n="cameraBtn">Camera</button>
-            <button class="btn gray" onclick="clearEntryImage()" data-i18n="clearImage">Clear Image</button>
+            <button class="btn secondary" onclick="document.getElementById('entryImageUpload').click()" data-i18n="uploadImages">ပုံများတင်မည်</button>
+            <button class="btn warn" onclick="document.getElementById('entryImageCamera').click()" data-i18n="cameraBtn">ကင်မရာ</button>
+            <button class="btn gray" onclick="openOcrQueueWorkspace()" data-i18n="openOcrQueue">OCR စောင့်စာရင်းဖွင့်မည်</button>
           </div>
           <div id="issueEditorWrap" class="issueBox issueReviewPanel" style="display:none">
             <h3 data-i18n="fixLinesTitle">မဖတ်နိုင်သောစာများကို တစ်စုတည်းပြင်ရန်</h3>

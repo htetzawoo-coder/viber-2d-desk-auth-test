@@ -21,7 +21,7 @@ function applyAuthLanguage(lang){
 function setAuthLanguage(lang){applyAuthLanguage(lang);window.v2dRefreshPwaUi?.();}
 function authMsg(my,en){return authLanguage()==='en'?en:my;}
 
-const AUTH_STAGE_VERSION = "5.0A.3.6";
+const AUTH_STAGE_VERSION = "5.0A.4.0";
 let v2dAppScriptLoaded = false;
 
 function authEl(id){ return document.getElementById(id); }

@@ -635,7 +635,7 @@ function saveRecords(){
   userSetItem('v2d_records',JSON.stringify(records));
 }
 
-const CLOUD_SYNC_VERSION='5.0A.3.6';
+const CLOUD_SYNC_VERSION='5.0A.4.0';
 const CLOUD_STATE_DOC_ID='state';
 const LEGACY_CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=3000;
@@ -981,7 +981,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.3.6 Final Stable + PWA Audit',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.4.0 Adaptive OCR Correction Memory RC',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -2514,6 +2514,137 @@ let ocrCancelRequested=false;
 let ocrProcessingId='';
 let ocrProgressContext={index:0,total:1,fileName:''};
 
+
+// Stage 5.0A.4.0 — Adaptive OCR Correction Memory (local, human-confirmed).
+// This does not retrain Tesseract. It remembers repeated manual corrections and
+// offers conservative suggestions only after the same correction is confirmed 3 times.
+const OCR_MEMORY_STORAGE_KEY='v2d_ocr_correction_memory_v1';
+const OCR_MEMORY_MIN_CONFIRMATIONS=3;
+const OCR_MEMORY_MAX_RULES=500;
+let ocrMemoryManagerOpen=false;
+
+function ocrMemoryStorageKey(){return `${OCR_MEMORY_STORAGE_KEY}_${CURRENT_UID||'guest'}`;}
+function ocrMemoryNormalizeText(value){return String(value||'').replace(/\r\n?/g,'\n').trim();}
+function ocrMemoryHash(value){
+  let h=2166136261;const s=String(value||'');
+  for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}
+  return (h>>>0).toString(36);
+}
+function readOcrCorrectionMemory(){
+  try{
+    const parsed=JSON.parse(localStorage.getItem(ocrMemoryStorageKey())||'[]');
+    return Array.isArray(parsed)?parsed.filter(x=>x&&x.id&&x.from&&x.to).slice(0,OCR_MEMORY_MAX_RULES):[];
+  }catch(error){console.warn('[V2D OCR Memory] Read failed',error);return[];}
+}
+function saveOcrCorrectionMemory(rules){
+  const clean=(Array.isArray(rules)?rules:[]).filter(x=>x&&x.id&&x.from&&x.to).slice(0,OCR_MEMORY_MAX_RULES);
+  try{localStorage.setItem(ocrMemoryStorageKey(),JSON.stringify(clean));return true;}
+  catch(error){console.warn('[V2D OCR Memory] Save failed',error);showToast(ocrQueueText('OCR correction memory could not be saved locally.','OCR ပြင်ဆင်မှု Memory ကို Local မှာ မသိမ်းနိုင်ပါ'),'error',6000);return false;}
+}
+function ocrMemoryWriter(item){return String(item?.ocrWriterProfile||selectedWriterProfile()||'AUTO').toUpperCase();}
+function ocrMemoryRuleKey(from,to,writer,mode){return `${String(writer||'AUTO').toUpperCase()}|${mode||'token'}|${ocrMemoryNormalizeText(from)}|${ocrMemoryNormalizeText(to)}`;}
+function ocrMemoryComparable(value){return ocrMemoryNormalizeText(value).toLowerCase().replace(/[\s.,;:|_\-]+/g,'');}
+function ocrMemorySimilarity(a,b){
+  const x=ocrMemoryComparable(a),y=ocrMemoryComparable(b);if(!x||!y)return 0;if(x===y)return 1;
+  if(x.includes(y)||y.includes(x))return Math.min(x.length,y.length)/Math.max(x.length,y.length);
+  const ax=new Set(x.split('')),by=new Set(y.split(''));let hit=0;by.forEach(ch=>{if(ax.has(ch))hit++;});
+  return hit/Math.max(ax.size,by.size,1);
+}
+function ocrMemoryChangedSegment(rawLine,correctedLine){
+  const a=String(rawLine||''),b=String(correctedLine||'');if(!a||!b||a===b)return null;
+  let p=0;while(p<a.length&&p<b.length&&a[p]===b[p])p++;
+  let s=0;while(s<a.length-p&&s<b.length-p&&a[a.length-1-s]===b[b.length-1-s])s++;
+  const from=a.slice(p,a.length-s).trim(),to=b.slice(p,b.length-s).trim();
+  if(from.length<2||to.length<1||from.length>40||to.length>40)return null;
+  if(!/[0-9A-Za-z\u1000-\u109F]/.test(from)||!/[0-9A-Za-z\u1000-\u109F]/.test(to))return null;
+  return {from,to,mode:'token'};
+}
+function extractOcrMemoryPairs(rawText,correctedText){
+  const raw=ocrMemoryNormalizeText(rawText),fixed=ocrMemoryNormalizeText(correctedText);if(!raw||!fixed||raw===fixed)return[];
+  const a=raw.split('\n').map(x=>x.trim()).filter(Boolean),b=fixed.split('\n').map(x=>x.trim()).filter(Boolean);
+  const aligned=[];
+  if(a.length===b.length){for(let i=0;i<a.length;i++)aligned.push([a[i],b[i]]);}
+  else{
+    const used=new Set();
+    a.forEach((line,i)=>{let best={j:-1,score:0};b.forEach((candidate,j)=>{if(used.has(j))return;const distancePenalty=Math.min(.25,Math.abs(i-j)*.05);const score=ocrMemorySimilarity(line,candidate)-distancePenalty;if(score>best.score)best={j,score};});if(best.j>=0&&best.score>=.28){used.add(best.j);aligned.push([line,b[best.j]]);}});
+  }
+  const pairs=[];const seen=new Set();
+  const add=(pair)=>{if(!pair)return;const from=ocrMemoryNormalizeText(pair.from),to=ocrMemoryNormalizeText(pair.to);if(!from||!to||from===to)return;if(from.length>140||to.length>140)return;const key=`${pair.mode||'token'}|${from}|${to}`;if(seen.has(key))return;seen.add(key);pairs.push({from,to,mode:pair.mode||'token'});};
+  for(const [fromLine,toLine] of aligned){
+    if(!fromLine||!toLine||fromLine===toLine)continue;
+    const segment=ocrMemoryChangedSegment(fromLine,toLine);
+    if(segment)add(segment);else add({from:fromLine,to:toLine,mode:'line'});
+  }
+  if(!pairs.length&&raw.length<=140&&fixed.length<=140)add({from:raw,to:fixed,mode:raw.includes('\n')?'text':'line'});
+  return pairs.slice(0,40);
+}
+function recordOcrCorrectionMemory(item,correctedText,{silent=false}={}){
+  if(!item)return {added:0,updated:0,skipped:true};
+  const raw=ocrMemoryNormalizeText(item.ocrRawText||''),fixed=ocrMemoryNormalizeText(correctedText||item.ocrText||'');
+  if(!raw||!fixed||raw===fixed)return {added:0,updated:0,skipped:true};
+  const writer=ocrMemoryWriter(item);const fingerprint=ocrMemoryHash(`${raw}\u241e${fixed}\u241e${writer}`);
+  if(item.ocrMemoryLearnFingerprint===fingerprint)return {added:0,updated:0,skipped:true,duplicate:true};
+  const pairs=extractOcrMemoryPairs(raw,fixed);if(!pairs.length)return {added:0,updated:0,skipped:true};
+  const rules=readOcrCorrectionMemory();let added=0,updated=0;const now=Date.now();
+  for(const pair of pairs){
+    const key=ocrMemoryRuleKey(pair.from,pair.to,writer,pair.mode);let rule=rules.find(x=>x.key===key);
+    if(rule){rule.confirmations=Number(rule.confirmations||0)+1;rule.updatedAt=now;rule.lastConfirmedAt=now;rule.enabled=rule.enabled!==false;updated++;}
+    else{rule={id:`mem-${now}-${Math.random().toString(36).slice(2,8)}`,key,from:pair.from,to:pair.to,mode:pair.mode,writer,confirmations:1,appliedCount:0,rejectedCount:0,enabled:true,createdAt:now,updatedAt:now,lastConfirmedAt:now};rules.unshift(rule);added++;}
+  }
+  rules.sort((x,y)=>Number(y.updatedAt||0)-Number(x.updatedAt||0));saveOcrCorrectionMemory(rules);
+  item.ocrMemoryLearnFingerprint=fingerprint;item.ocrMemoryLearnedAt=now;item.ocrMemoryLearnedPairs=pairs.length;
+  if(!silent)showToast(ocrQueueText(`${pairs.length} correction pattern(s) remembered locally. Suggestions start after 3 confirmations.`,`ပြင်ဆင်မှုပုံစံ ${pairs.length} ခုကို Local Memory ထဲမှတ်ထားပါပြီ။ ၃ ကြိမ်အတည်ပြုပြီးမှ အကြံပြုပါမည်။`),'success',6500);
+  renderOcrMemoryPanel(item);return {added,updated,skipped:false,pairs:pairs.length};
+}
+function ocrMemoryOccurrenceCount(text,rule){
+  const source=String(text||''),from=String(rule?.from||'');if(!source||!from)return 0;
+  if(rule.mode==='line')return source.split('\n').filter(line=>line.trim()===from.trim()).length;
+  if(rule.mode==='text')return source.trim()===from.trim()?1:0;
+  return source.split(from).length-1;
+}
+function eligibleOcrMemorySuggestions(item,text){
+  const writer=ocrMemoryWriter(item),source=String(text||'');const rules=readOcrCorrectionMemory().filter(r=>r.enabled!==false&&Number(r.confirmations||0)>=OCR_MEMORY_MIN_CONFIRMATIONS&&(String(r.writer||'AUTO')===writer||String(r.writer||'AUTO')==='AUTO')&&ocrMemoryOccurrenceCount(source,r)>0);
+  const grouped=new Map();rules.forEach(rule=>{const key=`${rule.mode||'token'}|${rule.from}`;const list=grouped.get(key)||[];list.push(rule);grouped.set(key,list);});
+  const out=[];grouped.forEach(list=>{list.sort((a,b)=>(Number(b.confirmations||0)-Number(b.rejectedCount||0))-(Number(a.confirmations||0)-Number(a.rejectedCount||0)));const top=list[0],second=list[1];const topScore=Number(top.confirmations||0)-Number(top.rejectedCount||0),secondScore=second?Number(second.confirmations||0)-Number(second.rejectedCount||0):-999;if(topScore<OCR_MEMORY_MIN_CONFIRMATIONS||topScore<=secondScore)return;out.push({...top,occurrences:ocrMemoryOccurrenceCount(source,top),score:topScore});});
+  return out.sort((a,b)=>Number(b.score||0)-Number(a.score||0)).slice(0,30);
+}
+function applyOcrMemoryRuleToText(text,rule){
+  const source=String(text||''),from=String(rule?.from||''),to=String(rule?.to||'');if(!from||from===to)return source;
+  if(rule.mode==='line')return source.split('\n').map(line=>line.trim()===from.trim()?line.replace(line.trim(),to):line).join('\n');
+  if(rule.mode==='text')return source.trim()===from.trim()?to:source;
+  return source.split(from).join(to);
+}
+function renderOcrMemoryPanel(item){
+  const panel=document.getElementById('ocrMemoryPanel'),summary=document.getElementById('ocrMemorySummary'),list=document.getElementById('ocrMemorySuggestionList'),count=document.getElementById('ocrMemoryRuleCount'),manager=document.getElementById('ocrMemoryManager'),managerList=document.getElementById('ocrMemoryManagerList');
+  if(!panel||!summary||!list||!count||!manager||!managerList)return;
+  const rules=readOcrCorrectionMemory();count.textContent=String(rules.length);manager.hidden=!ocrMemoryManagerOpen;
+  const text=document.getElementById('ocrPreviewText')?.value||item?.ocrText||'';const suggestions=item?eligibleOcrMemorySuggestions(item,text):[];
+  summary.textContent=ocrQueueText(`${rules.length} local rule(s) · ${suggestions.length} ready suggestion(s) · 3 confirmations required`,`${rules.length} Local Rule · အသုံးချနိုင်သောအကြံပြုချက် ${suggestions.length} ခု · ၃ ကြိမ်အတည်ပြုရန်လို`);
+  if(!item)list.innerHTML=`<div class="ocrMemoryEmpty">${escapeHtml(ocrQueueText('Select an OCR image to view suggestions.','အကြံပြုချက်ကြည့်ရန် OCR ပုံတစ်ပုံရွေးပါ။'))}</div>`;
+  else if(!suggestions.length)list.innerHTML=`<div class="ocrMemoryEmpty">${escapeHtml(ocrQueueText('No trusted correction suggestion matches this OCR text yet. Manual fixes can build memory over time.','ဤ OCR စာနှင့်ကိုက်ညီသော ယုံကြည်ရသည့်အကြံပြုချက် မရှိသေးပါ။ Manual Fix များဖြင့် Memory တဖြည်းဖြည်းတည်ဆောက်နိုင်သည်။'))}</div>`;
+  else list.innerHTML=suggestions.map(rule=>`<label class="ocrMemorySuggestion"><input class="ocrMemorySuggestionCheck" type="checkbox" data-rule-id="${escapeHtml(rule.id)}" checked><span><b>${escapeHtml(rule.from)} <em>→</em> ${escapeHtml(rule.to)}</b><small>${escapeHtml(ocrQueueText(`${rule.occurrences} match(es) · confirmed ${rule.confirmations} times · writer ${rule.writer}`,`${rule.occurrences} နေရာကိုက်ညီ · ${rule.confirmations} ကြိမ်အတည်ပြု · Writer ${rule.writer}`))}</small></span><button type="button" class="ocrMemoryRejectBtn" onclick="event.preventDefault();rejectOcrMemoryRule('${jsArg(rule.id)}')">${escapeHtml(ocrQueueText('Reject','မသုံးပါ'))}</button></label>`).join('');
+  if(!rules.length)managerList.innerHTML=`<div class="ocrMemoryEmpty">${escapeHtml(ocrQueueText('No correction memory has been learned yet.','ပြင်ဆင်မှု Memory မရှိသေးပါ။'))}</div>`;
+  else managerList.innerHTML=rules.slice(0,200).map(rule=>`<div class="ocrMemoryRule ${rule.enabled===false?'disabled':''}"><div><b>${escapeHtml(rule.from)} <em>→</em> ${escapeHtml(rule.to)}</b><small>${escapeHtml(ocrQueueText(`${rule.mode} · writer ${rule.writer} · confirmed ${Number(rule.confirmations||0)} · applied ${Number(rule.appliedCount||0)} · rejected ${Number(rule.rejectedCount||0)}`,`${rule.mode} · Writer ${rule.writer} · အတည်ပြု ${Number(rule.confirmations||0)} · အသုံးချ ${Number(rule.appliedCount||0)} · ပယ် ${Number(rule.rejectedCount||0)}`))}</small></div><div><button type="button" class="btn gray small" onclick="toggleOcrMemoryRule('${jsArg(rule.id)}')">${escapeHtml(rule.enabled===false?ocrQueueText('Enable','ဖွင့်မည်'):ocrQueueText('Disable','ပိတ်မည်'))}</button><button type="button" class="btn danger small" onclick="deleteOcrMemoryRule('${jsArg(rule.id)}')">${escapeHtml(ocrQueueText('Delete','ဖျက်မည်'))}</button></div></div>`).join('');
+}
+async function learnCurrentOcrCorrection(){
+  const item=await saveCurrentOcrQueueEdits({silent:true});if(!item)return;const result=recordOcrCorrectionMemory(item,item.ocrText||'');await ocrQueuePut(item);renderOcrQueue({keepEditor:true});if(result.skipped&&!result.duplicate)showToast(ocrQueueText('No new manual correction difference was found.','မှတ်သားရန် Manual Correction အသစ်မတွေ့ပါ'),'warn');else if(result.duplicate)showToast(ocrQueueText('This correction was already learned from this image.','ဤပုံ၏ပြင်ဆင်ချက်ကို မှတ်ထားပြီးသားဖြစ်သည်။'),'warn');
+}
+async function applyOcrMemorySuggestions(){
+  const item=currentOcrQueueItem();const ta=document.getElementById('ocrPreviewText');if(!item||!ta){showToast(ocrQueueText('Select an OCR image first.','အရင်ဆုံး OCR ပုံတစ်ပုံရွေးပါ'));return;}
+  const selected=[...document.querySelectorAll('.ocrMemorySuggestionCheck:checked')].map(x=>x.dataset.ruleId).filter(Boolean);if(!selected.length){showToast(ocrQueueText('Select at least one correction suggestion.','အနည်းဆုံး အကြံပြုချက်တစ်ခုရွေးပါ'));return;}
+  const rules=readOcrCorrectionMemory();let text=ta.value,applied=[];
+  for(const id of selected){const rule=rules.find(x=>x.id===id);if(!rule)continue;const next=applyOcrMemoryRuleToText(text,rule);if(next!==text){text=next;rule.appliedCount=Number(rule.appliedCount||0)+1;rule.lastUsedAt=Date.now();rule.updatedAt=Date.now();applied.push(rule.id);}}
+  if(!applied.length){showToast(ocrQueueText('The selected suggestions no longer match the OCR text.','ရွေးထားသောအကြံပြုချက်များသည် လက်ရှိ OCR စာနှင့် မကိုက်တော့ပါ'),'warn');renderOcrMemoryPanel(item);return;}
+  saveOcrCorrectionMemory(rules);ta.value=text;markOcrEditorDirty();item.ocrText=text;item.ocrMemoryAppliedRuleIds=applied;item.ocrMemoryAppliedAt=Date.now();const analysis=analyzeOcrText(item,text,{confidence:item.ocrConfidence,lineConfidences:item.ocrLineConfidences||[],includeConfidence:false});Object.assign(item,{ocrIssues:analysis.issues,parserRowCount:analysis.parserRowCount,parserCardCount:analysis.parserCardCount,parserWarningCount:analysis.parserWarningCount,status:analysis.issues.length?'needs_fix':'ready'});await ocrQueuePut(item);ocrQueueEditorDirty=false;renderOcrQueue();showToast(ocrQueueText(`${applied.length} trusted suggestion(s) applied and rechecked. Review before saving.`,`ယုံကြည်ရသောအကြံပြုချက် ${applied.length} ခုကို အသုံးချပြီး ပြန်စစ်ထားပါသည်။ မသိမ်းမီ ပြန်ကြည့်ပါ။`),'success',6500);
+}
+function toggleOcrMemoryManager(){ocrMemoryManagerOpen=!ocrMemoryManagerOpen;renderOcrMemoryPanel(currentOcrQueueItem());}
+function toggleOcrMemoryRule(id){const rules=readOcrCorrectionMemory(),rule=rules.find(x=>x.id===id);if(!rule)return;rule.enabled=rule.enabled===false;rule.updatedAt=Date.now();saveOcrCorrectionMemory(rules);renderOcrMemoryPanel(currentOcrQueueItem());}
+function deleteOcrMemoryRule(id){if(!confirm(ocrQueueText('Delete this OCR correction memory rule?','ဤ OCR Correction Memory Rule ကိုဖျက်မလား?')))return;saveOcrCorrectionMemory(readOcrCorrectionMemory().filter(x=>x.id!==id));renderOcrMemoryPanel(currentOcrQueueItem());}
+function rejectOcrMemoryRule(id){const rules=readOcrCorrectionMemory(),rule=rules.find(x=>x.id===id);if(!rule)return;rule.rejectedCount=Number(rule.rejectedCount||0)+1;rule.updatedAt=Date.now();if(Number(rule.rejectedCount||0)>=Number(rule.confirmations||0))rule.enabled=false;saveOcrCorrectionMemory(rules);renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('Suggestion rejected. Repeated rejections can disable the rule.','အကြံပြုချက်ကို ပယ်ထားပါပြီ။ ထပ်ခါတလဲလဲပယ်ပါက Rule ကို ပိတ်ပါမည်။'),'warn');}
+function exportOcrCorrectionMemory(){const payload={app:'Viber 2D Desk',version:'5.0A.4.0',type:'ocr-correction-memory',exportedAt:new Date().toISOString(),rules:readOcrCorrectionMemory()};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`v2d-ocr-memory-${today()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+async function importOcrCorrectionMemory(event){const file=event?.target?.files?.[0];if(event?.target)event.target.value='';if(!file)return;try{const parsed=JSON.parse(await file.text());const incoming=Array.isArray(parsed)?parsed:Array.isArray(parsed?.rules)?parsed.rules:[];if(!incoming.length)throw new Error('No rules found');const current=readOcrCorrectionMemory(),map=new Map(current.map(x=>[x.key||ocrMemoryRuleKey(x.from,x.to,x.writer,x.mode),x]));incoming.forEach(row=>{if(!row?.from||!row?.to)return;const writer=String(row.writer||'AUTO').toUpperCase(),mode=['token','line','text'].includes(row.mode)?row.mode:'token',key=ocrMemoryRuleKey(row.from,row.to,writer,mode),old=map.get(key);if(old){old.confirmations=Math.max(Number(old.confirmations||0),Number(row.confirmations||0));old.appliedCount=Math.max(Number(old.appliedCount||0),Number(row.appliedCount||0));old.rejectedCount=Math.max(Number(old.rejectedCount||0),Number(row.rejectedCount||0));old.updatedAt=Date.now();}else map.set(key,{...row,id:row.id||`mem-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key,writer,mode,enabled:row.enabled!==false,createdAt:Number(row.createdAt||Date.now()),updatedAt:Date.now()});});saveOcrCorrectionMemory([...map.values()].slice(0,OCR_MEMORY_MAX_RULES));renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('OCR correction memory imported locally.','OCR Correction Memory ကို Local ထဲသို့ Import လုပ်ပြီးပါပြီ'),'success');}catch(error){console.error(error);showToast(ocrQueueText('Invalid OCR memory JSON file.','OCR Memory JSON ဖိုင်မမှန်ပါ'),'error');}}
+function clearOcrCorrectionMemory(){if(!confirm(ocrQueueText('Clear all local OCR correction memory rules? This cannot be undone.','Local OCR Correction Memory Rule အားလုံးကို ဖျက်မလား? ပြန်ယူမရပါ။')))return;localStorage.removeItem(ocrMemoryStorageKey());renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('Local OCR correction memory cleared.','Local OCR Correction Memory ကိုရှင်းပြီးပါပြီ'),'success');}
+
 function ocrPreferenceStorageKey(){return `${OCR_PREFS_KEY}_${CURRENT_UID||'guest'}`;}
 function readOcrPreferences(){
   try{return JSON.parse(localStorage.getItem(ocrPreferenceStorageKey())||'{}')||{};}catch(_e){return{};}
@@ -2523,15 +2654,18 @@ function applyOcrPreferences(){
   const lang=document.getElementById('ocrLanguageSelect');
   const mode=document.getElementById('ocrImageModeSelect');
   const auto=document.getElementById('ocrAutoAfterUpload');
+  const learn=document.getElementById('ocrLearnCorrections');
   if(lang)lang.value=['mya+eng','mya','eng'].includes(prefs.language)?prefs.language:'mya+eng';
   if(mode)mode.value=['enhanced','original'].includes(prefs.imageMode)?prefs.imageMode:'enhanced';
   if(auto)auto.checked=prefs.autoAfterUpload!==false;
+  if(learn)learn.checked=prefs.learnCorrections!==false;
 }
 function saveOcrPreferences(){
   const prefs={
     language:document.getElementById('ocrLanguageSelect')?.value||'mya+eng',
     imageMode:document.getElementById('ocrImageModeSelect')?.value||'enhanced',
-    autoAfterUpload:document.getElementById('ocrAutoAfterUpload')?.checked!==false
+    autoAfterUpload:document.getElementById('ocrAutoAfterUpload')?.checked!==false,
+    learnCorrections:document.getElementById('ocrLearnCorrections')?.checked!==false
   };
   try{localStorage.setItem(ocrPreferenceStorageKey(),JSON.stringify(prefs));}catch(_e){}
 }
@@ -2664,7 +2798,7 @@ function analyzeOcrText(item,text,{confidence=null,lineConfidences=[],includeCon
 function renderOcrAnalysisPanel(item){
   const card=document.getElementById('ocrConfidenceCard');const value=document.getElementById('ocrConfidenceValue');const summary=document.getElementById('ocrAnalysisSummary');const panel=document.getElementById('ocrIssueRoutePanel');const list=document.getElementById('ocrIssueList');const badge=document.getElementById('ocrIssueCountBadge');
   if(!card||!value||!summary||!panel||!list||!badge)return;
-  if(!item||(!item.ocrCompletedAt&&!item.ocrText)){card.className='ocrConfidenceCard neutral';value.textContent='—';summary.textContent=ocrQueueText('Auto OCR has not run yet.','Auto OCR မလုပ်ရသေးပါ');panel.hidden=true;return;}
+  if(!item||(!item.ocrCompletedAt&&!item.ocrText)){card.className='ocrConfidenceCard neutral';value.textContent='—';summary.textContent=ocrQueueText('Auto OCR has not run yet.','Auto OCR မလုပ်ရသေးပါ');panel.hidden=true;renderOcrMemoryPanel(item);return;}
   const conf=Number(item.ocrConfidence);value.textContent=Number.isFinite(conf)?`${Math.round(conf)}%`:'—';
   card.className='ocrConfidenceCard '+(!Number.isFinite(conf)?'neutral':conf>=75?'good':conf>=OCR_LOW_CONFIDENCE_THRESHOLD?'warn':'bad');
   const issues=Array.isArray(item.ocrIssues)?item.ocrIssues:[];
@@ -2672,6 +2806,7 @@ function renderOcrAnalysisPanel(item){
   panel.hidden=false;badge.textContent=String(issues.length);panel.classList.toggle('safe',issues.length===0);
   if(!issues.length)list.innerHTML=`<div class="ocrIssueEmpty">${escapeHtml(ocrQueueText('No parser issue was found. Human verification is still required before saving.','Parser Issue မတွေ့ပါ။ သိမ်းမီ လူဖြင့်စစ်ဆေးရန် လိုပါသေးသည်။'))}</div>`;
   else list.innerHTML=issues.map((issue,index)=>`<button type="button" class="ocrIssueItem ${issue.lineNo?'':'general'}" onclick="focusOcrIssueLine(${index})"><span>${issue.lineNo?escapeHtml(ocrQueueText(`Line ${issue.lineNo}`,`စာကြောင်း ${issue.lineNo}`)):escapeHtml(ocrQueueText('General','အထွေထွေ'))}</span><b>${escapeHtml(issue.line||issue.message||'')}</b><small>${escapeHtml(issue.message||'')}</small></button>`).join('');
+  renderOcrMemoryPanel(item);
 }
 function focusOcrIssueLine(index){
   const item=currentOcrQueueItem();const issue=item?.ocrIssues?.[Number(index)];const ta=document.getElementById('ocrPreviewText');if(!issue||!ta)return;
@@ -2691,7 +2826,7 @@ async function runAutoOcrForItem(item,index,total){
   const data=result?.data||{};const text=String(data.text||'').replace(/\r\n?/g,'\n').replace(/[ \t]+$/gm,'').trim();const lineConfidences=parseTsvLineConfidences(data.tsv);
   let confidence=Number(data.confidence);if(!Number.isFinite(confidence)&&lineConfidences.length)confidence=lineConfidences.reduce((sum,x)=>sum+Number(x.confidence||0),0)/lineConfidences.length;
   const analysis=analyzeOcrText(item,text,{confidence,lineConfidences,includeConfidence:true});
-  Object.assign(item,{ocrText:analysis.text,ocrRawText:analysis.text,ocrConfidence:Number.isFinite(confidence)?confidence:null,ocrLineConfidences:lineConfidences,ocrIssues:analysis.issues,parserRowCount:analysis.parserRowCount,parserCardCount:analysis.parserCardCount,parserWarningCount:analysis.parserWarningCount,ocrLanguage:language,ocrImageMode:mode,ocrEnhanced:enhanced,ocrEngine:'Tesseract.js 7.0.0',ocrCompletedAt:Date.now(),manualReviewedAt:null,status:analysis.issues.length?'needs_fix':'ready'});
+  Object.assign(item,{ocrText:analysis.text,ocrRawText:analysis.text,ocrConfidence:Number.isFinite(confidence)?confidence:null,ocrLineConfidences:lineConfidences,ocrIssues:analysis.issues,parserRowCount:analysis.parserRowCount,parserCardCount:analysis.parserCardCount,parserWarningCount:analysis.parserWarningCount,ocrLanguage:language,ocrImageMode:mode,ocrWriterProfile:selectedWriterProfile(),ocrEnhanced:enhanced,ocrEngine:'Tesseract.js 7.0.0',ocrCompletedAt:Date.now(),manualReviewedAt:null,status:analysis.issues.length?'needs_fix':'ready'});
   await ocrQueuePut(item);
   if(item.id===ocrQueueCurrentId)ocrQueueEditorDirty=false;
   renderOcrQueue();
@@ -2719,6 +2854,7 @@ async function runAutoOcrForPending(){const ids=ocrQueueItems.filter(x=>(x.statu
 function cancelAutoOcr(){if(!ocrAutoRunActive)return;ocrCancelRequested=true;setText('ocrProgressDetail',ocrQueueText('The current image will finish, then OCR will stop.','လက်ရှိပုံပြီးလျှင် OCR ရပ်ပါမည်။'));}
 async function recheckCurrentOcrText(){
   const item=await saveCurrentOcrQueueEdits({silent:true});if(!item)return;
+  if(document.getElementById('ocrLearnCorrections')?.checked!==false)recordOcrCorrectionMemory(item,item.ocrText,{silent:true});
   const analysis=analyzeOcrText(item,item.ocrText,{confidence:item.ocrConfidence,lineConfidences:item.ocrLineConfidences||[],includeConfidence:false});
   Object.assign(item,{ocrText:analysis.text,ocrIssues:analysis.issues,parserRowCount:analysis.parserRowCount,parserCardCount:analysis.parserCardCount,parserWarningCount:analysis.parserWarningCount,manualReviewedAt:Date.now(),status:analysis.issues.length?'needs_fix':'ready'});
   await ocrQueuePut(item);renderOcrQueue();
@@ -2726,6 +2862,7 @@ async function recheckCurrentOcrText(){
 }
 async function sendCurrentOcrToEntryAndParse(){
   const item=await saveCurrentOcrQueueEdits({silent:true});if(!item)return;
+  if(document.getElementById('ocrLearnCorrections')?.checked!==false)recordOcrCorrectionMemory(item,item.ocrText,{silent:true});
   const text=String(item.ocrText||'').trim();if(!text){showToast(ocrQueueText('There is no OCR text to send.','Entry သို့ပို့ရန် OCR စာမရှိပါ'));return;}
   setVal('entryName',item.name||'Default');setVal('entryDate',item.date||today());setVal('entrySession',item.session||'AM');setVal('entryText',text);
   const analysis=analyzeOcrText(item,text,{confidence:item.ocrConfidence,lineConfidences:item.ocrLineConfidences||[],includeConfidence:false});
@@ -2930,7 +3067,16 @@ Object.assign(window, {
   useOcrQueueTextToEntry,
   setCurrentOcrStatus,
   deleteCurrentOcrQueueImage,
-  selectOcrQueueItem
+  selectOcrQueueItem,
+  learnCurrentOcrCorrection,
+  applyOcrMemorySuggestions,
+  toggleOcrMemoryManager,
+  toggleOcrMemoryRule,
+  deleteOcrMemoryRule,
+  rejectOcrMemoryRule,
+  exportOcrCorrectionMemory,
+  importOcrCorrectionMemory,
+  clearOcrCorrectionMemory
 });
 
 const PARSER_REPORT_QUEUE_KEY='v2d_parser_report_queue';
@@ -3088,7 +3234,7 @@ function buildParserIssueReportPayload(){
     reportScope:ctx.filtered?'issue-cards-only':'current-preview',
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'5.0A.3.6',
+    appVersion:'5.0A.4.0',
     parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
@@ -4903,7 +5049,7 @@ const I18N={
     parserReportTitle:'Parser မှားယွင်းမှု Report',parserReportHint:'မဖတ်နိုင်/Issue ဖြစ်သော Viber Card များနှင့် သက်ဆိုင်ရာ Parser Output ကိုသာ အလိုအလျောက်ပြထားသည်။ Correct Result နှင့် Note ကို ဖြည့်ပြီး App Owner ထံ ပို့ပါ။',originalMessage:'မူရင်း Viber Message',currentParserOutput:'လက်ရှိ Parser Output',expectedCorrectRecords:'အမှန်ဖြစ်ရမည့် Records',reportNote:'မှတ်ချက်',sendToOwner:'App Owner ထံပို့မည်',close:'ပိတ်မည်',
     previewRows:'Preview Rows',previewTotal:'Preview စုစုပေါင်း',warnings:'သတိပေးချက်',aggByNumber:'Number အလိုက်ပေါင်း',
     previewDetail:'Preview အသေးစိတ်',overLive:'Over / ကျော်စာရင်း',overNote:'အပေါ်က ရက်စွဲ / Session / Name အတိုင်း Over တွက်ထားသည်။',
-    uploadImage:'ပုံတင်မည်',uploadImages:'ပုံများတင်မည်',cameraBtn:'ကင်မရာ',clearImage:'ပုံရှင်းမည်',ocrQueueTitle:'ပုံအများအပြား Auto OCR နှင့် စစ်ဆေးအလုပ်ခွင်',ocrQueueHint:'ပုံများကို တစ်ကြိမ်တည်းတင်ပြီး Auto OCR ဖတ်၊ မသေချာသောစာကို တစ်ပုံချင်းပြင်၊ Entry Parser ဖြင့်စစ်ပြီး Completed Archive သို့ရွှေ့နိုင်သည်။ ပုံများကို Browser IndexedDB ထဲတွင်သာ ယာယီသိမ်းသောကြောင့် Firestore quota မသုံးပါ။',toggleOcrTools:'OCR အလုပ်ခွင် ဖွင့်/ပိတ်',batchName:'ပုံအုပ်စု အမည်',batchDate:'ပုံအုပ်စု ရက်စွဲ',batchSession:'ပုံအုပ်စု Session',pending:'စောင့်နေ',needsFix:'ပြင်ရန်လို',ready:'အဆင်သင့်',completed:'ပြီးဆုံး',allImages:'ပုံအားလုံး',imageQueue:'ပုံစောင့်စာရင်း',noQueuedImages:'ပုံမရှိသေးပါ',noImageSelected:'စစ်ဆေးရန်ပုံ မရွေးရသေးပါ',previousImage:'← ယခင်ပုံ',nextImage:'နောက်ပုံ →',ocrPreviewManualFix:'OCR Preview / ကိုယ်တိုင်စာပြင်ရန်',changesSaved:'ပြင်ဆင်ချက်သိမ်းပြီး',saveManualFix:'စာပြင်ဆင်ချက်သိမ်းမည်',replaceEntry:'Entry ကို အစားထိုးမည်',appendEntry:'Entry အောက်တွင်ဆက်ထည့်မည်',markNeedsFix:'ပြင်ရန်လိုအဖြစ်မှတ်မည်',markReady:'အဆင်သင့်အဖြစ်မှတ်မည်',markCompleted:'ပြီးဆုံး Archive သို့ရွှေ့မည်',deleteImage:'ပုံကိုအပြီးဖျက်မည်',openOcrQueue:'OCR စောင့်စာရင်းဖွင့်မည်',ocrLanguage:'OCR ဖတ်မည့်ဘာသာ',ocrLanguageHint:'UI ဘာသာနှင့် သီးခြားဖြစ်ပြီး Entry Data ကို မပြောင်းပါ။',ocrImageMode:'OCR ပုံပြင်ဆင်မှု',ocrEnhanced:'ကြည်လင်အောင်ပြင်ပြီးဖတ်မည်',ocrOriginal:'မူရင်းပုံအတိုင်းဖတ်မည်',autoOcrAfterUpload:'ပုံတင်ပြီး Auto OCR စတင်မည်',runAutoOcrCurrent:'ရွေးထားသောပုံကို Auto OCR ဖတ်မည်',runAutoOcrPending:'Pending ပုံအားလုံး Auto OCR',cancelOcr:'OCR ရပ်မည်',ocrEngineIdle:'OCR Engine အသင့်',ocrHumanVerify:'Auto OCR ရလဒ်ကို လူက စစ်ပြီးမှ Entry သို့ပို့ပါမည်။ Record ကို Auto Save မလုပ်ပါ။',ocrConfidence:'OCR ယုံကြည်မှု',ocrNotRunYet:'Auto OCR မလုပ်ရသေးပါ',ocrIssuesTitle:'မဖတ်နိုင်/မသေချာသောစာများ',ocrIssuesHint:'Issue တစ်ခုကိုနှိပ်လျှင် OCR စာထဲရှိ သက်ဆိုင်ရာစာကြောင်းကို တိုက်ရိုက်ရွေးပေးမည်။',recheckOcrText:'ပြင်ပြီးစာကို ပြန်စစ်မည်',sendEntryParse:'Entry သို့ပို့ပြီး Parser စစ်မည်',
+    uploadImage:'ပုံတင်မည်',uploadImages:'ပုံများတင်မည်',cameraBtn:'ကင်မရာ',clearImage:'ပုံရှင်းမည်',ocrQueueTitle:'ပုံအများအပြား Auto OCR နှင့် စစ်ဆေးအလုပ်ခွင်',ocrQueueHint:'ပုံများကို တစ်ကြိမ်တည်းတင်ပြီး Auto OCR ဖတ်၊ မသေချာသောစာကို တစ်ပုံချင်းပြင်၊ Entry Parser ဖြင့်စစ်ပြီး Completed Archive သို့ရွှေ့နိုင်သည်။ ပုံများကို Browser IndexedDB ထဲတွင်သာ ယာယီသိမ်းသောကြောင့် Firestore quota မသုံးပါ။',toggleOcrTools:'OCR အလုပ်ခွင် ဖွင့်/ပိတ်',batchName:'ပုံအုပ်စု အမည်',batchDate:'ပုံအုပ်စု ရက်စွဲ',batchSession:'ပုံအုပ်စု Session',pending:'စောင့်နေ',needsFix:'ပြင်ရန်လို',ready:'အဆင်သင့်',completed:'ပြီးဆုံး',allImages:'ပုံအားလုံး',imageQueue:'ပုံစောင့်စာရင်း',noQueuedImages:'ပုံမရှိသေးပါ',noImageSelected:'စစ်ဆေးရန်ပုံ မရွေးရသေးပါ',previousImage:'← ယခင်ပုံ',nextImage:'နောက်ပုံ →',ocrPreviewManualFix:'OCR Preview / ကိုယ်တိုင်စာပြင်ရန်',changesSaved:'ပြင်ဆင်ချက်သိမ်းပြီး',saveManualFix:'စာပြင်ဆင်ချက်သိမ်းမည်',replaceEntry:'Entry ကို အစားထိုးမည်',appendEntry:'Entry အောက်တွင်ဆက်ထည့်မည်',markNeedsFix:'ပြင်ရန်လိုအဖြစ်မှတ်မည်',markReady:'အဆင်သင့်အဖြစ်မှတ်မည်',markCompleted:'ပြီးဆုံး Archive သို့ရွှေ့မည်',deleteImage:'ပုံကိုအပြီးဖျက်မည်',openOcrQueue:'OCR စောင့်စာရင်းဖွင့်မည်',ocrLanguage:'OCR ဖတ်မည့်ဘာသာ',ocrLanguageHint:'UI ဘာသာနှင့် သီးခြားဖြစ်ပြီး Entry Data ကို မပြောင်းပါ။',ocrImageMode:'OCR ပုံပြင်ဆင်မှု',ocrEnhanced:'ကြည်လင်အောင်ပြင်ပြီးဖတ်မည်',ocrOriginal:'မူရင်းပုံအတိုင်းဖတ်မည်',autoOcrAfterUpload:'ပုံတင်ပြီး Auto OCR စတင်မည်',runAutoOcrCurrent:'ရွေးထားသောပုံကို Auto OCR ဖတ်မည်',runAutoOcrPending:'Pending ပုံအားလုံး Auto OCR',cancelOcr:'OCR ရပ်မည်',ocrEngineIdle:'OCR Engine အသင့်',ocrHumanVerify:'Auto OCR ရလဒ်ကို လူက စစ်ပြီးမှ Entry သို့ပို့ပါမည်။ Record ကို Auto Save မလုပ်ပါ။',ocrConfidence:'OCR ယုံကြည်မှု',ocrNotRunYet:'Auto OCR မလုပ်ရသေးပါ',ocrIssuesTitle:'မဖတ်နိုင်/မသေချာသောစာများ',ocrIssuesHint:'Issue တစ်ခုကိုနှိပ်လျှင် OCR စာထဲရှိ သက်ဆိုင်ရာစာကြောင်းကို တိုက်ရိုက်ရွေးပေးမည်။',recheckOcrText:'ပြင်ပြီးစာကို ပြန်စစ်မည်',sendEntryParse:'Entry သို့ပို့ပြီး Parser စစ်မည်',ocrMemoryTitle:'Adaptive OCR Correction Memory',ocrMemoryHint:'Manual Fix ကို Local မှတ်ထားပြီး တူညီသောပြင်ဆင်ချက် ၃ ကြိမ်အတည်ပြုပြီးမှ အကြံပြုမည်။ အလိုအလျောက်မပြင်ဘဲ User အတည်ပြုမှသာ အသုံးချမည်။',ocrLearnCorrections:'ပြင်ပြီးစာကို ပြန်စစ်ချိန် Memory မှတ်မည်',ocrMemoryApply:'ရွေးထားသောအကြံပြုချက်များ အသုံးချပြီး ပြန်စစ်မည်',ocrMemoryLearnNow:'ယခုပြင်ဆင်ချက်ကို Memory မှတ်မည်',ocrMemoryManage:'Memory Rules စီမံမည်',ocrMemoryExport:'Memory JSON ထုတ်မည်',ocrMemoryImport:'Memory JSON ထည့်မည်',ocrMemoryClear:'Memory အားလုံးရှင်းမည်',
     cloudLoading:'Cloud ဖွင့်နေသည်…',saving:'သိမ်းနေသည်…',cloudSynced:'Cloud သိမ်းပြီး',offlineWaiting:'Offline — စောင့်ဆိုင်းနေသည်',
     syncConflict:'Sync ပဋိပက္ခ',syncError:'Sync အမှား',last:'နောက်ဆုံး',autoSyncWhenOnline:'Internet ပြန်ရလျှင် Auto Sync',
     newerDataOtherDevice:'တခြားစက်မှာ Data အသစ်ရှိသည်',checkingAccountData:'Account data စစ်နေသည်'
@@ -4922,7 +5068,7 @@ const I18N={
     parserSafety:'Parser Safety Check',fixIssues:'Fix Issues',saveReviewed:'Save Reviewed Rows',reportParserIssue:'Report Parser Issue',cancel:'Cancel',safetyHelp:'Fix unread or uncertain text first. After review, the user may explicitly save the reviewed rows.',
     parserReportTitle:'Parser Issue Report',parserReportHint:'Only Viber cards with parser issues and their affected parser output are filled automatically. Add the correct result and a note, then send it to the App Owner.',originalMessage:'Original Viber Message',currentParserOutput:'Current Parser Output',expectedCorrectRecords:'Expected Correct Records',reportNote:'Note',sendToOwner:'Send to App Owner',close:'Close',previewRows:'Preview Rows',previewTotal:'Preview Total',
     warnings:'Warnings',aggByNumber:'Aggregated by Number',previewDetail:'Preview Detail',overLive:'Over',
-    overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',uploadImages:'Upload Images',cameraBtn:'Camera',clearImage:'Clear Image',ocrQueueTitle:'Multi-Image Auto OCR & Review Workspace',ocrQueueHint:'Upload multiple images once, run Auto OCR, correct uncertain text image by image, validate it with the Entry parser, and move completed work to the local archive. Images stay in browser IndexedDB, so this queue does not use Firestore quota.',toggleOcrTools:'Open / Close OCR Workspace',batchName:'Batch Name',batchDate:'Batch Date',batchSession:'Batch Session',pending:'Pending',needsFix:'Needs Fix',ready:'Ready',completed:'Completed',allImages:'All Images',imageQueue:'Image Queue',noQueuedImages:'No queued images',noImageSelected:'No image selected for review',previousImage:'← Previous Image',nextImage:'Next Image →',ocrPreviewManualFix:'OCR Preview / Manual Fix',changesSaved:'Changes saved',saveManualFix:'Save Manual Fix',replaceEntry:'Replace Entry',appendEntry:'Append to Entry',markNeedsFix:'Mark Needs Fix',markReady:'Mark Ready',markCompleted:'Move to Completed Archive',deleteImage:'Permanently Delete Image',openOcrQueue:'Open OCR Queue',ocrLanguage:'OCR Language',ocrLanguageHint:'Independent from the UI language; Entry data is never translated or changed.',ocrImageMode:'OCR Image Processing',ocrEnhanced:'Read Enhanced Image',ocrOriginal:'Read Original Image',autoOcrAfterUpload:'Start Auto OCR after upload',runAutoOcrCurrent:'Auto OCR Selected Image',runAutoOcrPending:'Auto OCR All Pending',cancelOcr:'Stop OCR',ocrEngineIdle:'OCR Engine Ready',ocrHumanVerify:'Human-review Auto OCR before sending it to Entry. Records are never auto-saved.',ocrConfidence:'OCR Confidence',ocrNotRunYet:'Auto OCR has not run yet',ocrIssuesTitle:'Unreadable / Uncertain Text',ocrIssuesHint:'Click an issue to select its related line directly in the OCR text.',recheckOcrText:'Recheck Edited Text',sendEntryParse:'Send to Entry & Parse',
+    overNote:'Over is calculated using the selected date/session/name above.',uploadImage:'Upload Image',uploadImages:'Upload Images',cameraBtn:'Camera',clearImage:'Clear Image',ocrQueueTitle:'Multi-Image Auto OCR & Review Workspace',ocrQueueHint:'Upload multiple images once, run Auto OCR, correct uncertain text image by image, validate it with the Entry parser, and move completed work to the local archive. Images stay in browser IndexedDB, so this queue does not use Firestore quota.',toggleOcrTools:'Open / Close OCR Workspace',batchName:'Batch Name',batchDate:'Batch Date',batchSession:'Batch Session',pending:'Pending',needsFix:'Needs Fix',ready:'Ready',completed:'Completed',allImages:'All Images',imageQueue:'Image Queue',noQueuedImages:'No queued images',noImageSelected:'No image selected for review',previousImage:'← Previous Image',nextImage:'Next Image →',ocrPreviewManualFix:'OCR Preview / Manual Fix',changesSaved:'Changes saved',saveManualFix:'Save Manual Fix',replaceEntry:'Replace Entry',appendEntry:'Append to Entry',markNeedsFix:'Mark Needs Fix',markReady:'Mark Ready',markCompleted:'Move to Completed Archive',deleteImage:'Permanently Delete Image',openOcrQueue:'Open OCR Queue',ocrLanguage:'OCR Language',ocrLanguageHint:'Independent from the UI language; Entry data is never translated or changed.',ocrImageMode:'OCR Image Processing',ocrEnhanced:'Read Enhanced Image',ocrOriginal:'Read Original Image',autoOcrAfterUpload:'Start Auto OCR after upload',runAutoOcrCurrent:'Auto OCR Selected Image',runAutoOcrPending:'Auto OCR All Pending',cancelOcr:'Stop OCR',ocrEngineIdle:'OCR Engine Ready',ocrHumanVerify:'Human-review Auto OCR before sending it to Entry. Records are never auto-saved.',ocrConfidence:'OCR Confidence',ocrNotRunYet:'Auto OCR has not run yet',ocrIssuesTitle:'Unreadable / Uncertain Text',ocrIssuesHint:'Click an issue to select its related line directly in the OCR text.',recheckOcrText:'Recheck Edited Text',sendEntryParse:'Send to Entry & Parse',ocrMemoryTitle:'Adaptive OCR Correction Memory',ocrMemoryHint:'Remember manual fixes locally and suggest a correction only after the same pattern is confirmed 3 times. Nothing is auto-applied without user approval.',ocrLearnCorrections:'Learn corrections when edited text is rechecked',ocrMemoryApply:'Apply Selected Suggestions & Recheck',ocrMemoryLearnNow:'Remember Current Correction',ocrMemoryManage:'Manage Memory Rules',ocrMemoryExport:'Export Memory JSON',ocrMemoryImport:'Import Memory JSON',ocrMemoryClear:'Clear All Memory',
     cloudLoading:'Opening Cloud…',saving:'Saving…',cloudSynced:'Cloud Synced',offlineWaiting:'Offline — Waiting to sync',
     syncConflict:'Sync Conflict',syncError:'Sync Error',last:'Last',autoSyncWhenOnline:'Auto sync when internet returns',
     newerDataOtherDevice:'Newer data exists on another device',checkingAccountData:'Checking account data'
@@ -5464,8 +5610,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='5.0A.3.6';
-const APP_VERSION_LABEL='Stage 5.0A.3.6 Final Stable + PWA Audit';
+const APP_VERSION='5.0A.4.0';
+const APP_VERSION_LABEL='Stage 5.0A.4.0 Adaptive OCR Correction Memory RC';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -6070,7 +6216,7 @@ function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'
 function go(id){
   if(id==='ownerUsers') id='ownerDashboard'; // backward-compatible alias from Stage 4.5
   if((id==='ownerParser'||id==='ownerDashboard')&&!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
-  // Stage 5.0A.3.6: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
+  // Stage 5.0A.4.0: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
   // This avoids unnecessary startup reads for normal Entry/OCR work.
   if(IS_APP_OWNER && id==='ownerParser' && (!ownerReportsUnsub || !ownerGlobalRulesUnsub || !ownerWorkspaceRulesUnsub)){
     console.info('[V2D] Lazy-loading Owner Parser listeners.');
@@ -6271,7 +6417,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 5.0A.3.6 Final Stable + PWA Audit',
+    version:'Stage 5.0A.4.0 Adaptive OCR Correction Memory RC',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

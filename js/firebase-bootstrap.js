@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "4.8C.0";
+  const VERSION = "5.0A.3.5";
   const FIREBASE_VERSION = "10.12.5";
   const statusBox = () => document.getElementById("authMessage");
 

@@ -21,7 +21,7 @@ function applyAuthLanguage(lang){
 function setAuthLanguage(lang){applyAuthLanguage(lang);window.v2dRefreshPwaUi?.();}
 function authMsg(my,en){return authLanguage()==='en'?en:my;}
 
-const AUTH_STAGE_VERSION = "5.0A.3.3";
+const AUTH_STAGE_VERSION = "5.0A.3.5";
 let v2dAppScriptLoaded = false;
 
 function authEl(id){ return document.getElementById(id); }
@@ -29,6 +29,7 @@ function authEl(id){ return document.getElementById(id); }
 function setAuthMessage(message, type=""){
   const box=authEl("authMessage");
   if(!box) return;
+  box.hidden=false;
   box.textContent=message;
   box.className="authMessage"+(type?` ${type}`:"");
 }
@@ -292,10 +293,11 @@ function showLicenseBlocked(user,profile,state){
   if(authEl('licenseBlockedMessage')) authEl('licenseBlockedMessage').textContent=custom||fallback;
   const exp=licenseExpiryMs(profile);
   if(authEl('licenseBlockedMeta')) authEl('licenseBlockedMeta').textContent=[user.email||'',isExpired&&exp?new Date(exp).toLocaleString():''].filter(Boolean).join(' · ');
-  setAuthMessage(custom||fallback,'bad');
+  const authMessageBox=authEl('authMessage'); if(authMessageBox){authMessageBox.hidden=true; authMessageBox.textContent='';}
 }
 function hideLicenseBlocked(){
   const panel=authEl('licenseBlockedPanel'); if(panel)panel.hidden=true;
+  const authMessageBox=authEl('authMessage'); if(authMessageBox) authMessageBox.hidden=false;
   document.querySelector('.authTabs')?.removeAttribute('hidden');
 }
 async function applyLicenseProfile(user,profile){

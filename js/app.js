@@ -635,7 +635,7 @@ function saveRecords(){
   userSetItem('v2d_records',JSON.stringify(records));
 }
 
-const CLOUD_SYNC_VERSION='5.0A.4.0';
+const CLOUD_SYNC_VERSION='5.0A.4.1';
 const CLOUD_STATE_DOC_ID='state';
 const LEGACY_CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=3000;
@@ -981,7 +981,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.4.0 Adaptive OCR Correction Memory RC',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.4.1 Adaptive OCR Memory · Final UI Polish',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -2515,7 +2515,7 @@ let ocrProcessingId='';
 let ocrProgressContext={index:0,total:1,fileName:''};
 
 
-// Stage 5.0A.4.0 — Adaptive OCR Correction Memory (local, human-confirmed).
+// Stage 5.0A.4.1 — Adaptive OCR Correction Memory (local, human-confirmed).
 // This does not retrain Tesseract. It remembers repeated manual corrections and
 // offers conservative suggestions only after the same correction is confirmed 3 times.
 const OCR_MEMORY_STORAGE_KEY='v2d_ocr_correction_memory_v1';
@@ -2641,7 +2641,7 @@ function toggleOcrMemoryManager(){ocrMemoryManagerOpen=!ocrMemoryManagerOpen;ren
 function toggleOcrMemoryRule(id){const rules=readOcrCorrectionMemory(),rule=rules.find(x=>x.id===id);if(!rule)return;rule.enabled=rule.enabled===false;rule.updatedAt=Date.now();saveOcrCorrectionMemory(rules);renderOcrMemoryPanel(currentOcrQueueItem());}
 function deleteOcrMemoryRule(id){if(!confirm(ocrQueueText('Delete this OCR correction memory rule?','ဤ OCR Correction Memory Rule ကိုဖျက်မလား?')))return;saveOcrCorrectionMemory(readOcrCorrectionMemory().filter(x=>x.id!==id));renderOcrMemoryPanel(currentOcrQueueItem());}
 function rejectOcrMemoryRule(id){const rules=readOcrCorrectionMemory(),rule=rules.find(x=>x.id===id);if(!rule)return;rule.rejectedCount=Number(rule.rejectedCount||0)+1;rule.updatedAt=Date.now();if(Number(rule.rejectedCount||0)>=Number(rule.confirmations||0))rule.enabled=false;saveOcrCorrectionMemory(rules);renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('Suggestion rejected. Repeated rejections can disable the rule.','အကြံပြုချက်ကို ပယ်ထားပါပြီ။ ထပ်ခါတလဲလဲပယ်ပါက Rule ကို ပိတ်ပါမည်။'),'warn');}
-function exportOcrCorrectionMemory(){const payload={app:'Viber 2D Desk',version:'5.0A.4.0',type:'ocr-correction-memory',exportedAt:new Date().toISOString(),rules:readOcrCorrectionMemory()};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`v2d-ocr-memory-${today()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function exportOcrCorrectionMemory(){const payload={app:'Viber 2D Desk',version:'5.0A.4.1',type:'ocr-correction-memory',exportedAt:new Date().toISOString(),rules:readOcrCorrectionMemory()};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`v2d-ocr-memory-${today()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 async function importOcrCorrectionMemory(event){const file=event?.target?.files?.[0];if(event?.target)event.target.value='';if(!file)return;try{const parsed=JSON.parse(await file.text());const incoming=Array.isArray(parsed)?parsed:Array.isArray(parsed?.rules)?parsed.rules:[];if(!incoming.length)throw new Error('No rules found');const current=readOcrCorrectionMemory(),map=new Map(current.map(x=>[x.key||ocrMemoryRuleKey(x.from,x.to,x.writer,x.mode),x]));incoming.forEach(row=>{if(!row?.from||!row?.to)return;const writer=String(row.writer||'AUTO').toUpperCase(),mode=['token','line','text'].includes(row.mode)?row.mode:'token',key=ocrMemoryRuleKey(row.from,row.to,writer,mode),old=map.get(key);if(old){old.confirmations=Math.max(Number(old.confirmations||0),Number(row.confirmations||0));old.appliedCount=Math.max(Number(old.appliedCount||0),Number(row.appliedCount||0));old.rejectedCount=Math.max(Number(old.rejectedCount||0),Number(row.rejectedCount||0));old.updatedAt=Date.now();}else map.set(key,{...row,id:row.id||`mem-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key,writer,mode,enabled:row.enabled!==false,createdAt:Number(row.createdAt||Date.now()),updatedAt:Date.now()});});saveOcrCorrectionMemory([...map.values()].slice(0,OCR_MEMORY_MAX_RULES));renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('OCR correction memory imported locally.','OCR Correction Memory ကို Local ထဲသို့ Import လုပ်ပြီးပါပြီ'),'success');}catch(error){console.error(error);showToast(ocrQueueText('Invalid OCR memory JSON file.','OCR Memory JSON ဖိုင်မမှန်ပါ'),'error');}}
 function clearOcrCorrectionMemory(){if(!confirm(ocrQueueText('Clear all local OCR correction memory rules? This cannot be undone.','Local OCR Correction Memory Rule အားလုံးကို ဖျက်မလား? ပြန်ယူမရပါ။')))return;localStorage.removeItem(ocrMemoryStorageKey());renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('Local OCR correction memory cleared.','Local OCR Correction Memory ကိုရှင်းပြီးပါပြီ'),'success');}
 
@@ -3234,7 +3234,7 @@ function buildParserIssueReportPayload(){
     reportScope:ctx.filtered?'issue-cards-only':'current-preview',
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'5.0A.4.0',
+    appVersion:'5.0A.4.1',
     parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
@@ -5610,8 +5610,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='5.0A.4.0';
-const APP_VERSION_LABEL='Stage 5.0A.4.0 Adaptive OCR Correction Memory RC';
+const APP_VERSION='5.0A.4.1';
+const APP_VERSION_LABEL='Stage 5.0A.4.1 Adaptive OCR Memory · Final UI Polish';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -6216,7 +6216,7 @@ function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'
 function go(id){
   if(id==='ownerUsers') id='ownerDashboard'; // backward-compatible alias from Stage 4.5
   if((id==='ownerParser'||id==='ownerDashboard')&&!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
-  // Stage 5.0A.4.0: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
+  // Stage 5.0A.4.1: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
   // This avoids unnecessary startup reads for normal Entry/OCR work.
   if(IS_APP_OWNER && id==='ownerParser' && (!ownerReportsUnsub || !ownerGlobalRulesUnsub || !ownerWorkspaceRulesUnsub)){
     console.info('[V2D] Lazy-loading Owner Parser listeners.');
@@ -6417,7 +6417,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 5.0A.4.0 Adaptive OCR Correction Memory RC',
+    version:'Stage 5.0A.4.1 Adaptive OCR Memory · Final UI Polish',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

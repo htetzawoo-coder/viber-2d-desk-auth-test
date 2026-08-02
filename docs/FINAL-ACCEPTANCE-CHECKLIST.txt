@@ -1,4 +1,4 @@
-FINAL ACCEPTANCE CHECKLIST — Stage 5.0A.3.6
+FINAL ACCEPTANCE CHECKLIST — Stage 5.0A.4.0
 
 [ ] Owner login
 [ ] Active user login
@@ -14,3 +14,14 @@ FINAL ACCEPTANCE CHECKLIST — Stage 5.0A.3.6
 [ ] Backup JSON export and restore test
 [ ] GitHub Pages normal tab/incognito/installed PWA
 [ ] 24-hour Firestore Reads/Writes Usage check
+
+
+ADAPTIVE OCR MEMORY TEST
+[ ] ပုံတစ်ပုံ OCR ဖတ်ပြီး မှားစာကို Manual Fix လုပ်ပါ
+[ ] Recheck ၁ ကြိမ်လုပ်ပြီး Memory Rule confirmations=1 စစ်ပါ
+[ ] တူညီ Correction ကို သီးခြားပုံ ၃ ပုံတွင် အတည်ပြုပြီး Suggestion ပေါ်မပေါ်စစ်ပါ
+[ ] Suggestion ကို Apply & Recheck လုပ်ပြီး Parser Result စစ်ပါ
+[ ] Reject / Disable / Delete စမ်းပါ
+[ ] Memory JSON Export/Import စမ်းပါ
+[ ] Language ပြောင်းလဲမှုက OCR/Memory Data ကို မပြောင်းကြောင်းစစ်ပါ
+[ ] Firestore Usage မတိုးကြောင်းစစ်ပါ

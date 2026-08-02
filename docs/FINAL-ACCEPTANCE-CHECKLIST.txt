@@ -1,0 +1,16 @@
+FINAL ACCEPTANCE CHECKLIST — Stage 5.0A.3.6
+
+[ ] Owner login
+[ ] Active user login
+[ ] Expired user custom notice တစ်ကြိမ်သာပေါ်
+[ ] Disabled user app body မမြင်
+[ ] Copy/Paste -> Preview -> Confirm Save
+[ ] Refresh -> IndexedDB fast startup message
+[ ] Auto OCR progress/text/confidence/manual fix
+[ ] Multi-image queue refresh ပြီးမပျောက်
+[ ] English/Myanmar switch UI only; Entry data unchanged
+[ ] Light/Dark Entry contrast
+[ ] AM/PM/Daily Report and Image/JPG export
+[ ] Backup JSON export and restore test
+[ ] GitHub Pages normal tab/incognito/installed PWA
+[ ] 24-hour Firestore Reads/Writes Usage check

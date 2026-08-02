@@ -1,15 +1,19 @@
-const V2D_CACHE = "v2d-desk-shell-v5.0A.1";
-const V2D_RUNTIME = "v2d-desk-runtime-v5.0A.1";
+const V2D_CACHE = "v2d-desk-shell-v5.0A.3.6";
+const V2D_RUNTIME = "v2d-desk-runtime-v5.0A.3.6";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
   "./css/styles.css",
+  "./css/stage-5.0A.3.6.css",
   "./js/firebase-bootstrap.js",
   "./js/firebase-config.js",
   "./js/auth.js",
   "./js/app.js",
   "./js/pwa.js",
+  "./icons/icon-32.png",
+  "./icons/icon-48.png",
+  "./icons/icon-96.png",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",
@@ -25,7 +29,11 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(key => key.startsWith("v2d-desk-") && ![V2D_CACHE,V2D_RUNTIME].includes(key)).map(key => caches.delete(key)));
+    await Promise.all(
+      keys
+        .filter(key => key.startsWith("v2d-desk-") && ![V2D_CACHE,V2D_RUNTIME].includes(key))
+        .map(key => caches.delete(key))
+    );
     await self.clients.claim();
   })());
 });
@@ -34,10 +42,12 @@ async function networkFirst(request){
   const cache = await caches.open(V2D_RUNTIME);
   try{
     const response = await fetch(request);
-    if(response && response.ok) cache.put(request,response.clone());
+    if(response && response.ok) await cache.put(request,response.clone());
     return response;
   }catch(error){
-    return (await cache.match(request,{ignoreSearch:true})) || (await caches.match(request,{ignoreSearch:true})) || Promise.reject(error);
+    return (await cache.match(request,{ignoreSearch:true}))
+      || (await caches.match(request,{ignoreSearch:true}))
+      || Promise.reject(error);
   }
 }
 
@@ -46,8 +56,7 @@ self.addEventListener("fetch", event => {
   if(request.method !== "GET") return;
   const url = new URL(request.url);
 
-  // IMPORTANT: Do not intercept Firebase/other cross-origin SDK requests.
-  // Let the browser fetch them directly so a stale PWA cache cannot block Authentication.
+  // Firebase, OCR CDN and other cross-origin requests must not be intercepted.
   if(url.origin !== self.location.origin) return;
 
   if(request.mode === "navigate"){

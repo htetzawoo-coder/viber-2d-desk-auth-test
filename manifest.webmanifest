@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Viber 2D Desk",
   "short_name": "V2D Desk",
-  "description": "Cloud sync safe Viber 2D entry, card records, limit board, reports and owner controls.",
+  "description": "Viber 2D entry, Auto OCR human review, card records, limit board, reports, owner controls and cloud sync.",
   "lang": "my",
   "start_url": "./",
   "scope": "./",

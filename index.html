@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 5.0A.3.6 Final Stable + PWA Audit</title>
+  <title>Viber 2D Desk - Stage 5.0A.4.0 Adaptive OCR Correction Memory RC</title>
   <meta name="theme-color" content="#0b1f3a" id="themeColorMeta" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="V2D Desk" />
   <meta name="application-name" content="V2D Desk" />
-  <link rel="manifest" href="manifest.webmanifest?v=5.0A.3.6" />
+  <link rel="manifest" href="manifest.webmanifest?v=5.0A.4.0" />
   <link rel="icon" href="icons/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/styles.css?v=5.0A.3.6">
-  <link rel="stylesheet" href="css/stage-5.0A.3.6.css?v=5.0A.3.6">
+  <link rel="stylesheet" href="css/styles.css?v=5.0A.4.0">
+  <link rel="stylesheet" href="css/stage-5.0A.4.0.css?v=5.0A.4.0">
 </head>
 <body>
 
@@ -25,7 +25,7 @@
       <div class="authLogo pwaBrandLogo"><img src="icons/icon-192.png" alt="Viber 2D Desk logo"></div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 5.0A.3.6 · Auto OCR Preview · Issue Routing</div>
+        <div class="muted">Stage 5.0A.4.0 · Auto OCR Preview · Issue Routing</div>
       </div>
     </div>
 
@@ -100,8 +100,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 5.0A.3.6 Final Stable + PWA Audit + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 5.0A.3.6: Stable OCR · Audited PWA Cache · Final Stable Release</div></div>
+        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 5.0A.4.0 Adaptive OCR Correction Memory RC + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 5.0A.4.0: Adaptive OCR Memory · Human Confirm · Local Learning</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -351,7 +351,7 @@
           <div class="imgToolBox" id="imgToolBox">
             <div class="ocrQueueHead">
               <div>
-                <div class="workspaceEyebrow">STAGE 5.0A.3.6 · AUTO OCR + HUMAN REVIEW</div>
+                <div class="workspaceEyebrow">STAGE 5.0A.4.0 · AUTO OCR + HUMAN REVIEW</div>
                 <h3 data-i18n="ocrQueueTitle">ပုံအများအပြား Auto OCR နှင့် စစ်ဆေးအလုပ်ခွင်</h3>
                 <div class="muted" data-i18n="ocrQueueHint">ပုံများကို တစ်ကြိမ်တည်းတင်ပြီး Auto OCR ဖတ်၊ မသေချာသောစာကို တစ်ပုံချင်းပြင်၊ Entry Parser ဖြင့်စစ်ပြီး Completed Archive သို့ရွှေ့နိုင်သည်။ ပုံများကို Browser IndexedDB ထဲတွင်သာ ယာယီသိမ်းသောကြောင့် Firestore quota မသုံးပါ။</div>
               </div>
@@ -448,6 +448,29 @@
                   <div class="ocrConfidenceCard neutral" id="ocrConfidenceCard">
                     <div><span data-i18n="ocrConfidence">OCR ယုံကြည်မှု</span><b id="ocrConfidenceValue">—</b></div>
                     <small id="ocrAnalysisSummary" data-i18n="ocrNotRunYet">Auto OCR မလုပ်ရသေးပါ</small>
+                  </div>
+                  <div class="ocrMemoryPanel" id="ocrMemoryPanel">
+                    <div class="ocrMemoryHead">
+                      <div><b data-i18n="ocrMemoryTitle">Adaptive OCR Correction Memory</b><small data-i18n="ocrMemoryHint">Manual Fix ကို Local မှတ်ထားပြီး တူညီသောပြင်ဆင်ချက် ၃ ကြိမ်အတည်ပြုပြီးမှ အကြံပြုမည်။ အလိုအလျောက်မပြင်ဘဲ User အတည်ပြုမှသာ အသုံးချမည်။</small></div>
+                      <span id="ocrMemoryRuleCount">0</span>
+                    </div>
+                    <label class="ocrMemoryLearnToggle"><input id="ocrLearnCorrections" type="checkbox" checked onchange="saveOcrPreferences()"><span data-i18n="ocrLearnCorrections">ပြင်ပြီးစာကို ပြန်စစ်ချိန် Memory မှတ်မည်</span></label>
+                    <div id="ocrMemorySummary" class="ocrMemorySummary">0 Local Rules</div>
+                    <div id="ocrMemorySuggestionList" class="ocrMemorySuggestionList"></div>
+                    <div class="btnrow ocrMemoryActions">
+                      <button class="btn secondary small" type="button" onclick="applyOcrMemorySuggestions()" data-i18n="ocrMemoryApply">ရွေးထားသောအကြံပြုချက်များ အသုံးချပြီး ပြန်စစ်မည်</button>
+                      <button class="btn warn small" type="button" onclick="learnCurrentOcrCorrection()" data-i18n="ocrMemoryLearnNow">ယခုပြင်ဆင်ချက်ကို Memory မှတ်မည်</button>
+                      <button class="btn gray small" type="button" onclick="toggleOcrMemoryManager()" data-i18n="ocrMemoryManage">Memory Rules စီမံမည်</button>
+                    </div>
+                    <div id="ocrMemoryManager" class="ocrMemoryManager" hidden>
+                      <div class="btnrow ocrMemoryManagerActions">
+                        <button class="btn secondary small" type="button" onclick="exportOcrCorrectionMemory()" data-i18n="ocrMemoryExport">Memory JSON ထုတ်မည်</button>
+                        <button class="btn gray small" type="button" onclick="document.getElementById('ocrMemoryImportFile').click()" data-i18n="ocrMemoryImport">Memory JSON ထည့်မည်</button>
+                        <button class="btn danger small" type="button" onclick="clearOcrCorrectionMemory()" data-i18n="ocrMemoryClear">Memory အားလုံးရှင်းမည်</button>
+                        <input id="ocrMemoryImportFile" type="file" accept="application/json,.json" hidden onchange="importOcrCorrectionMemory(event)">
+                      </div>
+                      <div id="ocrMemoryManagerList" class="ocrMemoryManagerList"></div>
+                    </div>
                   </div>
                   <div id="ocrIssueRoutePanel" class="ocrIssueRoutePanel" hidden>
                     <div class="ocrIssueRouteHead"><div><b data-i18n="ocrIssuesTitle">မဖတ်နိုင်/မသေချာသောစာများ</b><small data-i18n="ocrIssuesHint">Issue တစ်ခုကိုနှိပ်လျှင် OCR စာထဲရှိ သက်ဆိုင်ရာစာကြောင်းကို တိုက်ရိုက်ရွေးပေးမည်။</small></div><span id="ocrIssueCountBadge">0</span></div>
@@ -1194,7 +1217,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 
-<script src="js/pwa.js?v=5.0A.3.6"></script>
-<script src="js/firebase-bootstrap.js?v=5.0A.3.6"></script>
+<script src="js/pwa.js?v=5.0A.4.0"></script>
+<script src="js/firebase-bootstrap.js?v=5.0A.4.0"></script>
 </body>
 </html>

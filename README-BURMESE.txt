@@ -1,10 +1,10 @@
-Viber 2D Desk — Stage 5.0A.3.6 Final Stable + PWA Audit
+Viber 2D Desk — Stage 5.0A.4.0 Adaptive OCR Correction Memory RC
 ============================================================
 
 ဒီ Package က GitHub Pages တင်နိုင်သော Full Project ဖြစ်ပါတယ်။
 
 အဓိက Final Audit ပြင်ဆင်ချက်
-- App/Auth/Firebase Bootstrap/PWA/Service Worker/Cloud metadata version = 5.0A.3.6
+- App/Auth/Firebase Bootstrap/PWA/Service Worker/Cloud metadata version = 5.0A.4.0
 - Service Worker cache version အသစ်ဖြင့် အဟောင်း cache များဖယ်ရှားမည်
 - Offline App Shell ထဲ stage CSS နှင့် icon files အားလုံးထည့်ထားသည်
 - Manifest လိုအပ်သော icon-192, icon-512, maskable icon ပါဝင်သည်
@@ -17,7 +17,7 @@ manifest.webmanifest
 service-worker.js
 firestore.rules
 css/styles.css
-css/stage-5.0A.3.6.css
+css/stage-5.0A.4.0.css
 js/app.js
 js/auth.js
 js/firebase-bootstrap.js
@@ -45,3 +45,15 @@ Known Non-blocking Warning
 Safety
 - Firebase config API key က web client configuration ဖြစ်သည်။ လုံခြုံရေးကို Firestore Rules က ထိန်းချုပ်သည်။
 - OCR Queue ပုံများသည် Browser IndexedDB local storage ထဲသာရှိပြီး Cloud Backup မပါပါ။
+
+
+STAGE 5.0A.4.0 — ADAPTIVE OCR CORRECTION MEMORY
+================================================
+- Tesseract OCR Model ကို အလိုအလျောက် Train မလုပ်ပါ။
+- Manual Fix ပြီး Recheck လုပ်သည့် ပြင်ဆင်မှု Pattern ကို User/Browser အလိုက် Local Storage မှတ်မည်။
+- တူညီသော ပြင်ဆင်မှုကို ၃ ကြိမ် အတည်ပြုပြီးမှ Suggestion ပြမည်။
+- Suggestion ကို အလိုအလျောက် Apply မလုပ်ပါ။ User ရွေးပြီး Apply & Recheck လုပ်မှသာ ပြောင်းမည်။
+- Writer A/B/C/AUTO အလိုက် Memory ခွဲထားသည်။
+- Bad Rule ကို Reject / Disable / Delete လုပ်နိုင်သည်။
+- Memory JSON Export / Import လုပ်နိုင်သည်။
+- Firestore Reads/Writes မသုံးပါ။ Device/Browser Local သာဖြစ်သည်။

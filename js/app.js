@@ -635,7 +635,7 @@ function saveRecords(){
   userSetItem('v2d_records',JSON.stringify(records));
 }
 
-const CLOUD_SYNC_VERSION='4.8C.0';
+const CLOUD_SYNC_VERSION='5.0A.3.6';
 const CLOUD_STATE_DOC_ID='state';
 const LEGACY_CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=3000;
@@ -981,7 +981,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.3.5 Production RC + Final Optimization',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.3.6 Final Stable + PWA Audit',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -3088,7 +3088,7 @@ function buildParserIssueReportPayload(){
     reportScope:ctx.filtered?'issue-cards-only':'current-preview',
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'5.0A.3.5',
+    appVersion:'5.0A.3.6',
     parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
@@ -5464,8 +5464,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='5.0A.3.5';
-const APP_VERSION_LABEL='Stage 5.0A.3.5 Production RC + Final Optimization';
+const APP_VERSION='5.0A.3.6';
+const APP_VERSION_LABEL='Stage 5.0A.3.6 Final Stable + PWA Audit';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -6070,7 +6070,7 @@ function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'
 function go(id){
   if(id==='ownerUsers') id='ownerDashboard'; // backward-compatible alias from Stage 4.5
   if((id==='ownerParser'||id==='ownerDashboard')&&!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
-  // Stage 5.0A.3.5: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
+  // Stage 5.0A.3.6: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
   // This avoids unnecessary startup reads for normal Entry/OCR work.
   if(IS_APP_OWNER && id==='ownerParser' && (!ownerReportsUnsub || !ownerGlobalRulesUnsub || !ownerWorkspaceRulesUnsub)){
     console.info('[V2D] Lazy-loading Owner Parser listeners.');
@@ -6271,7 +6271,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 5.0A.3.5 Production RC + Final Optimization',
+    version:'Stage 5.0A.3.6 Final Stable + PWA Audit',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

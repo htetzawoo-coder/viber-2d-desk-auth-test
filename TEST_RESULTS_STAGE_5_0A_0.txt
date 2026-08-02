@@ -1,0 +1,30 @@
+Stage 5.0A.0 — Parser Rule Version History + Safe Rollback
+
+PASS  Syntax js/app.js
+PASS  Syntax js/auth.js
+PASS  Syntax js/firebase-bootstrap.js
+PASS  Syntax js/pwa.js
+PASS  Project/online app.js match
+PASS  Project/online css match
+PASS  Project/online index match
+PASS  Stage label 5.0A
+PASS  APP_VERSION 5.0A.0
+PASS  History globals
+PASS  Archive metadata
+PASS  History query new+legacy
+PASS  History UI hook
+PASS  Rule History button
+PASS  Rollback function
+PASS  Rollback regression safety
+PASS  Rollback conflict safety
+PASS  Rollback archives current
+PASS  Rollback creates new version
+PASS  Rollback replace write
+PASS  Owner-only rules history
+PASS  No business data privacy change
+PASS  History CSS
+PASS  PWA cache bumped
+
+TOTAL: 24/24 PASS
+
+Live Firebase history/rollback behavior must be verified in the user Firebase project.

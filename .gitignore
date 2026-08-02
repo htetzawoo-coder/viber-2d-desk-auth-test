@@ -1,0 +1,17 @@
+# Private backups and user data
+backup/
+data/
+
+# Environment secrets
+.env
+.env.*
+
+# Future dependencies
+node_modules/
+
+# System files
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log

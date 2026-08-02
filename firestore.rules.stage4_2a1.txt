@@ -1,0 +1,33 @@
+// Stage 4.2A.1 reference rules. The existing Stage 4.1 secure rules already cover snapshots/current_workspace.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+
+    match /users/{userId} {
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.role == 'user'
+        && request.resource.data.status == 'active';
+      allow read: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status;
+      allow delete: if false;
+
+      match /snapshots/{snapshotId} {
+        allow create: if isOwner(userId) && request.resource.data.ownerUid == userId;
+        allow read: if isOwner(userId);
+        allow update: if isOwner(userId)
+          && resource.data.ownerUid == userId
+          && request.resource.data.ownerUid == userId;
+        allow delete: if isOwner(userId) && resource.data.ownerUid == userId;
+      }
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

@@ -3,18 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viber 2D Desk - Stage 5.0A.1 Rule History + Rollback + Mobile Report</title>
+  <title>Viber 2D Desk - Stage 5.0A.4.1.7 Entry UI Restore · Stable Card Logic</title>
   <meta name="theme-color" content="#0b1f3a" id="themeColorMeta" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="V2D Desk" />
   <meta name="application-name" content="V2D Desk" />
-  <link rel="manifest" href="manifest.webmanifest?v=4.8C.0" />
+  <link rel="manifest" href="manifest.webmanifest?v=5.0A.4.1.7" />
   <link rel="icon" href="icons/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/styles.css?v=4.8C.0">
+  <link rel="stylesheet" href="css/styles.css?v=5.0A.4.1.7">
+  <link rel="stylesheet" href="css/stage-5.0A.4.1.7.css?v=5.0A.4.1.7">
 </head>
 <body>
 
@@ -24,7 +25,7 @@
       <div class="authLogo pwaBrandLogo"><img src="icons/icon-192.png" alt="Viber 2D Desk logo"></div>
       <div>
         <h1>Viber 2D Desk</h1>
-        <div class="muted">Stage 5.0A.1 · Rule History + Rollback · Mobile Report</div>
+        <div class="muted">Stage 5.0A.4.1.7 · Auto OCR Preview · Issue Routing</div>
       </div>
     </div>
 
@@ -99,8 +100,8 @@
   <div class="topbar" id="topbar">
     <div class="title">
       <div>
-        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 5.0A.1 Rule History + Rollback + Mobile Report + Firebase</span></h1>
-        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 5.0A.1: Owner Dashboard · Mobile Report JPG · Parser Rule Version History · Safe Rollback</div></div>
+        <h1 class="appTitleWithIcon"><img src="icons/icon-48.png" class="titleAppIcon" alt="">Viber 2D Desk <span class="badge good">Stage 5.0A.4.1.7 Entry UI Restore · Stable Card Logic + Firebase</span></h1>
+        <div class="sub">Owner/Admin only · Entry Copy/Paste Parser · Entry Records · Firebase Sync · Image Reports · Dealer Summary<div class="muted" style="margin-top:6px">Stage 5.0A.4.1.7: Stage 5.0A.4.1.4 Entry UI · Stable Card Number · Original Viber Time</div></div>
       </div>
       <div class="topToggleWrap">
         <button class="topToggleBtn" id="topToggleBtn" onclick="toggleTopbar()">Minimize ▲</button>
@@ -197,14 +198,27 @@
   </section>
 
   <section id="entry" class="page">
-    <div class="desk-layout">
-      <div class="card board-card">
+    <div class="desk-layout" id="entryDeskLayout">
+      <div class="entryFocusHero">
+        <div class="entryFocusCopy">
+          <span class="entryFocusEyebrow" data-i18n="entryFocusEyebrow">FAST ENTRY WORKFLOW</span>
+          <h2 data-i18n="entryFocusTitle">Copy / Paste နှင့် Preview ကို အဓိကထားသော စာရင်းသွင်းအလုပ်ခွင်</h2>
+          <p data-i18n="entryFocusHint">စာထည့်၊ စစ်ဆေး၊ လိုအပ်သည့်နေရာပြင်ပြီး တစ်ကြိမ်တည်း အတည်ပြုသိမ်းနိုင်သည်။</p>
+        </div>
+        <div class="entryFocusSteps" aria-label="Entry workflow">
+          <button class="entryStepBtn primary" type="button" onclick="focusEntryInput()"><b>1</b><span data-i18n="stepPaste">စာကူးထည့်ရန်</span></button>
+          <button class="entryStepBtn" type="button" onclick="focusEntryPreview()"><b>2</b><span data-i18n="stepPreview">ရလဒ်စစ်ရန်</span></button>
+          <button class="entryStepBtn" type="button" onclick="focusEntryReview()"><b>3</b><span data-i18n="stepReviewSave">ပြင်ဆင်ပြီးသိမ်းရန်</span></button>
+        </div>
+        <button class="btn gray entryAdvancedToggle" id="entryAdvancedToggleBtn" type="button" onclick="toggleEntryAdvanced()" data-i18n="showAdvanced">အပိုအလုပ်ခွင်များဖွင့်ရန်</button>
+      </div>
+      <div class="card board-card entryAdvancedSection entryLimitBoardCard" id="entryLimitBoardCard">
         <div class="title">
           <div>
             <div class="wide-board-title"><h2 data-i18n="liveBoard">Limit Table Board / Live Desk</h2><span class="unit-badge">Unit = 100</span></div>
             <div class="muted" data-i18n="boardNote">Top board is shown first for laptop screen. Amounts display in Unit format.</div>
           </div>
-          <div class="btnrow" style="margin-top:0"><button class="btn gray small" id="entryBoardToggleBtn" onclick="toggleEntryBoardCompact()">Collapse Board ▲</button><button class="btn secondary small" onclick="renderMainBoard()" data-i18n="refresh">Refresh</button></div>
+          <div class="btnrow entryBoardActions" style="margin-top:0"><button class="btn small" id="entryBoardPasteBtn" type="button" onclick="focusEntryInput()" data-i18n="goCopyPaste">Copy / Paste Entry ↓</button><button class="btn gray small" id="entryBoardToggleBtn" type="button" onclick="toggleEntryBoardCompact()">Collapse Board ▲</button><button class="btn secondary small" type="button" onclick="renderMainBoard()" data-i18n="refresh">Refresh</button></div>
         </div>
         <div class="board-toolbar">
           <div><label data-i18n="date">Date</label><input id="entryDate" type="date" onchange="renderEntryLive()"></div>
@@ -227,7 +241,7 @@
 
 
 
-      <div class="workspaceSectionHead">
+      <div class="workspaceSectionHead entryAdvancedSection">
         <div>
           <div class="workspaceEyebrow">STAGE 4.5.0 · OWNER PARSER CONTROL CENTER</div>
           <h2>Laptop Professional Workspace / ကတ်စာရင်းအလုပ်ခွင်</h2>
@@ -239,7 +253,7 @@
         </div>
       </div>
 
-      <div class="professionalWorkspace" id="professionalWorkspace">
+      <div class="professionalWorkspace entryAdvancedSection" id="professionalWorkspace">
         <aside class="workspacePanel workspaceCardPanel">
           <div class="workspacePanelHead">
             <div>
@@ -309,21 +323,21 @@
         </aside>
       </div>
 
-      <div class="workspaceToolsBar">
-        <div><b>Paste & Parse Tools / Copy Paste စာရင်းသွင်းကိရိယာ</b><span class="muted">မူရင်း Entry / Preview / Over လုပ်ဆောင်ချက်အားလုံး ဆက်ရှိသည်။</span></div>
-        <button class="btn gray small" id="entryToolsToggleBtn" onclick="toggleEntryTools()">Hide Tools ▲</button>
+      <div class="workspaceToolsBar entryPrimaryToolsBar" id="entryPrimaryToolsBar">
+        <div><b data-i18n="copyPasteWorkspace">Copy / Paste စာရင်းသွင်းအလုပ်ခွင်</b><span class="muted" data-i18n="copyPasteWorkspaceHint">Entry နှင့် Preview ကို အဓိကထားပြီး အပိုအလုပ်ခွင်များကို လိုအပ်မှဖွင့်နိုင်သည်။</span></div>
+        <button class="btn gray small" id="entryToolsToggleBtn" onclick="toggleEntryTools()" data-i18n="hideEntryWorkspace">စာထည့်အလုပ်ခွင်ပိတ်ရန်</button>
       </div>
-      <div id="entryToolsArea" class="entryToolsArea">
+      <div id="entryToolsArea" class="entryToolsArea entryPrimaryArea">
 
       <div class="desk-columns">
-        <div class="card entry-card">
+        <div class="card entry-card entryMainCard" id="entryMainCard">
           <div class="inline-title">
-            <h2 data-i18n="entryTitle">စာရင်းထည့်ရန် / Entry</h2>
+            <h2 data-i18n="entryTitle">စာကူးထည့်ရန်</h2>
             <div class="namepick"><label data-i18n="name">Name / ကော်မရှင်</label><select id="entryName" onchange="renderEntryLive()"></select></div>
-            <div class="writerPick"><label>Writer / လက်ရေးပိုင်ရှင်</label><select id="entryWriter" onchange="saveSettings(); renderWriterHint();"><option value="AUTO">Auto</option><option value="A">A Writer</option><option value="B">B Writer</option><option value="C">C Writer</option><option value="OTHER">Other Writer</option></select></div>
+            <div class="writerPick"><label data-i18n="writerLabel">လက်ရေးပိုင်ရှင်</label><select id="entryWriter" onchange="saveSettings(); renderWriterHint();"><option value="AUTO">Auto</option><option value="A">A Writer</option><option value="B">B Writer</option><option value="C">C Writer</option><option value="OTHER">Other Writer</option></select></div>
           </div>
           <div id="writerHint" class="writerHint"></div>
-          <textarea id="entryText" data-no-i18n="true" placeholder="စာရင်းထည့်ရန် / Entry
+          <textarea id="entryText" data-i18n-placeholder="entryPastePlaceholder" placeholder="စာရင်းထည့်ရန် / Entry
 
 //-7733=500
 42.32,65.21.700r300
@@ -335,48 +349,166 @@
 77=500
 22"></textarea>
           <div class="imgToolBox" id="imgToolBox">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <h3 style="margin:0 0 8px">Image Entry <span class="stageBadge">Stage 4.5.0</span></h3>
-              <button class="btn gray small" type="button" onclick="toggleImageTools()">Image Tools ▼</button>
-            </div>
-            <div class="muted">Upload Image / Camera preview + OCR Text Preview box ထည့်ထားပါတယ်။ Auto OCR extraction ကို next stage မှာ ထပ်ချိတ်မယ်။ ဒီအဆင့်မှာ OCR text ကို manual paste/edit လုပ်ပြီး Entry box ထဲထည့်နိုင်ပါတယ်။</div>
-            <input id="entryImageUpload" type="file" accept="image/*" style="display:none" onchange="handleEntryImage(event,'upload')">
-            <input id="entryImageCamera" type="file" accept="image/*" capture="environment" style="display:none" onchange="handleEntryImage(event,'camera')">
-            <div class="btnrow">
-              <button class="btn small" onclick="parseInput()" data-i18n="parsePreview">Parse Preview</button>
-              <button class="btn secondary small" onclick="confirmSaveAction()" data-i18n="confirmSave">Confirm Save</button>
-              <button class="btn warn small" onclick="openParserIssueReport()" data-i18n="reportParserIssue">Report Parser Issue</button>
-              <button class="btn gray small" onclick="document.getElementById('entryText').value=''; clearIssueEditor(); closeEntrySafetyGate(); closeParserIssueReport()" data-i18n="clearText">Clear Text</button>
-            </div>
-            <div class="imgToolGrid" style="margin-top:10px">
+            <div class="ocrQueueHead">
               <div>
-                <div class="imgPreviewPane" id="entryImgPane">
-                  <div class="imgPreviewEmpty" id="entryImgEmpty">No image selected yet.<br>ပုံရွေးပြီး preview ကြည့်ပါ။</div>
-                  <img id="entryImgPreview" alt="Entry Preview" style="display:none">
-                </div>
-                <div class="imgMeta" id="entryImgMeta">No file</div>
+                <div class="workspaceEyebrow">STAGE 5.0A.4.1.7 · AUTO OCR + HUMAN REVIEW</div>
+                <h3 data-i18n="ocrQueueTitle">ပုံအများအပြား Auto OCR နှင့် စစ်ဆေးအလုပ်ခွင်</h3>
+                <div class="muted" data-i18n="ocrQueueHint">ပုံများကို တစ်ကြိမ်တည်းတင်ပြီး Auto OCR ဖတ်၊ မသေချာသောစာကို တစ်ပုံချင်းပြင်၊ Entry Parser ဖြင့်စစ်ပြီး Completed Archive သို့ရွှေ့နိုင်သည်။ ပုံများကို Browser IndexedDB ထဲတွင်သာ ယာယီသိမ်းသောကြောင့် Firestore quota မသုံးပါ။</div>
               </div>
-              <div>
-                <label>OCR Text Preview / Manual Fix / စာပြင်ရန်</label>
-                <textarea id="ocrPreviewText" class="ocrBox" placeholder="Stage 3.8.0 မှာ auto OCR မပါသေးပါ။
-ပုံကြည့်ပြီး ဒီ box ထဲ OCR text ကို paste / edit လုပ်ပါ။
-ပြီးရင် အောက်က Use OCR Text → Entry ကိုနှိပ်ပါ။"></textarea>
-                <div class="btnrow">
-                  <button class="btn secondary small" onclick="useOcrTextToEntry('replace')">Use OCR Text → Replace Entry</button>
-                  <button class="btn small" onclick="useOcrTextToEntry('append')">Use OCR Text → Append Entry</button>
-                  <button class="btn gray small" onclick="document.getElementById('ocrPreviewText').value=''">Clear OCR Box</button>
+              <button class="btn gray small" type="button" onclick="toggleImageTools()" data-i18n="toggleOcrTools">OCR အလုပ်ခွင် ဖွင့်/ပိတ်</button>
+            </div>
+
+            <input id="entryImageUpload" type="file" accept="image/*" multiple style="display:none" onchange="handleEntryImage(event,'upload')">
+            <input id="entryImageCamera" type="file" accept="image/*" capture="environment" style="display:none" onchange="handleEntryImage(event,'camera')">
+
+            <div class="btnrow entryPrimaryButtons">
+              <button class="btn entryPrimaryAction" onclick="parseInput()" data-i18n="parsePreview">စစ်ဆေးကြည့်ရန်</button>
+              <button class="btn secondary entryPrimaryAction" onclick="confirmSaveAction()" data-i18n="confirmSave">အတည်ပြုသိမ်းရန်</button>
+              <button class="btn warn small" onclick="openParserIssueReport()" data-i18n="reportParserIssue">Parser မှားယွင်းမှုတင်ပြရန်</button>
+              <button class="btn gray small" onclick="document.getElementById('entryText').value=''; clearIssueEditor(); closeEntrySafetyGate(); closeParserIssueReport()" data-i18n="clearText">စာသားရှင်းရန်</button>
+            </div>
+
+            <div class="ocrQueueWorkspace">
+              <div class="ocrBatchSetup">
+                <div><label data-i18n="batchName">ပုံအုပ်စု အမည်</label><select id="ocrBatchName"></select></div>
+                <div><label data-i18n="batchDate">ပုံအုပ်စု ရက်စွဲ</label><input id="ocrBatchDate" type="date"></div>
+                <div><label data-i18n="batchSession">ပုံအုပ်စု Session</label><select id="ocrBatchSession"><option>AM</option><option>PM</option></select></div>
+                <div class="ocrBatchActions">
+                  <button class="btn secondary" type="button" onclick="document.getElementById('entryImageUpload').click()" data-i18n="uploadImages">ပုံများတင်မည်</button>
+                  <button class="btn warn" type="button" onclick="document.getElementById('entryImageCamera').click()" data-i18n="cameraBtn">ကင်မရာ</button>
                 </div>
+              </div>
+
+              <div class="ocrAutoToolbar">
+                <div class="ocrAutoField">
+                  <label data-i18n="ocrLanguage">OCR ဖတ်မည့်ဘာသာ</label>
+                  <select id="ocrLanguageSelect" onchange="saveOcrPreferences()">
+                    <option value="mya+eng">မြန်မာ + English</option>
+                    <option value="mya">မြန်မာ</option>
+                    <option value="eng">English / Number</option>
+                  </select>
+                  <small data-i18n="ocrLanguageHint">UI ဘာသာနှင့် သီးခြားဖြစ်ပြီး Entry Data ကို မပြောင်းပါ။</small>
+                </div>
+                <div class="ocrAutoField">
+                  <label data-i18n="ocrImageMode">OCR ပုံပြင်ဆင်မှု</label>
+                  <select id="ocrImageModeSelect" onchange="saveOcrPreferences()">
+                    <option value="enhanced" data-i18n-option="ocrEnhanced">ကြည်လင်အောင်ပြင်ပြီးဖတ်မည်</option>
+                    <option value="original" data-i18n-option="ocrOriginal">မူရင်းပုံအတိုင်းဖတ်မည်</option>
+                  </select>
+                </div>
+                <label class="ocrAutoCheck"><input id="ocrAutoAfterUpload" type="checkbox" checked onchange="saveOcrPreferences()"><span data-i18n="autoOcrAfterUpload">ပုံတင်ပြီး Auto OCR စတင်မည်</span></label>
+                <div class="ocrAutoActions">
+                  <button id="ocrRunCurrentBtn" class="btn secondary" type="button" onclick="runAutoOcrForCurrent()" data-i18n="runAutoOcrCurrent">ရွေးထားသောပုံကို Auto OCR ဖတ်မည်</button>
+                  <button id="ocrRunPendingBtn" class="btn" type="button" onclick="runAutoOcrForPending()" data-i18n="runAutoOcrPending">Pending ပုံအားလုံး Auto OCR</button>
+                  <button id="ocrCancelBtn" class="btn danger" type="button" onclick="cancelAutoOcr()" data-i18n="cancelOcr" hidden>OCR ရပ်မည်</button>
+                </div>
+              </div>
+
+              <div class="ocrProgressCard" id="ocrProgressCard">
+                <div class="ocrProgressHead"><b id="ocrEngineState" data-i18n="ocrEngineIdle">OCR Engine အသင့်</b><span id="ocrProgressPercent">0%</span></div>
+                <div class="ocrProgressTrack"><span id="ocrProgressBar"></span></div>
+                <div class="ocrProgressDetail" id="ocrProgressDetail" data-i18n="ocrHumanVerify">Auto OCR ရလဒ်ကို လူက စစ်ပြီးမှ Entry သို့ပို့ပါမည်။ Record ကို Auto Save မလုပ်ပါ။</div>
+              </div>
+
+              <div class="ocrQueueStats">
+                <button class="ocrStat active" id="ocrFilterPending" type="button" onclick="setOcrQueueFilter('pending')"><span data-i18n="pending">စောင့်နေ</span><b id="ocrQueuePendingCount">0</b></button>
+                <button class="ocrStat" id="ocrFilterNeedsFix" type="button" onclick="setOcrQueueFilter('needs_fix')"><span data-i18n="needsFix">ပြင်ရန်လို</span><b id="ocrQueueNeedsFixCount">0</b></button>
+                <button class="ocrStat" id="ocrFilterReady" type="button" onclick="setOcrQueueFilter('ready')"><span data-i18n="ready">အဆင်သင့်</span><b id="ocrQueueReadyCount">0</b></button>
+                <button class="ocrStat" id="ocrFilterCompleted" type="button" onclick="setOcrQueueFilter('completed')"><span data-i18n="completed">ပြီးဆုံး</span><b id="ocrQueueCompletedCount">0</b></button>
+                <button class="ocrStat" id="ocrFilterAll" type="button" onclick="setOcrQueueFilter('all')"><span data-i18n="allImages">ပုံအားလုံး</span><b id="ocrQueueCount">0</b></button>
+              </div>
+
+              <div class="ocrQueueLayout">
+                <aside class="ocrQueueListPanel">
+                  <div class="ocrPanelTitle"><b data-i18n="imageQueue">ပုံစောင့်စာရင်း</b><small id="ocrStorageStatus">Local IndexedDB</small></div>
+                  <div id="ocrQueueList" class="ocrQueueList"><div class="ocrQueueEmpty" data-i18n="noQueuedImages">ပုံမရှိသေးပါ</div></div>
+                </aside>
+
+                <section class="ocrImageReviewPanel">
+                  <div class="ocrImageNav">
+                    <button class="btn gray small" type="button" onclick="navigateOcrQueue(-1)" data-i18n="previousImage">← ယခင်ပုံ</button>
+                    <b id="ocrQueuePosition">0 / 0</b>
+                    <button class="btn gray small" type="button" onclick="navigateOcrQueue(1)" data-i18n="nextImage">နောက်ပုံ →</button>
+                  </div>
+                  <div class="imgPreviewPane ocrMainPreview" id="entryImgPane">
+                    <div class="imgPreviewEmpty" id="entryImgEmpty" data-i18n="noImageSelected">စစ်ဆေးရန်ပုံ မရွေးရသေးပါ</div>
+                    <img id="entryImgPreview" alt="Entry Preview" style="display:none">
+                  </div>
+                  <div class="imgMeta" id="entryImgMeta">No file</div>
+                </section>
+
+                <section class="ocrEditorPanel">
+                  <div class="ocrItemMetaGrid">
+                    <div><label data-i18n="name">အမည်</label><select id="ocrItemName" onchange="markOcrEditorDirty()"></select></div>
+                    <div><label data-i18n="date">ရက်စွဲ</label><input id="ocrItemDate" type="date" onchange="markOcrEditorDirty()"></div>
+                    <div><label data-i18n="session">Session</label><select id="ocrItemSession" onchange="markOcrEditorDirty()"><option>AM</option><option>PM</option></select></div>
+                  </div>
+                  <label data-i18n="ocrPreviewManualFix">OCR Preview / ကိုယ်တိုင်စာပြင်ရန်</label>
+                  <textarea id="ocrPreviewText" class="ocrBox" data-no-i18n="true" oninput="markOcrEditorDirty()" placeholder="ပုံမှဖတ်ထားသောစာကို ဒီနေရာတွင် Paste / ပြင်ပါ။"></textarea>
+                  <div class="ocrConfidenceCard neutral" id="ocrConfidenceCard">
+                    <div><span data-i18n="ocrConfidence">OCR ယုံကြည်မှု</span><b id="ocrConfidenceValue">—</b></div>
+                    <small id="ocrAnalysisSummary" data-i18n="ocrNotRunYet">Auto OCR မလုပ်ရသေးပါ</small>
+                  </div>
+                  <div class="ocrMemoryPanel" id="ocrMemoryPanel">
+                    <div class="ocrMemoryHead">
+                      <div><b data-i18n="ocrMemoryTitle">Adaptive OCR Correction Memory</b><small data-i18n="ocrMemoryHint">Manual Fix ကို Local မှတ်ထားပြီး တူညီသောပြင်ဆင်ချက် ၃ ကြိမ်အတည်ပြုပြီးမှ အကြံပြုမည်။ အလိုအလျောက်မပြင်ဘဲ User အတည်ပြုမှသာ အသုံးချမည်။</small></div>
+                      <span id="ocrMemoryRuleCount">0</span>
+                    </div>
+                    <label class="ocrMemoryLearnToggle"><input id="ocrLearnCorrections" type="checkbox" checked onchange="saveOcrPreferences()"><span data-i18n="ocrLearnCorrections">ပြင်ပြီးစာကို ပြန်စစ်ချိန် Memory မှတ်မည်</span></label>
+                    <div id="ocrMemorySummary" class="ocrMemorySummary">0 Local Rules</div>
+                    <div id="ocrMemorySuggestionList" class="ocrMemorySuggestionList"></div>
+                    <div class="btnrow ocrMemoryActions">
+                      <button class="btn secondary small" type="button" onclick="applyOcrMemorySuggestions()" data-i18n="ocrMemoryApply">ရွေးထားသောအကြံပြုချက်များ အသုံးချပြီး ပြန်စစ်မည်</button>
+                      <button class="btn warn small" type="button" onclick="learnCurrentOcrCorrection()" data-i18n="ocrMemoryLearnNow">ယခုပြင်ဆင်ချက်ကို Memory မှတ်မည်</button>
+                      <button class="btn gray small" type="button" onclick="toggleOcrMemoryManager()" data-i18n="ocrMemoryManage">Memory Rules စီမံမည်</button>
+                    </div>
+                    <div id="ocrMemoryManager" class="ocrMemoryManager" hidden>
+                      <div class="btnrow ocrMemoryManagerActions">
+                        <button class="btn secondary small" type="button" onclick="exportOcrCorrectionMemory()" data-i18n="ocrMemoryExport">Memory JSON ထုတ်မည်</button>
+                        <button class="btn gray small" type="button" onclick="document.getElementById('ocrMemoryImportFile').click()" data-i18n="ocrMemoryImport">Memory JSON ထည့်မည်</button>
+                        <button class="btn danger small" type="button" onclick="clearOcrCorrectionMemory()" data-i18n="ocrMemoryClear">Memory အားလုံးရှင်းမည်</button>
+                        <input id="ocrMemoryImportFile" type="file" accept="application/json,.json" hidden onchange="importOcrCorrectionMemory(event)">
+                      </div>
+                      <div id="ocrMemoryManagerList" class="ocrMemoryManagerList"></div>
+                    </div>
+                  </div>
+                  <div id="ocrIssueRoutePanel" class="ocrIssueRoutePanel" hidden>
+                    <div class="ocrIssueRouteHead"><div><b data-i18n="ocrIssuesTitle">မဖတ်နိုင်/မသေချာသောစာများ</b><small data-i18n="ocrIssuesHint">Issue တစ်ခုကိုနှိပ်လျှင် OCR စာထဲရှိ သက်ဆိုင်ရာစာကြောင်းကို တိုက်ရိုက်ရွေးပေးမည်။</small></div><span id="ocrIssueCountBadge">0</span></div>
+                    <div id="ocrIssueList" class="ocrIssueList"></div>
+                    <div class="btnrow ocrIssueActions">
+                      <button class="btn warn small" type="button" onclick="recheckCurrentOcrText()" data-i18n="recheckOcrText">ပြင်ပြီးစာကို ပြန်စစ်မည်</button>
+                      <button class="btn secondary small" type="button" onclick="sendCurrentOcrToEntryAndParse()" data-i18n="sendEntryParse">Entry သို့ပို့ပြီး Parser စစ်မည်</button>
+                    </div>
+                  </div>
+                  <div id="ocrEditorSaveState" class="ocrEditorSaveState" data-i18n="changesSaved">ပြင်ဆင်ချက်သိမ်းပြီး</div>
+                  <div class="btnrow ocrEditorActions">
+                    <button class="btn secondary small" type="button" onclick="saveCurrentOcrQueueEdits()" data-i18n="saveManualFix">စာပြင်ဆင်ချက်သိမ်းမည်</button>
+                    <button class="btn small" type="button" onclick="useOcrQueueTextToEntry('replace')" data-i18n="replaceEntry">Entry ကို အစားထိုးမည်</button>
+                    <button class="btn small" type="button" onclick="useOcrQueueTextToEntry('append')" data-i18n="appendEntry">Entry အောက်တွင်ဆက်ထည့်မည်</button>
+                  </div>
+                  <div class="btnrow ocrStatusActions">
+                    <button class="btn warn small" type="button" onclick="setCurrentOcrStatus('needs_fix')" data-i18n="markNeedsFix">ပြင်ရန်လိုအဖြစ်မှတ်မည်</button>
+                    <button class="btn secondary small" type="button" onclick="setCurrentOcrStatus('ready')" data-i18n="markReady">အဆင်သင့်အဖြစ်မှတ်မည်</button>
+                    <button class="btn small" type="button" onclick="setCurrentOcrStatus('completed')" data-i18n="markCompleted">ပြီးဆုံး Archive သို့ရွှေ့မည်</button>
+                    <button class="btn danger small" type="button" onclick="deleteCurrentOcrQueueImage()" data-i18n="deleteImage">ပုံကိုအပြီးဖျက်မည်</button>
+                  </div>
+                  <div class="ocrFolderPath" id="ocrFolderPath">Name / Date / Session</div>
+                </section>
               </div>
             </div>
           </div>
           <div class="btnrow imgActionRowSwap">
-            <button class="btn secondary" onclick="document.getElementById('entryImageUpload').click()" data-i18n="uploadImage">Upload Image</button>
-            <button class="btn warn" onclick="document.getElementById('entryImageCamera').click()" data-i18n="cameraBtn">Camera</button>
-            <button class="btn gray" onclick="clearEntryImage()" data-i18n="clearImage">Clear Image</button>
+            <button class="btn secondary" onclick="document.getElementById('entryImageUpload').click()" data-i18n="uploadImages">ပုံများတင်မည်</button>
+            <button class="btn warn" onclick="document.getElementById('entryImageCamera').click()" data-i18n="cameraBtn">ကင်မရာ</button>
+            <button class="btn gray" onclick="openOcrQueueWorkspace()" data-i18n="openOcrQueue">OCR စောင့်စာရင်းဖွင့်မည်</button>
           </div>
-          <div id="issueEditorWrap" class="issueBox" style="display:none">
-            <h3>အနီစာ ပြင်ရန် / Fix Lines</h3>
-            <div class="issueHint">မဖတ်နိုင်တဲ့စာတွေကို တစ်စုတည်းဒီနေရာမှာပဲ ပြင်နိုင်မယ်။ ဘယ် line ကိုပြင်မလဲရွေးပြီး <b>Find / Replace / Append / Apply & Reparse</b> ကို တစ်နေရာတည်းက လုပ်နိုင်မယ်။</div>
+          <div id="issueEditorWrap" class="issueBox issueReviewPanel" style="display:none">
+            <h3 data-i18n="fixLinesTitle">မဖတ်နိုင်သောစာများကို တစ်စုတည်းပြင်ရန်</h3>
+            <div class="issueHint" data-i18n="fixLinesHint">ပြင်ရန်ရှိသောစာအားလုံးကို တစ်ခုချင်းပြင်ပြီး နောက်ဆုံးတွင် တစ်ကြိမ်တည်း အသုံးချ၍ ပြန်ဖတ်နိုင်သည်။</div>
+            <div class="issueBatchBar">
+              <div><b id="issueBatchProgress">0 / 0</b><span data-i18n="issueBatchProgressLabel"> ပြင်ဆင်ချက်</span></div>
+              <button class="btn issueBatchApply" type="button" onclick="applyAllIssueEditsAndReparse()" data-i18n="applyAllReparse">ပြင်ဆင်ချက်အားလုံး အသုံးချပြီး ပြန်ဖတ်မည်</button>
+            </div>
             <div class="btnrow" style="margin-top:0">
               <button class="btn warn small" onclick="loadIssueLinesToEditor()">Load Red Lines Only</button>
               <button class="btn gray small" onclick="clearIssueEditor()">Hide</button>
@@ -446,7 +578,7 @@
             </div>
           </div>
 
-          <div id="saveFlowWrap" class="saveFlowBox">
+          <div id="saveFlowWrap" class="saveFlowBox duplicateReviewPanel">
             <h3>Save Preview / သိမ်းမည့်နေရာ စစ်ကြည့်</h3>
             <div class="saveFlowGrid">
               <div class="saveFlowPane">
@@ -473,7 +605,7 @@
           <div class="scroll"><table><thead><tr><th>Number</th><th class="right">Amount</th></tr></thead><tbody id="previewAgg"></tbody></table></div>
         </div>
 
-        <div class="card preview-card">
+        <div class="card preview-card entryPreviewCard" id="entryPreviewCard">
           <h2 data-i18n="previewDetail">Preview Detail</h2>
           <div id="warnBox" class="muted"></div>
           <div class="scroll"><table><thead><tr><th>No</th><th>Paste Card</th><th>Time</th><th>Name</th><th>Number</th><th class="right">Amount</th><th>Type</th><th>Source</th></tr></thead><tbody id="previewRows"></tbody></table></div>
@@ -613,7 +745,7 @@
     </div>
   </section>
 
-  <section id="reports" class="page">
+  <section id="reports" class="page reportLargeType">
     <div class="card">
       <h2>AM / PM / Daily Report / အစီရင်ခံစာ</h2>
       <div class="recordFilters">
@@ -633,7 +765,7 @@
       <div id="reportTotalBreakdown" class="reportDrillPanel" hidden></div>
       <div id="reportPBreakdown" class="reportDrillPanel" hidden></div>
       <div class="muted reportDrillHint">Desktop JPG များကို မူရင်းပုံစံအတိုင်း ဆက်သုံးနိုင်ပါတယ်။ 📱 Mobile JPG မှ Card / P / Final ကို 1080×1920 Portrait၊ စာလုံးကြီး၊ Full Source နဲ့ ထုတ်နိုင်ပါတယ်။ Share က Mobile Card JPG ကို default မျှဝေပါတယ်။</div>
-      <div class="reportBulkActions"><button class="reportDownloadAllBtn" type="button" onclick="downloadAllNameCardBreakdownJpg()">Download All Names</button><button class="reportDownloadAllMobileBtn" type="button" onclick="downloadAllNameMobileCardJpg()">📱 Download All Mobile</button><span class="muted small">Mobile JPG = 1080×1920 Portrait · Browser က multiple downloads ခွင့်တောင်းလျှင် Allow ကိုရွေးပါ။</span></div>
+      <div class="reportBulkActions"><button class="reportDownloadAllBtn" type="button" onclick="downloadAllNameCardBreakdownJpg()">Download All Names</button><button id="reportDownloadAllMobileBtn" class="reportDownloadAllMobileBtn" type="button" onclick="downloadAllNameMobileCardJpg()">📱 Mobile Report Download (အများဆုံး ၁ ပုံ)</button><span class="muted small">Mobile Report Data အပြည့်အစုံကို ၁ ပုံရှည်အဖြစ် စုစည်း Download လုပ်မည်။ Data မဖြတ်ပါ။ ဖုန်းတွင် Scroll ဆွဲကြည့်နိုင်သည်။</span></div>
       <h3 style="margin-top:12px">Name Summary / နာမည်အလိုက်</h3>
       <div class="scroll"><table id="reportNameRowsTable"><thead><tr><th>Name</th><th class="right">Total</th><th class="right">P Amount</th><th class="right">Payout</th><th class="right">Cor %</th><th class="right">Cor</th><th class="right">Final</th><th class="center">JPG Export</th></tr></thead><tbody id="reportNameRows"></tbody></table></div>
       <h3 style="margin-top:14px">Number Summary / နံပါတ်အလိုက်</h3>
@@ -666,7 +798,7 @@
     </div>
   </section>
 
-  <section id="image" class="page">
+  <section id="image" class="page reportLargeType">
     <div class="card">
       <h2>Image / Share Text Page / ပုံနှင့်မျှဝေစာ</h2>
       <div class="grid3">
@@ -1085,7 +1217,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 
-<script src="js/pwa.js?v=4.8C.0"></script>
-<script src="js/firebase-bootstrap.js?v=4.8C.0"></script>
+<script src="js/pwa.js?v=5.0A.4.1.7"></script>
+<script src="js/firebase-bootstrap.js?v=5.0A.4.1.7"></script>
 </body>
 </html>

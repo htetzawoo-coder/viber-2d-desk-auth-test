@@ -631,11 +631,14 @@ function showToast(msg,type='',duration=4200){
   },Math.max(2500,Number(duration)||4200));
 }
 function saveRecords(){
+  // Stage 5.0A.4.1.7: Card numbers are gap-free and ordered by the original
+  // Viber message time for each Name / Date / Session before every save.
+  normalizeCardNumbersByOriginalViberTime(records);
   // Memory -> best-effort local cache -> Cloud auto-sync. Cloud is the authoritative store.
   userSetItem('v2d_records',JSON.stringify(records));
 }
 
-const CLOUD_SYNC_VERSION='5.0A.4.1.4';
+const CLOUD_SYNC_VERSION='5.0A.4.1.7';
 const CLOUD_STATE_DOC_ID='state';
 const LEGACY_CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=3000;
@@ -753,17 +756,21 @@ function compactAuditForCloud(items){
   }));
 }
 function normalizeCloudRecords(items){
-  return (Array.isArray(items)?items:[]).map((row,index)=>({
+  const normalized=(Array.isArray(items)?items:[]).map((row,index)=>({
     ...row,
     id:row?.id||`legacy-${row?.ts||0}-${index}-${row?.number||'00'}-${row?.amount||0}`,
     cardId:row?.cardId||'',
     cardNumber:Number(row?.cardNumber||0)||0,
     cardIndexInBatch:Number(row?.cardIndexInBatch||row?.cardIndexInPaste||0)||0,
-    cardTime:row?.cardTime||'',
-    cardHeaderStamp:row?.cardHeaderStamp||row?.headerStamp||'',
+    cardTime:row?.cardOriginalTime||row?.cardTime||'',
+    cardOriginalTime:row?.cardOriginalTime||row?.cardTime||'',
+    cardHeaderStamp:row?.cardOriginalHeaderStamp||row?.cardHeaderStamp||row?.headerStamp||'',
+    cardOriginalHeaderStamp:row?.cardOriginalHeaderStamp||row?.cardHeaderStamp||row?.headerStamp||'',
     cardHeaderName:row?.cardHeaderName||'',
     cardRawText:row?.cardRawText||''
   }));
+  normalizeCardNumbersByOriginalViberTime(normalized);
+  return normalized;
 }
 function currentWorkspaceState(){
   return {
@@ -981,7 +988,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.4.1.4 Adaptive OCR Memory · Final UI Polish',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.4.1.7 Adaptive OCR Memory · Final UI Polish',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -2515,7 +2522,7 @@ let ocrProcessingId='';
 let ocrProgressContext={index:0,total:1,fileName:''};
 
 
-// Stage 5.0A.4.1.4 — Adaptive OCR Correction Memory (local, human-confirmed).
+// Stage 5.0A.4.1.7 — Adaptive OCR Correction Memory (local, human-confirmed).
 // This does not retrain Tesseract. It remembers repeated manual corrections and
 // offers conservative suggestions only after the same correction is confirmed 3 times.
 const OCR_MEMORY_STORAGE_KEY='v2d_ocr_correction_memory_v1';
@@ -2641,7 +2648,7 @@ function toggleOcrMemoryManager(){ocrMemoryManagerOpen=!ocrMemoryManagerOpen;ren
 function toggleOcrMemoryRule(id){const rules=readOcrCorrectionMemory(),rule=rules.find(x=>x.id===id);if(!rule)return;rule.enabled=rule.enabled===false;rule.updatedAt=Date.now();saveOcrCorrectionMemory(rules);renderOcrMemoryPanel(currentOcrQueueItem());}
 function deleteOcrMemoryRule(id){if(!confirm(ocrQueueText('Delete this OCR correction memory rule?','ဤ OCR Correction Memory Rule ကိုဖျက်မလား?')))return;saveOcrCorrectionMemory(readOcrCorrectionMemory().filter(x=>x.id!==id));renderOcrMemoryPanel(currentOcrQueueItem());}
 function rejectOcrMemoryRule(id){const rules=readOcrCorrectionMemory(),rule=rules.find(x=>x.id===id);if(!rule)return;rule.rejectedCount=Number(rule.rejectedCount||0)+1;rule.updatedAt=Date.now();if(Number(rule.rejectedCount||0)>=Number(rule.confirmations||0))rule.enabled=false;saveOcrCorrectionMemory(rules);renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('Suggestion rejected. Repeated rejections can disable the rule.','အကြံပြုချက်ကို ပယ်ထားပါပြီ။ ထပ်ခါတလဲလဲပယ်ပါက Rule ကို ပိတ်ပါမည်။'),'warn');}
-function exportOcrCorrectionMemory(){const payload={app:'Viber 2D Desk',version:'5.0A.4.1.4',type:'ocr-correction-memory',exportedAt:new Date().toISOString(),rules:readOcrCorrectionMemory()};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`v2d-ocr-memory-${today()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function exportOcrCorrectionMemory(){const payload={app:'Viber 2D Desk',version:'5.0A.4.1.7',type:'ocr-correction-memory',exportedAt:new Date().toISOString(),rules:readOcrCorrectionMemory()};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`v2d-ocr-memory-${today()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 async function importOcrCorrectionMemory(event){const file=event?.target?.files?.[0];if(event?.target)event.target.value='';if(!file)return;try{const parsed=JSON.parse(await file.text());const incoming=Array.isArray(parsed)?parsed:Array.isArray(parsed?.rules)?parsed.rules:[];if(!incoming.length)throw new Error('No rules found');const current=readOcrCorrectionMemory(),map=new Map(current.map(x=>[x.key||ocrMemoryRuleKey(x.from,x.to,x.writer,x.mode),x]));incoming.forEach(row=>{if(!row?.from||!row?.to)return;const writer=String(row.writer||'AUTO').toUpperCase(),mode=['token','line','text'].includes(row.mode)?row.mode:'token',key=ocrMemoryRuleKey(row.from,row.to,writer,mode),old=map.get(key);if(old){old.confirmations=Math.max(Number(old.confirmations||0),Number(row.confirmations||0));old.appliedCount=Math.max(Number(old.appliedCount||0),Number(row.appliedCount||0));old.rejectedCount=Math.max(Number(old.rejectedCount||0),Number(row.rejectedCount||0));old.updatedAt=Date.now();}else map.set(key,{...row,id:row.id||`mem-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key,writer,mode,enabled:row.enabled!==false,createdAt:Number(row.createdAt||Date.now()),updatedAt:Date.now()});});saveOcrCorrectionMemory([...map.values()].slice(0,OCR_MEMORY_MAX_RULES));renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('OCR correction memory imported locally.','OCR Correction Memory ကို Local ထဲသို့ Import လုပ်ပြီးပါပြီ'),'success');}catch(error){console.error(error);showToast(ocrQueueText('Invalid OCR memory JSON file.','OCR Memory JSON ဖိုင်မမှန်ပါ'),'error');}}
 function clearOcrCorrectionMemory(){if(!confirm(ocrQueueText('Clear all local OCR correction memory rules? This cannot be undone.','Local OCR Correction Memory Rule အားလုံးကို ဖျက်မလား? ပြန်ယူမရပါ။')))return;localStorage.removeItem(ocrMemoryStorageKey());renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('Local OCR correction memory cleared.','Local OCR Correction Memory ကိုရှင်းပြီးပါပြီ'),'success');}
 
@@ -3234,7 +3241,7 @@ function buildParserIssueReportPayload(){
     reportScope:ctx.filtered?'issue-cards-only':'current-preview',
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'5.0A.4.1.4',
+    appVersion:'5.0A.4.1.7',
     parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
@@ -3625,6 +3632,89 @@ function clearIssueEditor(){
 function normalizeDuplicateText(s){
   return String(s||'').replace(/\s+/g,' ').trim();
 }
+
+// Stage 5.0A.4.1.7 — Stable Card Numbering
+// Card numbers restart for each Name / Date / Session and follow the original
+// Viber message time. Deleting a card closes the number gap, so the next card
+// automatically takes the deleted number. Editing never changes original time.
+function viberCardTimeMinutes(value,session=''){
+  const text=String(value||'').trim().toUpperCase();
+  if(!text) return Number.POSITIVE_INFINITY;
+  const match=text.match(/(\d{1,2})\s*[:.]\s*(\d{1,2})(?:\s*(AM|PM))?/i);
+  if(!match) return Number.POSITIVE_INFINITY;
+  let hour=Number(match[1]);
+  const minute=Number(match[2]);
+  if(!Number.isFinite(hour)||!Number.isFinite(minute)||minute<0||minute>59) return Number.POSITIVE_INFINITY;
+  const meridiem=String(match[3]||session||'').toUpperCase();
+  if(meridiem==='AM'||meridiem==='PM'){
+    hour=hour%12;
+    if(meridiem==='PM') hour+=12;
+  }
+  if(hour<0||hour>23) return Number.POSITIVE_INFINITY;
+  return hour*60+minute;
+}
+function normalizeCardNumbersByOriginalViberTime(list=records){
+  if(!Array.isArray(list)||!list.length) return false;
+  const scopes=new Map();
+  list.forEach((row,rowIndex)=>{
+    if(!row?.cardId) return;
+    const name=String(row.name||'Default');
+    const date=String(row.date||'');
+    const session=String(row.session||'AM').toUpperCase().startsWith('P')?'PM':'AM';
+    const scopeKey=`${name}__${date}__${session}`;
+    if(!scopes.has(scopeKey)) scopes.set(scopeKey,new Map());
+    const cards=scopes.get(scopeKey);
+    const cardId=String(row.cardId);
+    if(!cards.has(cardId)){
+      const originalTime=String(row.cardOriginalTime||row.cardTime||'');
+      cards.set(cardId,{
+        cardId,
+        rows:[],
+        time:originalTime,
+        minutes:viberCardTimeMinutes(originalTime,session),
+        ts:Number(row.ts||0)||0,
+        batchIndex:Number(row.cardIndexInBatch||row.cardIndexInPaste||0)||0,
+        firstIndex:rowIndex
+      });
+    }
+    const card=cards.get(cardId);
+    card.rows.push(row);
+    const originalTime=String(row.cardOriginalTime||row.cardTime||'');
+    if(!card.time&&originalTime){card.time=originalTime;card.minutes=viberCardTimeMinutes(originalTime,session);}
+    const rowTs=Number(row.ts||0)||0;
+    if(rowTs&&(!card.ts||rowTs<card.ts)) card.ts=rowTs;
+    const rowBatchIndex=Number(row.cardIndexInBatch||row.cardIndexInPaste||0)||0;
+    if(rowBatchIndex&&(!card.batchIndex||rowBatchIndex<card.batchIndex)) card.batchIndex=rowBatchIndex;
+    card.firstIndex=Math.min(card.firstIndex,rowIndex);
+  });
+  let changed=false;
+  scopes.forEach(cards=>{
+    const ordered=[...cards.values()].sort((a,b)=>{
+      const aTimed=Number.isFinite(a.minutes),bTimed=Number.isFinite(b.minutes);
+      if(aTimed!==bTimed) return aTimed?-1:1;
+      if(aTimed&&a.minutes!==b.minutes) return a.minutes-b.minutes;
+      if((a.ts||0)!==(b.ts||0)) return (a.ts||0)-(b.ts||0);
+      if((a.batchIndex||0)!==(b.batchIndex||0)) return (a.batchIndex||0)-(b.batchIndex||0);
+      if(a.firstIndex!==b.firstIndex) return a.firstIndex-b.firstIndex;
+      return a.cardId.localeCompare(b.cardId);
+    });
+    ordered.forEach((card,index)=>{
+      const nextNumber=index+1;
+      card.rows.forEach(row=>{
+        const originalTime=String(row.cardOriginalTime||row.cardTime||card.time||'');
+        const originalStamp=String(row.cardOriginalHeaderStamp||row.cardHeaderStamp||row.headerStamp||'');
+        if(Number(row.cardNumber||0)!==nextNumber) changed=true;
+        if(row.cardTime!==originalTime||row.cardOriginalTime!==originalTime) changed=true;
+        row.cardNumber=nextNumber;
+        row.cardTime=originalTime;
+        row.cardOriginalTime=originalTime;
+        row.cardHeaderStamp=originalStamp;
+        row.cardOriginalHeaderStamp=originalStamp;
+      });
+    });
+  });
+  return changed;
+}
 function targetCardKey(name,date,session){
   return `${String(name||'Default')}__${String(date||today())}__${String(session||'AM')}`;
 }
@@ -3663,7 +3753,9 @@ function prepareRowsWithCardMetadata(rows,{batchId,selectedName,selectedDate,sel
     rowCounters.set(assignmentKey,nextRow);
     const keepRaw=!rawStoredCards.has(assignmentKey);
     rawStoredCards.add(assignmentKey);
-    return {...r,...card,name,date,session,cardBlockKey:sourceCardKey,cardRawText:keepRaw?(r.cardRawText||r.source||''):'',cardTime:r.cardTime||'',cardHeaderStamp:r.cardHeaderStamp||r.headerStamp||'',cardHeaderName:r.cardHeaderName||'',cardSourceLine:Number(r.cardSourceLine||0)||0,rowIndexInCard:nextRow,batchId};
+    const originalCardTime=r.cardOriginalTime||r.cardTime||'';
+    const originalCardStamp=r.cardOriginalHeaderStamp||r.cardHeaderStamp||r.headerStamp||'';
+    return {...r,...card,name,date,session,cardBlockKey:sourceCardKey,cardRawText:keepRaw?(r.cardRawText||r.source||''):'',cardTime:originalCardTime,cardOriginalTime:originalCardTime,cardHeaderStamp:originalCardStamp,cardOriginalHeaderStamp:originalCardStamp,cardHeaderName:r.cardHeaderName||'',cardSourceLine:Number(r.cardSourceLine||0)||0,rowIndexInCard:nextRow,batchId};
   });
 }
 function savePreview(skipDuplicateCheck=false, duplicateMode='warn'){
@@ -4785,7 +4877,7 @@ function buildNameFinalReportMobileJpgCanvases(name){
   });
   return {date,session,name,summary,cards,pCards,pages:outputs};
 }
-// Stage 5.0A.4.1.4 — Complete Mobile Report data in a single long image file.
+// Stage 5.0A.4.1.7 — Complete Mobile Report data in a single long image file.
 // Existing 1080×1920 pages are preserved, then vertically stitched into one or two
 // long mobile JPGs. This keeps every row/source line instead of dropping data or
 // requiring the user to click repeatedly for later pages.
@@ -5521,13 +5613,16 @@ function deleteSelectedCard(){
   if(!confirm(`${card.name} Card #${card.cardNumber||'-'} (${card.rows.length} rows / ${money(card.total)}) ကို အပြီးဖျက်မလား?`)) return;
   snapshotBeforeChange('Delete Card',{name:card.name,date:card.date,session:card.session,cardNumber:card.cardNumber});
   const raw=card.rawText||'';
+  const sameScope=buildCardNavigatorCards(false).filter(item=>item.name===card.name&&item.date===card.date&&item.session===card.session);
+  const deletedIndex=sameScope.findIndex(item=>item.cardId===card.cardId);
+  const replacementId=sameScope[deletedIndex+1]?.cardId||sameScope[deletedIndex-1]?.cardId||'';
   records=records.filter(r=>r.cardId!==card.cardId);
-  currentSelectedCardId='';
+  currentSelectedCardId=replacementId;
   saveRecords();
   saveCloudSnapshot(false);
-  pushAudit('DELETE_CARD',{label:`${card.name} Card #${card.cardNumber||'-'}`,summary:`${card.rows.length} rows / ${money(card.total)} ဖျက်ပြီး`,name:card.name,date:card.date,session:card.session,rawText:raw});
+  pushAudit('DELETE_CARD',{label:`${card.name} Card #${card.cardNumber||'-'}`,summary:`${card.rows.length} rows ဖျက်ပြီး · နောက် Card များကို Viber Time အလိုက် နံပါတ်ပြန်စီ`,name:card.name,date:card.date,session:card.session,rawText:raw});
   renderAll();
-  showToast('Card ဖျက်ပြီး Cloud Sync လုပ်နေပါသည်');
+  showToast(currentUiLang()==='en'?'Card deleted. The next card moved up and card numbers were resequenced by original Viber time.':'Card ဖျက်ပြီးပါပြီ။ အောက်က Card က အစားထိုးတက်လာပြီး မူရင်း Viber Time အလိုက် Card Number ပြန်စီထားပါတယ်။');
 }
 function scheduleGroupEditPreview(){
   clearTimeout(groupEditPreviewTimer);
@@ -5627,9 +5722,9 @@ function openGroupEditByRecord(id){
       if(src && !seen.has(src)){ seen.add(src); lines.push(src); }
     });
   }
-  currentGroupEdit = {scope:isCard?'CARD':'BATCH',cardId:row.cardId||'',cardNumber:Number(row.cardNumber||0)||0,cardTime:row.cardTime||'',cardHeaderStamp:row.cardHeaderStamp||'',cardHeaderName:row.cardHeaderName||'',cardIndexInBatch:Number(row.cardIndexInBatch||0)||0,batchId, oldName:rowName, oldDate:row.date, oldSession:row.session, ts:row.ts||Date.now(), writerProfile: normalizeWriterProfile(row.writerProfile||'AUTO')};
+  currentGroupEdit = {scope:isCard?'CARD':'BATCH',cardId:row.cardId||'',cardNumber:Number(row.cardNumber||0)||0,cardTime:row.cardOriginalTime||row.cardTime||'',cardOriginalTime:row.cardOriginalTime||row.cardTime||'',cardHeaderStamp:row.cardOriginalHeaderStamp||row.cardHeaderStamp||'',cardOriginalHeaderStamp:row.cardOriginalHeaderStamp||row.cardHeaderStamp||'',cardHeaderName:row.cardHeaderName||'',cardIndexInBatch:Number(row.cardIndexInBatch||0)||0,batchId, oldName:rowName, oldDate:row.date, oldSession:row.session, ts:row.ts||Date.now(), writerProfile: normalizeWriterProfile(row.writerProfile||'AUTO')};
   setText('groupEditTitle',isCard?`Card Edit #${row.cardNumber||'-'} / ကတ်ပြင်ရန်`:'Group Edit / Batch Edit');
-  setText('groupEditHelp',isCard?'ရွေးထားသော Viber Card တစ်ကတ်တည်းကို ပြင်ပြီး ပြန် Parse/Save လုပ်မယ်။ အခြားကတ်များ မထိခိုက်ပါ။':'ဒီ box ထဲမှာ batch/group source text ကို ပြင်လိုက်တာနဲ့ သက်ဆိုင်ရာ row တွေအကုန်တခါတည်းချိန်းပေးမယ်။');
+  setText('groupEditHelp',isCard?'ရွေးထားသော Viber Card တစ်ကတ်တည်းကို ပြင်ပြီး ပြန် Parse/Save လုပ်မယ်။ မူရင်း Viber Time ကို မပြောင်းဘဲ ထိန်းထားပြီး Card Number ကို Name အလိုက် Time စဉ်နဲ့ ပြန်စီမယ်။':'ဒီ box ထဲမှာ batch/group source text ကို ပြင်လိုက်တာနဲ့ သက်ဆိုင်ရာ row တွေအကုန်တခါတည်းချိန်းပေးမယ်။');
   setVal('groupEditName', rowName);
   setVal('groupEditDate', row.date||today());
   setVal('groupEditSession', row.session||'AM');
@@ -5670,7 +5765,9 @@ function applyGroupEdit(){
     const rowName = isCard ? name : (r.name || name);
     const finalCardId=isCard?cardId:(r.cardId||'');
     const groupId = `${finalCardId||currentGroupEdit.batchId}__${rowName}__${String(r.source||'').trim()}`;
-    records.push({...r, name:rowName, date, session, ts:currentGroupEdit.ts, batchId:currentGroupEdit.batchId, groupId, writerProfile,cardId:finalCardId,cardNumber:isCard?cardNumber:(r.cardNumber||0),cardIndexInBatch:isCard?currentGroupEdit.cardIndexInBatch:(r.cardIndexInPaste||0),cardTime:isCard?(r.cardTime||currentGroupEdit.cardTime||''):(r.cardTime||''),cardHeaderStamp:isCard?(r.cardHeaderStamp||currentGroupEdit.cardHeaderStamp||''):(r.cardHeaderStamp||''),cardHeaderName:isCard?(r.cardHeaderName||currentGroupEdit.cardHeaderName||''):(r.cardHeaderName||''),cardRawText:editIndex===0?text:'', id:crypto.randomUUID?crypto.randomUUID():String(currentGroupEdit.ts)+Math.random(), editedAt:Date.now()});
+    const preservedCardTime=isCard?(currentGroupEdit.cardOriginalTime||currentGroupEdit.cardTime||''):(r.cardOriginalTime||r.cardTime||'');
+    const preservedCardStamp=isCard?(currentGroupEdit.cardOriginalHeaderStamp||currentGroupEdit.cardHeaderStamp||''):(r.cardOriginalHeaderStamp||r.cardHeaderStamp||'');
+    records.push({...r, name:rowName, date, session, ts:currentGroupEdit.ts, batchId:currentGroupEdit.batchId, groupId, writerProfile,cardId:finalCardId,cardNumber:isCard?cardNumber:(r.cardNumber||0),cardIndexInBatch:isCard?currentGroupEdit.cardIndexInBatch:(r.cardIndexInPaste||0),cardTime:preservedCardTime,cardOriginalTime:preservedCardTime,cardHeaderStamp:preservedCardStamp,cardOriginalHeaderStamp:preservedCardStamp,cardHeaderName:isCard?(currentGroupEdit.cardHeaderName||r.cardHeaderName||''):(r.cardHeaderName||''),cardRawText:editIndex===0?text:'', id:crypto.randomUUID?crypto.randomUUID():String(currentGroupEdit.ts)+Math.random(), editedAt:Date.now()});
   });
   if(isCard){
     currentSelectedCardId=cardId;
@@ -5723,8 +5820,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='5.0A.4.1.4';
-const APP_VERSION_LABEL='Stage 5.0A.4.1.4 Adaptive OCR Memory · Final UI Polish';
+const APP_VERSION='5.0A.4.1.7';
+const APP_VERSION_LABEL='Stage 5.0A.4.1.7 Adaptive OCR Memory · Final UI Polish';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -6329,7 +6426,7 @@ function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'
 function go(id){
   if(id==='ownerUsers') id='ownerDashboard'; // backward-compatible alias from Stage 4.5
   if((id==='ownerParser'||id==='ownerDashboard')&&!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
-  // Stage 5.0A.4.1.4: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
+  // Stage 5.0A.4.1.7: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
   // This avoids unnecessary startup reads for normal Entry/OCR work.
   if(IS_APP_OWNER && id==='ownerParser' && (!ownerReportsUnsub || !ownerGlobalRulesUnsub || !ownerWorkspaceRulesUnsub)){
     console.info('[V2D] Lazy-loading Owner Parser listeners.');
@@ -6530,7 +6627,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 5.0A.4.1.4 Adaptive OCR Memory · Final UI Polish',
+    version:'Stage 5.0A.4.1.7 Adaptive OCR Memory · Final UI Polish',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,
@@ -6658,6 +6755,11 @@ function init(){
     console.error('Authenticated user မရှိဘဲ App init လုပ်မရပါ');
     return;
   }
+  // One-time compatibility pass for existing records from earlier versions.
+  // If old card numbers contain gaps or save-order numbering, convert them to
+  // original Viber-time order per Name / Date / Session.
+  const cardSequenceChanged=normalizeCardNumbersByOriginalViberTime(records);
+  if(cardSequenceChanged) saveRecords();
   const authName=document.getElementById('authUserName');
   const authEmail=document.getElementById('authUserEmail');
   if(authName) authName.textContent=CURRENT_USER.displayName||window.V2D_CURRENT_PROFILE?.displayName||'User';

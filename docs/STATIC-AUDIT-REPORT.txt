@@ -1,4 +1,4 @@
-Viber 2D Desk — Stage 5.0A.4.1.4 Static Audit
+Viber 2D Desk — Stage 5.0A.4.1.7 Static Audit
 
 Scope
 - Final UI polish applied on the tested Stage 5.0A.4.0 Adaptive OCR Memory baseline.
@@ -18,7 +18,15 @@ Runtime status
 - Local browser acceptance is still required before GitHub Pages deployment.
 
 
-Stage 5.0A.4.1.4 — Mobile report single long image
+Stage 5.0A.4.1.7 — Mobile report single long image
 - Mobile Report Download now outputs one long JPG only.
 - Repeated top summary block is shown once at the top of the first page only; inner page headers/footers are cropped during merge.
 - Full data is preserved; phone users can scroll the long image.
+
+
+Stage 5.0A.4.1.7 — Stable Card Number + Original Viber Time
+- Card numbers are gap-free per Name / Date / Session.
+- Deleting Card #N makes the next card take #N; later cards move up automatically.
+- Card numbering follows the original Viber message time, not save/edit time.
+- Editing a card preserves its original Viber time and original header timestamp.
+- Existing records are normalized automatically after update.

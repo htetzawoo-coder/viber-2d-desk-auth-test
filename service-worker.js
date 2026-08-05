@@ -1,11 +1,11 @@
-const V2D_CACHE = "v2d-desk-shell-v5.0A.4.1";
-const V2D_RUNTIME = "v2d-desk-runtime-v5.0A.4.1";
+const V2D_CACHE = "v2d-desk-shell-v5.0A.4.1.4";
+const V2D_RUNTIME = "v2d-desk-runtime-v5.0A.4.1.4";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
   "./css/styles.css",
-  "./css/stage-5.0A.4.1.css",
+  "./css/stage-5.0A.4.1.4.css",
   "./js/firebase-bootstrap.js",
   "./js/firebase-config.js",
   "./js/auth.js",

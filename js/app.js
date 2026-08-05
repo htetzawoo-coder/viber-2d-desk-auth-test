@@ -635,7 +635,7 @@ function saveRecords(){
   userSetItem('v2d_records',JSON.stringify(records));
 }
 
-const CLOUD_SYNC_VERSION='5.0A.4.1';
+const CLOUD_SYNC_VERSION='5.0A.4.1.4';
 const CLOUD_STATE_DOC_ID='state';
 const LEGACY_CLOUD_WORKSPACE_DOC_ID='current_workspace';
 const CLOUD_SYNC_DEBOUNCE_MS=3000;
@@ -981,7 +981,7 @@ function buildStructuredStatePayload(reason,recordMap){
   const stateHash=workspaceStateHash(state);
   const contentHash=structuredContentHash(stateHash,recordMap);
   return {
-    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.4.1 Adaptive OCR Memory · Final UI Polish',
+    type:'cloud_first_state', schemaVersion:4, app:'Viber 2D Desk', version:'Stage 5.0A.4.1.4 Adaptive OCR Memory · Final UI Polish',
     syncVersion:CLOUD_SYNC_VERSION, ownerUid:CURRENT_UID, ownerEmail:CURRENT_USER?.email||'', deviceId:DEVICE_ID,
     reason, revision:(Number(cloudSyncState.revision||0)+1), stateHash, contentHash, recordManifestHash:recordManifestHash(recordMap), recordCount:recordMap.size,
     ...state,
@@ -2515,7 +2515,7 @@ let ocrProcessingId='';
 let ocrProgressContext={index:0,total:1,fileName:''};
 
 
-// Stage 5.0A.4.1 — Adaptive OCR Correction Memory (local, human-confirmed).
+// Stage 5.0A.4.1.4 — Adaptive OCR Correction Memory (local, human-confirmed).
 // This does not retrain Tesseract. It remembers repeated manual corrections and
 // offers conservative suggestions only after the same correction is confirmed 3 times.
 const OCR_MEMORY_STORAGE_KEY='v2d_ocr_correction_memory_v1';
@@ -2641,7 +2641,7 @@ function toggleOcrMemoryManager(){ocrMemoryManagerOpen=!ocrMemoryManagerOpen;ren
 function toggleOcrMemoryRule(id){const rules=readOcrCorrectionMemory(),rule=rules.find(x=>x.id===id);if(!rule)return;rule.enabled=rule.enabled===false;rule.updatedAt=Date.now();saveOcrCorrectionMemory(rules);renderOcrMemoryPanel(currentOcrQueueItem());}
 function deleteOcrMemoryRule(id){if(!confirm(ocrQueueText('Delete this OCR correction memory rule?','ဤ OCR Correction Memory Rule ကိုဖျက်မလား?')))return;saveOcrCorrectionMemory(readOcrCorrectionMemory().filter(x=>x.id!==id));renderOcrMemoryPanel(currentOcrQueueItem());}
 function rejectOcrMemoryRule(id){const rules=readOcrCorrectionMemory(),rule=rules.find(x=>x.id===id);if(!rule)return;rule.rejectedCount=Number(rule.rejectedCount||0)+1;rule.updatedAt=Date.now();if(Number(rule.rejectedCount||0)>=Number(rule.confirmations||0))rule.enabled=false;saveOcrCorrectionMemory(rules);renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('Suggestion rejected. Repeated rejections can disable the rule.','အကြံပြုချက်ကို ပယ်ထားပါပြီ။ ထပ်ခါတလဲလဲပယ်ပါက Rule ကို ပိတ်ပါမည်။'),'warn');}
-function exportOcrCorrectionMemory(){const payload={app:'Viber 2D Desk',version:'5.0A.4.1',type:'ocr-correction-memory',exportedAt:new Date().toISOString(),rules:readOcrCorrectionMemory()};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`v2d-ocr-memory-${today()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function exportOcrCorrectionMemory(){const payload={app:'Viber 2D Desk',version:'5.0A.4.1.4',type:'ocr-correction-memory',exportedAt:new Date().toISOString(),rules:readOcrCorrectionMemory()};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`v2d-ocr-memory-${today()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 async function importOcrCorrectionMemory(event){const file=event?.target?.files?.[0];if(event?.target)event.target.value='';if(!file)return;try{const parsed=JSON.parse(await file.text());const incoming=Array.isArray(parsed)?parsed:Array.isArray(parsed?.rules)?parsed.rules:[];if(!incoming.length)throw new Error('No rules found');const current=readOcrCorrectionMemory(),map=new Map(current.map(x=>[x.key||ocrMemoryRuleKey(x.from,x.to,x.writer,x.mode),x]));incoming.forEach(row=>{if(!row?.from||!row?.to)return;const writer=String(row.writer||'AUTO').toUpperCase(),mode=['token','line','text'].includes(row.mode)?row.mode:'token',key=ocrMemoryRuleKey(row.from,row.to,writer,mode),old=map.get(key);if(old){old.confirmations=Math.max(Number(old.confirmations||0),Number(row.confirmations||0));old.appliedCount=Math.max(Number(old.appliedCount||0),Number(row.appliedCount||0));old.rejectedCount=Math.max(Number(old.rejectedCount||0),Number(row.rejectedCount||0));old.updatedAt=Date.now();}else map.set(key,{...row,id:row.id||`mem-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key,writer,mode,enabled:row.enabled!==false,createdAt:Number(row.createdAt||Date.now()),updatedAt:Date.now()});});saveOcrCorrectionMemory([...map.values()].slice(0,OCR_MEMORY_MAX_RULES));renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('OCR correction memory imported locally.','OCR Correction Memory ကို Local ထဲသို့ Import လုပ်ပြီးပါပြီ'),'success');}catch(error){console.error(error);showToast(ocrQueueText('Invalid OCR memory JSON file.','OCR Memory JSON ဖိုင်မမှန်ပါ'),'error');}}
 function clearOcrCorrectionMemory(){if(!confirm(ocrQueueText('Clear all local OCR correction memory rules? This cannot be undone.','Local OCR Correction Memory Rule အားလုံးကို ဖျက်မလား? ပြန်ယူမရပါ။')))return;localStorage.removeItem(ocrMemoryStorageKey());renderOcrMemoryPanel(currentOcrQueueItem());showToast(ocrQueueText('Local OCR correction memory cleared.','Local OCR Correction Memory ကိုရှင်းပြီးပါပြီ'),'success');}
 
@@ -3234,7 +3234,7 @@ function buildParserIssueReportPayload(){
     reportScope:ctx.filtered?'issue-cards-only':'current-preview',
     issueCount:st.issueCount,
     warningCount:st.warningCount,
-    appVersion:'5.0A.4.1',
+    appVersion:'5.0A.4.1.4',
     parserVersion:'core-3.12.2-stage4.4-runtime-rules',
     status:'new',
     localCreatedAt:new Date().toISOString()
@@ -4785,11 +4785,112 @@ function buildNameFinalReportMobileJpgCanvases(name){
   });
   return {date,session,name,summary,cards,pCards,pages:outputs};
 }
+// Stage 5.0A.4.1.4 — Complete Mobile Report data in a single long image file.
+// Existing 1080×1920 pages are preserved, then vertically stitched into one or two
+// long mobile JPGs. This keeps every row/source line instead of dropping data or
+// requiring the user to click repeatedly for later pages.
+const REPORT_MOBILE_MAX_OUTPUT_FILES=1;
+const REPORT_MOBILE_MAX_MERGED_HEIGHT=32000;
+
+function reportMobileOutputStem(filename){
+  return String(filename||'mobile-report.jpg')
+    .replace(/_part-\d+(?:-of-\d+)?(?=\.jpe?g$)/i,'')
+    .replace(/\.jpe?g$/i,'');
+}
+function reportMobileBalancedGroups(pages,maxGroups=REPORT_MOBILE_MAX_OUTPUT_FILES){
+  const list=(pages||[]).filter(item=>item?.canvas);
+  if(list.length<=maxGroups) return list.map(item=>[item]);
+  const groups=[];
+  let cursor=0;
+  let remainingHeight=list.reduce((sum,item)=>sum+Number(item.canvas.height||MOBILE_REPORT_H),0);
+  for(let groupIndex=0;groupIndex<maxGroups;groupIndex++){
+    const groupsLeft=maxGroups-groupIndex;
+    const itemsLeft=list.length-cursor;
+    if(groupsLeft===1){groups.push(list.slice(cursor));break;}
+    const target=remainingHeight/groupsLeft;
+    const group=[]; let used=0;
+    const minimumRemaining=groupsLeft-1;
+    while(cursor<list.length-minimumRemaining){
+      const item=list[cursor];
+      const h=Number(item.canvas.height||MOBILE_REPORT_H);
+      if(group.length && used+h>target) break;
+      group.push(item); used+=h; cursor++;
+    }
+    if(!group.length && cursor<list.length){
+      const item=list[cursor++]; group.push(item); used+=Number(item.canvas.height||MOBILE_REPORT_H);
+    }
+    groups.push(group); remainingHeight-=used;
+  }
+  return groups.filter(group=>group.length);
+}
+function reportMobilePageSections(group){
+  const topCrop=345;
+  const footerCrop=62;
+  const separator=18;
+  return group.filter(item=>item?.canvas).map((item,index)=>{
+    const source=item.canvas;
+    const sourceH=Number(source.height||MOBILE_REPORT_H);
+    const isFirst=index===0;
+    const sy=isFirst?0:Math.min(topCrop,Math.max(0,sourceH-1));
+    const sh=Math.max(1,sourceH-sy-footerCrop);
+    return {source,sy,sh,separatorAfter:index<group.length-1?separator:0};
+  });
+}
+function reportMobileMergeGroup(group,filename){
+  const sections=reportMobilePageSections(group);
+  if(!sections.length) return null;
+  const naturalHeight=sections.reduce((sum,part)=>sum+part.sh+part.separatorAfter,0);
+  const scale=Math.min(1,REPORT_MOBILE_MAX_MERGED_HEIGHT/naturalHeight);
+  const canvas=document.createElement('canvas');
+  canvas.width=MOBILE_REPORT_W;
+  canvas.height=Math.max(1,Math.ceil(naturalHeight*scale));
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#f8fafc';ctx.fillRect(0,0,canvas.width,canvas.height);
+  let y=0;
+  sections.forEach((part,index)=>{
+    const drawW=Math.round(MOBILE_REPORT_W*scale);
+    const drawH=Math.round(part.sh*scale);
+    const x=Math.round((MOBILE_REPORT_W-drawW)/2);
+    ctx.drawImage(part.source,0,part.sy,part.source.width,part.sh,x,y,drawW,drawH);
+    y+=drawH;
+    if(index<sections.length-1){
+      const gap=Math.max(4,Math.round(part.separatorAfter*scale));
+      ctx.fillStyle='#e2e8f0';ctx.fillRect(0,y,MOBILE_REPORT_W,gap);
+      y+=gap;
+    }
+  });
+  return {canvas,filename};
+}
+function reportMobileConsolidatePages(pages,{filenameStem='mobile-report'}={}){
+  const list=(pages||[]).filter(item=>item?.canvas);
+  if(!list.length) return [];
+  const merged=reportMobileMergeGroup(list,`${filenameStem}.jpg`);
+  return merged?[merged]:[];
+}
+function reportMobileConsolidateBuilt(built,label='mobile-report'){
+  if(!built) return null;
+  const pages=Array.isArray(built.pages)?built.pages:[];
+  if(!pages.length) return {...built,pages:[]};
+  const stem=reportMobileOutputStem(pages[0]?.filename||label);
+  const consolidated=reportMobileConsolidatePages(pages,{filenameStem:stem});
+  return {...built,pages:consolidated,sourcePageCount:pages.length,consolidated:true};
+}
 async function reportMobileDownloadSet(built,label,options={}){
-  if(!built){if(!options.silent)showToast(currentUiLang()==='en'?`No ${label} data.`:`${label} data မရှိပါ။`);return 0;}
-  for(const item of built.pages) await reportExportDownloadCanvas(item.canvas,item.filename);
-  if(!options.silent) showToast(currentUiLang()==='en'?`${label} saved${built.pages.length>1?` (${built.pages.length} files)`:''}.`:`${label} ${built.pages.length>1?built.pages.length+' ဖိုင် ':''}သိမ်းပြီးပါပြီ။`);
-  return built.pages.length;
+  const packed=reportMobileConsolidateBuilt(built,label);
+  if(!packed){if(!options.silent)showToast(currentUiLang()==='en'?`No ${label} data.`:`${label} data မရှိပါ။`);return 0;}
+  const pages=Array.isArray(packed.pages)?packed.pages:[];
+  if(!pages.length){if(!options.silent)showToast(currentUiLang()==='en'?`No ${label} image page.`:`${label} ပုံမရှိပါ။`);return 0;}
+  for(let i=0;i<pages.length;i++){
+    await reportExportDownloadCanvas(pages[i].canvas,pages[i].filename);
+    if(i<pages.length-1) await new Promise(resolve=>setTimeout(resolve,220));
+  }
+  if(!options.silent){
+    const sourceCount=Number(packed.sourcePageCount||pages.length);
+    showToast(currentUiLang()==='en'
+      ?`${label}: complete data downloaded in ${pages.length} image(s)${sourceCount>pages.length?` (combined from ${sourceCount} pages)`:''}.`
+      :`${label} Data အပြည့်အစုံကို ${pages.length} ပုံအတွင်း Download ပြီးပါပြီ${sourceCount>pages.length?`။ မူရင်း ${sourceCount} Page ကို ပုံရှည်အဖြစ်ပေါင်းထားသည်။`:'။'}`);
+  }
+  return pages.length;
 }
 async function saveNameCardBreakdownMobileJpg(name,options={}){try{return await reportMobileDownloadSet(buildNameCardBreakdownMobileJpgCanvases(name),'Mobile Card JPG',options);}catch(e){console.error(e);if(!options.silent)showToast('Mobile Card JPG မအောင်မြင်ပါ: '+(e?.message||e));return 0;}}
 async function saveNamePBreakdownMobileJpg(name,options={}){try{return await reportMobileDownloadSet(buildNamePBreakdownMobileJpgCanvases(name),'Mobile P JPG',options);}catch(e){console.error(e);if(!options.silent)showToast('Mobile P JPG မအောင်မြင်ပါ: '+(e?.message||e));return 0;}}
@@ -4800,31 +4901,43 @@ function handleMobileReportExport(select,name){
   else if(type==='p') saveNamePBreakdownMobileJpg(name);
   else if(type==='final') saveNameFinalReportMobileJpg(name);
 }
-// Stage 4.8E share default: portrait Mobile Card JPG, optimized for Viber / phone viewing.
+// Share also uses the same single complete-data package.
 async function shareNameCardBreakdownMobileJpg(name){
   try{
-    const built=buildNameCardBreakdownMobileJpgCanvases(name);
-    if(!built){showToast('ဒီ Name အတွက် Share လုပ်ရန် Card data မရှိပါ');return;}
-    const files=built.pages.map(item=>reportExportCanvasFile(item.canvas,item.filename));
-    const shareData={title:`Viber 2D Desk · ${name}`,text:`${built.date} · ${built.session} · ${name} · ${money(built.summary.total)}`,files};
+    const packed=reportMobileConsolidateBuilt(buildNameCardBreakdownMobileJpgCanvases(name),'mobile-card');
+    if(!packed){showToast('ဒီ Name အတွက် Share လုပ်ရန် Card data မရှိပါ');return;}
+    const files=packed.pages.map(item=>reportExportCanvasFile(item.canvas,item.filename));
+    const shareData={title:`Viber 2D Desk · ${name}`,text:`${packed.date} · ${packed.session} · ${name} · ${money(packed.summary.total)}`,files};
     if(navigator.share && (!navigator.canShare || navigator.canShare({files}))){
-      try{await navigator.share(shareData);showToast(currentUiLang()==='en'?'Mobile report image shared.':'ဖုန်းကြည့်ရန် Mobile Report Image မျှဝေပြီးပါပြီ။');return;}catch(error){if(error?.name==='AbortError')return;console.warn(error);}
+      try{await navigator.share(shareData);showToast(currentUiLang()==='en'?'Complete mobile report shared.':'Data အပြည့်အစုံပါ Mobile Report ကို မျှဝေပြီးပါပြီ။');return;}catch(error){if(error?.name==='AbortError')return;console.warn(error);}
     }
-    for(const item of built.pages) await reportExportDownloadCanvas(item.canvas,item.filename);
-    showToast(currentUiLang()==='en'?'Image sharing is unavailable. Mobile JPG was downloaded.':'Share မထောက်ပံ့သော Browser ဖြစ်၍ Mobile JPG ကို Download အစားထိုးလုပ်ပြီးပါပြီ။');
+    for(const item of packed.pages) await reportExportDownloadCanvas(item.canvas,item.filename);
+    showToast(currentUiLang()==='en'?'Sharing is unavailable. Complete report downloaded in one long image.':'Share မထောက်ပံ့သော Browser ဖြစ်၍ Data အပြည့်အစုံကို ၁ ပုံရှည်အဖြစ် Download လုပ်ပြီးပါပြီ။');
   }catch(error){console.error(error);showToast('Mobile Share မအောင်မြင်ပါ: '+(error?.message||error));}
 }
 let reportMobileBulkDownloadRunning=false;
 async function downloadAllNameMobileCardJpg(){
-  if(reportMobileBulkDownloadRunning){showToast('Mobile Download All လုပ်နေဆဲပါ။');return;}
+  if(reportMobileBulkDownloadRunning){showToast(currentUiLang()==='en'?'Mobile download is still running.':'Mobile Download လုပ်နေဆဲပါ။');return;}
   const date=val('reportDate')||today(),session=val('reportSession')||'AM';
   const names=(settings.names||[]).filter(n=>reportCardBreakdown(date,session,n).length);
-  if(!names.length){showToast('ဒီ Date / Session မှာ Mobile JPG ထုတ်ရန် Name data မရှိပါ။');return;}
-  if(!confirm(currentUiLang()==='en'?`Download phone-optimized JPGs for ${names.length} names?`:`Name ${names.length} ယောက်အတွက် ဖုန်းကြည့်ရန် Mobile JPG အားလုံး Download လုပ်မလား?`))return;
-  reportMobileBulkDownloadRunning=true; let files=0,ok=0;
+  if(!names.length){showToast(currentUiLang()==='en'?'No Mobile JPG data for this date/session.':'ဒီ Date / Session မှာ Mobile JPG ထုတ်ရန် Name data မရှိပါ။');return;}
+  reportMobileBulkDownloadRunning=true;
   try{
-    for(let i=0;i<names.length;i++){const c=await saveNameCardBreakdownMobileJpg(names[i],{silent:true});if(c){files+=c;ok++;}if(i<names.length-1)await new Promise(r=>setTimeout(r,220));}
-    showToast(`Mobile JPG ${files} ဖိုင် · Name ${ok} ယောက် Download ပြီးပါပြီ။`);
+    const allPages=[];
+    names.forEach(name=>{
+      const built=buildNameCardBreakdownMobileJpgCanvases(name);
+      (built?.pages||[]).forEach(item=>allPages.push(item));
+    });
+    if(!allPages.length){showToast(currentUiLang()==='en'?'No Mobile JPG pages were generated.':'Mobile JPG Page မထွက်ပါ။');return;}
+    const stem=`${reportExportSafeFilePart(date)}_${reportExportSafeFilePart(session)}_all-names_card-mobile`;
+    const outputs=reportMobileConsolidatePages(allPages,{filenameStem:stem});
+    for(let i=0;i<outputs.length;i++){
+      await reportExportDownloadCanvas(outputs[i].canvas,outputs[i].filename);
+      if(i<outputs.length-1) await new Promise(resolve=>setTimeout(resolve,220));
+    }
+    showToast(currentUiLang()==='en'
+      ?`All ${names.length} name(s) and complete report data downloaded in one long image.`
+      :`Name ${names.length} ခု၏ Report Data အပြည့်အစုံကို ၁ ပုံရှည်အဖြစ် Download ပြီးပါပြီ။ ဖုန်းတွင် Scroll ဆွဲကြည့်နိုင်သည်။`);
   }finally{reportMobileBulkDownloadRunning=false;}
 }
 
@@ -5610,8 +5723,8 @@ function copyEntryRecordsText(){
 }
 
 
-const APP_VERSION='5.0A.4.1';
-const APP_VERSION_LABEL='Stage 5.0A.4.1 Adaptive OCR Memory · Final UI Polish';
+const APP_VERSION='5.0A.4.1.4';
+const APP_VERSION_LABEL='Stage 5.0A.4.1.4 Adaptive OCR Memory · Final UI Polish';
 const APP_LOADED_AT=Date.now();
 let runtimeErrors=JSON.parse(userGetItem('v2d_runtime_errors')||'[]');
 let lastDiagnosticsText='';
@@ -6216,7 +6329,7 @@ function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'
 function go(id){
   if(id==='ownerUsers') id='ownerDashboard'; // backward-compatible alias from Stage 4.5
   if((id==='ownerParser'||id==='ownerDashboard')&&!IS_APP_OWNER){showToast(ownerL('App Owner access လိုအပ်ပါသည်','App Owner access required'),'error');return;}
-  // Stage 5.0A.4.1: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
+  // Stage 5.0A.4.1.4: Owner-only realtime listeners are lazy-loaded only when an Owner page is opened.
   // This avoids unnecessary startup reads for normal Entry/OCR work.
   if(IS_APP_OWNER && id==='ownerParser' && (!ownerReportsUnsub || !ownerGlobalRulesUnsub || !ownerWorkspaceRulesUnsub)){
     console.info('[V2D] Lazy-loading Owner Parser listeners.');
@@ -6417,7 +6530,7 @@ function ownerRefreshUsers(){ if(!IS_APP_OWNER)return; startOwnerUserControlCent
 function currentBackupData(){
   return {
     app:'Viber 2D Desk',
-    version:'Stage 5.0A.4.1 Adaptive OCR Memory · Final UI Polish',
+    version:'Stage 5.0A.4.1.4 Adaptive OCR Memory · Final UI Polish',
     user:{uid:CURRENT_UID,email:CURRENT_USER?.email||'',displayName:CURRENT_USER?.displayName||''},
     settings,
     records,

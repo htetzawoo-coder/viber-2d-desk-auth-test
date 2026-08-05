@@ -1,0 +1,34 @@
+Stage 5.0A.4.1.4 UI Polish Changes
+
+- Stronger visual hierarchy for Entry and Preview.
+- Consistent button sizing, priority colors and destructive-action styling.
+- Improved keyboard focus and reduced-motion accessibility.
+- Clearer OCR upload, engine, progress, queue, editor and confidence areas.
+- Adaptive Memory suggestions visually separate from learn/manage/delete actions.
+- Larger, bolder Report/Image typography and row hover/readability.
+- Improved Dark/Light contrast and laptop/mobile responsive behavior.
+- No intentional business-logic change.
+
+
+Stage 5.0A.4.1.4 OCR readability patch
+- On large screens, OCR workspace now uses a clearer 2-column layout: queue on the left, larger selected image above a larger OCR editor on the right.
+- Increased selected image preview height and OCR text box height/font size/line spacing for easier review.
+
+
+Stage 5.0A.4.1.4 Report Mobile Download
+- Maximum 2 Mobile JPG files per user click.
+- Repeating the same action continues from the next page/batch, preserving all report data.
+- Download All Mobile also advances across names and pages in batches of two.
+
+
+Stage 5.0A.4.1.4 Mobile Report Complete-Data Max-2
+- Removed the repeat-click two-files-per-batch behavior.
+- All Mobile Card Report pages for all names are now stitched into one or two long JPG files.
+- No rows or source text are intentionally dropped.
+- Individual Card/P/Final Mobile exports and Share also use at most two complete-data images.
+
+
+Stage 5.0A.4.1.4 — Mobile report single long image
+- Mobile Report Download now outputs one long JPG only.
+- Repeated top summary block is shown once at the top of the first page only; inner page headers/footers are cropped during merge.
+- Full data is preserved; phone users can scroll the long image.

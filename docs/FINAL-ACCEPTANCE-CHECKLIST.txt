@@ -1,27 +1,22 @@
-FINAL ACCEPTANCE CHECKLIST — Stage 5.0A.4.0
+FINAL ACCEPTANCE CHECKLIST — Stage 5.0A.4.1.4
 
-[ ] Owner login
-[ ] Active user login
-[ ] Expired user custom notice တစ်ကြိမ်သာပေါ်
-[ ] Disabled user app body မမြင်
-[ ] Copy/Paste -> Preview -> Confirm Save
-[ ] Refresh -> IndexedDB fast startup message
-[ ] Auto OCR progress/text/confidence/manual fix
-[ ] Multi-image queue refresh ပြီးမပျောက်
-[ ] English/Myanmar switch UI only; Entry data unchanged
-[ ] Light/Dark Entry contrast
-[ ] AM/PM/Daily Report and Image/JPG export
-[ ] Backup JSON export and restore test
-[ ] GitHub Pages normal tab/incognito/installed PWA
-[ ] 24-hour Firestore Reads/Writes Usage check
+1. Open with VS Code Live Server and hard refresh.
+2. Confirm version 5.0A.4.1.4 in the UI and Diagnostics.
+3. Test Burmese and English UI switching; Entry/OCR data must not change.
+4. Test Dark and Light themes, especially Copy/Paste Entry contrast.
+5. Test Copy/Paste → Preview → Confirm Save.
+6. Open Additional Workspaces; board remains usable with Copy/Paste.
+7. Test Auto OCR progress, text, confidence and issue routing.
+8. Test Manual Fix, correction-memory learning and suggestion approval.
+9. Test Memory reject/disable/delete and JSON export/import.
+10. Test Reports/Image font sizes and JPG export.
+11. Test mobile width and laptop width.
+12. Confirm no red Console errors.
+13. Deploy to GitHub Pages only after all checks pass.
+14. Hard refresh the live site and repeat Entry/OCR/Memory smoke tests.
 
 
-ADAPTIVE OCR MEMORY TEST
-[ ] ပုံတစ်ပုံ OCR ဖတ်ပြီး မှားစာကို Manual Fix လုပ်ပါ
-[ ] Recheck ၁ ကြိမ်လုပ်ပြီး Memory Rule confirmations=1 စစ်ပါ
-[ ] တူညီ Correction ကို သီးခြားပုံ ၃ ပုံတွင် အတည်ပြုပြီး Suggestion ပေါ်မပေါ်စစ်ပါ
-[ ] Suggestion ကို Apply & Recheck လုပ်ပြီး Parser Result စစ်ပါ
-[ ] Reject / Disable / Delete စမ်းပါ
-[ ] Memory JSON Export/Import စမ်းပါ
-[ ] Language ပြောင်းလဲမှုက OCR/Memory Data ကို မပြောင်းကြောင်းစစ်ပါ
-[ ] Firestore Usage မတိုးကြောင်းစစ်ပါ
+Stage 5.0A.4.1.4 — Mobile report single long image
+- Mobile Report Download now outputs one long JPG only.
+- Repeated top summary block is shown once at the top of the first page only; inner page headers/footers are cropped during merge.
+- Full data is preserved; phone users can scroll the long image.

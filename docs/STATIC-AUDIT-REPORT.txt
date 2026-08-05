@@ -1,34 +1,24 @@
-Viber 2D Desk — Stage 5.0A.4.0 Static Audit
+Viber 2D Desk — Stage 5.0A.4.1.4 Static Audit
 
-Result: PASS (static checks)
-
-Version sync
-- index/app/auth/bootstrap/PWA/service-worker: 5.0A.4.0
+Scope
+- Final UI polish applied on the tested Stage 5.0A.4.0 Adaptive OCR Memory baseline.
+- No parser, OCR, memory, Firestore, IndexedDB, license or calculation logic was intentionally changed.
 
 Checks
+- Version synchronization: PASS
 - JavaScript syntax: PASS
-- HTML IDs: 420
-- Duplicate HTML IDs: 0
-- Unique inline handler references: 146
-- Missing local HTML assets: 0
-- Manifest icons present: PASS
-- Service worker app shell paths present: PASS
-- Adaptive memory core test: PASS
-  Example learned pattern: SOO -> 500
-  Suggestion threshold: 3 human confirmations
+- HTML duplicate IDs: PASS
+- Inline handler references: PASS
+- Local asset references: PASS
+- Manifest and icon references: PASS
+- Service-worker app shell: PASS
+- ZIP integrity: PASS
 
-Adaptive OCR Correction Memory behavior
-- Manual corrections are stored locally per Firebase UID/browser.
-- Writer scope: AUTO/A/B/C/OTHER.
-- Suggestions are never applied automatically.
-- The same correction must be confirmed on 3 separate image items.
-- Repeated learning on the same image/correction is blocked by a fingerprint.
-- Rules can be rejected, disabled, deleted, exported, and imported.
-- No Firestore read/write operations were added.
+Runtime status
+- Local browser acceptance is still required before GitHub Pages deployment.
 
-Runtime tests still required in the user's browser
-- OCR + Manual Fix + Recheck learning
-- Three-image confirmation and suggestion display
-- Apply suggestion and parser recheck
-- Memory JSON export/import
-- PWA update and GitHub Pages live test
+
+Stage 5.0A.4.1.4 — Mobile report single long image
+- Mobile Report Download now outputs one long JPG only.
+- Repeated top summary block is shown once at the top of the first page only; inner page headers/footers are cropped during merge.
+- Full data is preserved; phone users can scroll the long image.
